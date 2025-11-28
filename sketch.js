@@ -107,6 +107,10 @@ let followValue = [];
 let keepDistance = [];
 let followTarget = [];
 let autonomy = [];
+let explosionBehavior = [];
+let explodeOnTermination = [];
+let triggerExplodeViaProximity = [];
+let explosionProximity = [];
 let standingPointX = [];
 let standingPointY = [];
 let anchorPointX = [];
@@ -125,6 +129,9 @@ let antPrevY = [];
 
 let bulletSplitCount = []; // NEW: how many pieces (1–5)
 let bulletSpread = [];     // NEW: spread angle in degrees (or radians)
+
+let explosionRadiusMultiplier = [];
+let explosionResidueMultiplier = [];
 
 let enemyExplosions = [];
 let bulletExplodeAfter = [];
@@ -224,11 +231,22 @@ function setup() {
     bulletSize[i] = 1;
     bulletSplitCount[i] = 1;          // no split by default
     bulletSpread[i] = 0;              // 0° spread (all bullets same direction)
-    bulletExplodeAfter[i] = 500; 
+    bulletExplodeAfter[i] = 800; 
+    explosionRadiusMultiplier[i] = 1;
+    explosionResidueMultiplier[i] = 1;
     shotOffsetX[i] = 0;
     shotOffsetY[i] = 0;
     followValue[i] = 0;
     autonomy[i] = 0;
+    explosionBehavior[i] = 0;
+    explosionProximity[i] = 200;
+    if (Math.round(explosionBehavior[i]) === 0){
+      explodeOnTermination[i] = true;
+      triggerExplodeViaProximity[i] = false;
+    } else if (Math.round(explosionBehavior[i]) === 1){
+      explodeOnTermination[i] = false;
+      triggerExplodeViaProximity[i] = true;
+    }
     standingPointX[i] = windowWidth / 2;
     standingPointY[i] = windowHeight / 2;
     distanceFromAnchor[i] = 200;
@@ -494,19 +512,19 @@ function drawBeetle(){
 
     // Shield icons on left side
     if (shield > 1) {
-      image(shieldFull, 30, -50, 50, 50);
+      image(shieldFull, 30, -50, 30, 30);
     } else {
-      image(shieldEmpty, 30, -50, 50, 50);
+      image(shieldEmpty, 30, -50, 30, 30);
     }
     if (shield > 2) {
-      image(shieldFull, 40, -50, 50, 50);
+      image(shieldFull, 50, -50, 30, 30);
     } else {
-      image(shieldEmpty, 40, -50, 50, 50);
+      image(shieldEmpty, 50, -50, 30, 30);
     }
     if (shield >= 3) {
-      image(shieldFull, 50, -50, 50, 50);
+      image(shieldFull, 70, -50, 30, 30);
     } else {
-      image(shieldEmpty, 50, -50, 50, 50);
+      image(shieldEmpty, 70, -50, 30, 30);
     }
   pop();
 
@@ -568,7 +586,6 @@ function enemyShoot1() {
           speedY: vy,
           angle: atan2((playerY + shotOffsetY[i]) - antY[i],
                        (playerX + shotOffsetX[i]) - antX[i]),
-
           life: 0,
           explodeAfter: bulletExplodeAfter[i], // per-ant timer
 
@@ -587,8 +604,22 @@ function enemyShoot1() {
         bullet.life++;
 
         // --- EXPLOSION TRIGGER ---
-        if (bullet.life >= bullet.explodeAfter) {
-          // now we pass the *size*, not a precomputed radius
+        let shouldExplode = false;
+
+        // 1) explode when bullet life ends, if this ant is set to do that
+        if (explodeOnTermination[i] && bullet.life >= bullet.explodeAfter) {
+          shouldExplode = true;
+        }
+
+        // 2) explode when close to player, if this ant is proximity-based
+        if (triggerExplodeViaProximity[i]) {
+          let distToPlayer = dist(bullet.x, bullet.y, playerX, playerY);
+          if (distToPlayer <= explosionProximity[i]) {
+            shouldExplode = true;
+          }
+        }
+
+        if (shouldExplode) {
           spawnEnemyExplosion(bullet.x, bullet.y, bullet.size, i);
           enemyBullets[i].splice(b, 1);
           continue;
@@ -990,8 +1021,8 @@ function spawnEnemyExplosion(x, y, size, ownerId) {
   const BASE_LIFE       = 10;  // frames for size 1 (~0.3 sec)
   const LIFE_PER_SIZE   = 20;
 
-  let radius  = BASE_RADIUS + RADIUS_PER_SIZE * (size - 1);
-  let maxLife = BASE_LIFE   + LIFE_PER_SIZE   * (size - 1);
+  let radius  = (BASE_RADIUS + RADIUS_PER_SIZE * (size - 1)) * explosionRadiusMultiplier[ownerId];
+  let maxLife = (BASE_LIFE   + LIFE_PER_SIZE   * (size - 1)) * explosionResidueMultiplier[ownerId];
 
   enemyExplosions.push({
     x: x,
@@ -1493,8 +1524,12 @@ function nextRound(){
       followValue[i]    = constrain(followValue[parent.id]    + random(-movementMutationRate, movementMutationRate), -0.5, 3.49);
       autonomy[i]    = constrain(autonomy[parent.id]    + random(-movementMutationRate, movementMutationRate), -0.5, 1.5);
       distanceFromAnchor[i]    = constrain(distanceFromAnchor[parent.id]    + random(-100, 100), 0.1, 1000);
+      explosionBehavior[i]    = constrain(explosionBehavior[parent.id]    + random(-movementMutationRate, movementMutationRate), -0.5, 1.5);
+      explosionProximity[i]    = constrain(explosionProximity[parent.id]    + random(-100, 100), 0.1, 1000);
       angleFromSpawn[i]    = constrain(angleFromSpawn[parent.id]    + random((-PI / 3), (PI / 3)), 0, TWO_PI);
       bulletSize[i]    = constrain(bulletSize[parent.id]    + random(-(movementMutationRate / 2), (movementMutationRate / 2)), 1, 3);
+      explosionRadiusMultiplier[i] = constrain(explosionRadiusMultiplier[parent.id] + random(-0.2, 0.2), 0.5, 3);
+      explosionResidueMultiplier[i] = constrain(explosionResidueMultiplier[parent.id] + random(-0.2, 0.2), 0.5, 3);
       bulletExplodeAfter[i] = constrain(bulletExplodeAfter[parent.id] + random(-50, 50), 100, 800);
 
       if (Math.round(autonomy[i]) === 0){
@@ -1503,6 +1538,13 @@ function nextRound(){
       } else if (Math.round(autonomy[i]) === 1){
         followTarget[i] = false;
         keepDistance[i] = true;
+      }
+      if (Math.round(explosionBehavior[i]) === 0){
+        explodeOnTermination[i] = true;
+        triggerExplodeViaProximity[i] = false;
+      } else if (Math.round(explosionBehavior[i]) === 1){
+        explodeOnTermination[i] = false;
+        triggerExplodeViaProximity[i] = true;
       }
       if (Math.round(followValue[i]) === 0){
         followAnt[i] = false;
@@ -1567,6 +1609,14 @@ function nextRound(){
         ? constrain(distanceFromAnchor[winner.id] + random(-100, 100), 0.1, 1000)
         : random(0.1, 1000);
       
+      explosionBehavior[i] = winner
+        ? constrain(explosionBehavior[winner.id] + random(-movementMutationRate, movementMutationRate), -0.5, 1.5)
+        : random(-0.5, 1.5);
+      
+      explosionProximity[i] = winner
+        ? constrain(explosionProximity[winner.id] + random(-100, 100), 0.1, 1000)
+        : random(0.1, 1000);
+      
       angleFromSpawn[i] = winner 
         ? constrain(angleFromSpawn[winner.id] + random((-PI / 3), (PI / 3)), 0, TWO_PI)
         : random(0, TWO_PI);
@@ -1574,6 +1624,14 @@ function nextRound(){
       bulletSize[i] = winner 
         ? constrain(bulletSize[winner.id] + random(-(movementMutationRate / 2), (movementMutationRate / 2)), 1, 3)
         : random(1, 3);
+
+      explosionRadiusMultiplier[i] = winner
+        ? constrain(explosionRadiusMultiplier[winner.id] + random(-0.2, 0.2), 0.5, 3)
+        : random(0.5, 3);
+
+      explosionResidueMultiplier[i] = winner
+        ? constrain(explosionResidueMultiplier[winner.id] + random(-0.2, 0.2), 0.5, 3)
+        : random(0.5, 3);
 
       bulletExplodeAfter[i] = constrain(bulletExplodeAfter[winner.id] + random(-50, 50), 100, 800);
       
@@ -1583,6 +1641,13 @@ function nextRound(){
       } else if (Math.round(autonomy[i]) === 1){
         followTarget[i] = false;
         keepDistance[i] = true;
+      }
+      if (Math.round(explosionBehavior[i]) === 0){
+        explodeOnTermination[i] = true;
+        triggerExplodeViaProximity[i] = false;
+      } else if (Math.round(explosionBehavior[i]) === 1){
+        explodeOnTermination[i] = false;
+        triggerExplodeViaProximity[i] = true;
       }
       if (Math.round(followValue[i]) === 0){
         followAnt[i] = false;
