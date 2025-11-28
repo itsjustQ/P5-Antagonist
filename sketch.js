@@ -123,6 +123,9 @@ let antMoveY = [];
 let antPrevX = [];
 let antPrevY = [];
 
+let bulletSplitCount = []; // NEW: how many pieces (1–5)
+let bulletSpread = [];     // NEW: spread angle in degrees (or radians)
+
 let enemyExplosions = [];
 let bulletExplodeAfter = [];
 
@@ -219,6 +222,8 @@ function setup() {
     bulletCooldown[i] = 120; // Random cooldown for each enemy
     antSpeed[i] = 1.95;
     bulletSize[i] = 1;
+    bulletSplitCount[i] = 1;          // no split by default
+    bulletSpread[i] = 0;              // 0° spread (all bullets same direction)
     bulletExplodeAfter[i] = 500; 
     shotOffsetX[i] = 0;
     shotOffsetY[i] = 0;
@@ -330,6 +335,7 @@ function draw() {
     push();
     noStroke();
     fill(0, 0, 0, alpha);
+    rectMode(CENTER);
     rect(popupX, discoveryPopupY, popupWidth, popupHeight, 20);
 
     fill(255, 255, 255, alpha + 75);
@@ -368,8 +374,8 @@ function drawScoreboard() {
   rect(0, 0, windowWidth, scoreBarHeight);
 
   fill(0);
-  textSize(18);
-  textAlign(LEFT);
+  textSize(16);
+  textAlign(CENTER);
 
   highScore = getItem('newHighScore');
   if (highScore == null) {
@@ -377,46 +383,56 @@ function drawScoreboard() {
   }
 
   let padding = 10;
-  let yPos = scoreBarHeight * 0.7;
+  let yPos = scoreBarHeight * 0.65;
+  
+  // Available width for text
+  let sectionWidth = windowWidth / 7;
+  let startX = sectionWidth / 2;
 
-  // Left side: Round & Time
-  text(`Round: ${level}`, padding, yPos);
-  text(`Time: ${round(timeCount)}`, windowWidth * 0.2, yPos);
+  // Left to right: Round, Time, Combo, Health, Score, Total, High Score
+  
+  // Round
+  fill(0);
+  text(`Round: ${level}`, startX, yPos);
 
-  // Center: Combo
+  // Time
+  text(`Time: ${round(timeCount)}`, startX + sectionWidth, yPos);
+
+  // Combo (colored)
   let comboText = `Combo: ${combo}`;
   if (streakPoints > 0) {
-    comboText += ` + ${streakPoints}`;
+    comboText += ` +${streakPoints}`;
   }
   fill(Math.pow(comboTime, 2), comboTime * 5, 0);
-  textAlign(CENTER);
-  text(comboText, windowWidth / 2, yPos);
+  text(comboText, startX + sectionWidth * 2, yPos);
 
-  // Right side: Score & High Score (adjusted to avoid shields)
-  textAlign(RIGHT);
+  // Health
+  // Flash red box if health below 10
+  if (health < 10) {
+    let flashAlpha = map(sin(frameCount * 20/health), -1, 1, 50, 150);
+    fill(255, 0, 0, flashAlpha);
+    rectMode(CENTER);
+    rect(startX + sectionWidth * 3, scoreBarHeight / 2, sectionWidth * 0.8, scoreBarHeight * 1);
+    rectMode(CORNER);
+  }
+  
   fill(0);
-  let shieldSpace = 150;  // width reserved for shield icons
-  text(`Score: ${score}`, windowWidth - shieldSpace - padding, yPos);
-  text(`High Score: ${highScore}`, windowWidth - shieldSpace - padding, yPos - 18);
+  text(`Health: ${health.toFixed(2)}`, startX + sectionWidth * 3, yPos);
+
+  // Score
+  text(`Score: ${score}`, startX + sectionWidth * 4, yPos);
+
+  // Total
+  text(`Total: ${totalScore}`, startX + sectionWidth * 5, yPos);
+
+  // High Score
+  text(`High Score: ${highScore}`, startX + sectionWidth * 6, yPos);
 
   if (!end) {
     timeCount -= (1 / 100);
   }
-
-  imageMode(CENTER);
-  rectMode(CENTER);
-
-  // Draw Shields at far right
-  let shieldStartX = windowWidth - (windowWidth * 0.1); 
-  for (let i = 0; i < 3; i++) {
-    let xPos = shieldStartX + i * 30;
-    if (shield > i) {
-      image(shieldFull, xPos, scoreBarHeight / 2, 40, 40);
-    } else {
-      image(shieldEmpty, xPos, scoreBarHeight / 2, 40, 40);
-    }
-  }
 }
+
 function drawStrikes(){
   if(drawStrike1[enemyIndex] == 1){
   push();
@@ -459,6 +475,7 @@ function drawBeetle(){
       image(beetle, 0, 0, 130, 130);
     pop()
 
+    // Shot icons on right side
     if (shot >= 1){
       image(acidFull, -50, -50, 50, 50);
     } else {
@@ -473,6 +490,23 @@ function drawBeetle(){
       image(acidFull, -30, -50, 50, 50);
     }else {
       image(acidEmpty, -30, -50, 50, 50);
+    }
+
+    // Shield icons on left side
+    if (shield > 1) {
+      image(shieldFull, 30, -50, 50, 50);
+    } else {
+      image(shieldEmpty, 30, -50, 50, 50);
+    }
+    if (shield > 2) {
+      image(shieldFull, 40, -50, 50, 50);
+    } else {
+      image(shieldEmpty, 40, -50, 50, 50);
+    }
+    if (shield >= 3) {
+      image(shieldFull, 50, -50, 50, 50);
+    } else {
+      image(shieldEmpty, 50, -50, 50, 50);
     }
   pop();
 
@@ -598,7 +632,7 @@ function enemyShoot1() {
 
 function handlePlayerHit(i){
   if (end == false){
-    if (shield > 0){
+    if (shield > 1){
       shield = shield - bulletSize[i];
       antPoints[i] = antPoints[i] + bulletSize[i];
       console.log("Ant", i, "points:", antPoints[i]);
@@ -856,7 +890,6 @@ function beetleDash(){
   if (dash == true && dashReady == true) {
     playerSpeed = BASE_PLAYER_SPEED / enemyCount * 7;
     speedTime = speedTime - (1 / 100);
-
     if (speedTime <= 0){
       dash = false;
       dashCoolDown = 2;
