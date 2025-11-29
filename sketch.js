@@ -17,8 +17,16 @@ let dexScrollY = 0;       // current scroll offset
 let dexTargetScroll = 0;  // for smooth scrolling
 let dexScrollSpeed = 20;  // scroll sensitivity
 let selectedDexIndex = -1;// highlight
-let progressDisplay = 0; // what’s currently drawn
-let progressTarget = 0;  // what the actual percent should be
+let dexCategory = 'normal';
+let progressDisplayNormal = 0;
+let progressTargetNormal = 0;
+let progressDisplayExotic = 0;
+let progressTargetExotic = 0;
+let dexTabSwitchCooldown = 0;
+let dexTabRegions = {
+  normal: { x: 0, y: 0, w: 0, h: 0 },
+  exotic: { x: 0, y: 0, w: 0, h: 0 }
+};
 
 let movementType1Discovered = false; 
 let movementType2Discovered = false; 
@@ -317,6 +325,9 @@ function draw() {
   }
   if (gameOverMenuCooldown > 0) {
     gameOverMenuCooldown--;
+  }
+  if (dexTabSwitchCooldown > 0) {
+    dexTabSwitchCooldown--;
   }
 
   if (antdex) {
@@ -1951,144 +1962,264 @@ function drawStartScreen(){
 function antdexScreen() {
   if (!antdex) return;
 
-  // Background
+  if (dexTabSwitchCooldown === 0) {
+    if (keyIsDown(37)) {
+      setDexCategory('normal');
+      dexTabSwitchCooldown = 10;
+    } else if (keyIsDown(39)) {
+      setDexCategory('exotic');
+      dexTabSwitchCooldown = 10;
+    }
+  }
+
+  const normalEntries = antDexEntries.filter(entry => entry.category === 'normal');
+  const exoticEntries = antDexEntries.filter(entry => entry.category === 'exotic');
+  const visibleEntries = dexCategory === 'normal' ? normalEntries : exoticEntries;
+
+  const normalDiscovered = normalEntries.filter(entry => entry.discovered).length;
+  const exoticDiscovered = exoticEntries.filter(entry => entry.discovered).length;
+
+  progressTargetNormal = normalEntries.length === 0 ? 0 : normalDiscovered / normalEntries.length;
+  progressTargetExotic = exoticEntries.length === 0 ? 0 : exoticDiscovered / exoticEntries.length;
+
+  if (dexCategory === 'normal') {
+    const diffNormal = abs(progressTargetNormal - progressDisplayNormal);
+    const easingNormal = map(diffNormal, 0, 1, 0.01, 0.05, true);
+    progressDisplayNormal += (progressTargetNormal - progressDisplayNormal) * easingNormal;
+  }
+
+  if (dexCategory === 'exotic') {
+    const diffExotic = abs(progressTargetExotic - progressDisplayExotic);
+    const easingExotic = map(diffExotic, 0, 1, 0.01, 0.05, true);
+    progressDisplayExotic += (progressTargetExotic - progressDisplayExotic) * easingExotic;
+  }
+
   imageMode(CORNER);
   fill(20);
   rect(0, 0, windowWidth, windowHeight);
+
   fill(255);
   textAlign(CENTER);
   textSize(70);
-  text("Ant Types", windowWidth / 2, 100);
-  
-  stroke(100);
+  text("Antdex", windowWidth / 2, 90);
+
+  const tabWidth = 220;
+  const tabHeight = 44;
+  const tabSpacing = 24;
+  const tabY = 150;
+  const normalTabX = windowWidth / 2 - tabWidth - tabSpacing / 2;
+  const exoticTabX = windowWidth / 2 + tabSpacing / 2;
+
+  dexTabRegions.normal = { x: normalTabX, y: tabY - tabHeight / 2, w: tabWidth, h: tabHeight };
+  dexTabRegions.exotic = { x: exoticTabX, y: tabY - tabHeight / 2, w: tabWidth, h: tabHeight };
+
+  rectMode(CORNER);
   strokeWeight(2);
-  line(windowWidth / 2 - 200, 200, windowWidth / 2 + 200, 200);
+
+  stroke(255, 255, 255, dexCategory === 'normal' ? 180 : 80);
+  fill(dexCategory === 'normal' ? color(90, 90, 90) : color(45, 45, 45));
+  rect(dexTabRegions.normal.x, dexTabRegions.normal.y, tabWidth, tabHeight, 12);
+
+  stroke(160, 120, 255, dexCategory === 'exotic' ? 200 : 80);
+  fill(dexCategory === 'exotic' ? color(70, 40, 110) : color(35, 25, 55));
+  rect(dexTabRegions.exotic.x, dexTabRegions.exotic.y, tabWidth, tabHeight, 12);
+
   noStroke();
-  
-  let totalEntries = antDexEntries.length;
-  let discoveredCount = antDexEntries.filter(e => e.discovered).length;
-  let progress = discoveredCount / totalEntries;
-
-  textSize(28);
+  textAlign(CENTER, CENTER);
+  textSize(26);
   fill(255);
-  text(`Discovered: ${discoveredCount} / ${totalEntries}`, windowWidth / 2, 150);
+  text("Normal Types", dexTabRegions.normal.x + tabWidth / 2, tabY);
+  text("Exotic Types", dexTabRegions.exotic.x + tabWidth / 2, tabY);
 
-  // --- Discovery progress counter + smooth animated bar ---
-  progressTarget = discoveredCount / totalEntries;
+  textSize(18);
+  fill(200);
+  text("Press ← or click for Normal • Press → or click for Exotic", windowWidth / 2, tabY + 50);
 
-  // ease display toward target (smooth slide)
-  // dynamic easing that slows down as it approaches the target
-  let diff = abs(progressTarget - progressDisplay);
-  let easing = map(diff, 0, 1, 0.01, 0.05, true); // fast at start, slow near end
-  progressDisplay += (progressTarget - progressDisplay) * easing;
+  const barWidth = 360;
+  const barHeight = 18;
+  const barY = tabY + 110;
 
-  // draw text
-  textSize(28);
-  fill(255);
-  text(`Discovered: ${discoveredCount} / ${totalEntries}`, windowWidth / 2, 150);
-
-  // draw progress bar
   rectMode(CENTER);
-  fill(60);
-  rect(windowWidth / 2, 180, 300, 16, 8);
+  textAlign(CENTER);
+  textSize(24);
 
-  // animated fill
-  // smooth gradient: red → green → gold
-  let c1, c2, t;
-  if (progressDisplay < 0.25) {
-    c1 = color(255, 0, 0);     // red
-    c2 = color(0, 255, 0);     // green
-    t = progressDisplay / 0.25;
-  } else if (progressDisplay < 0.5) {
-    c1 = color(0, 255, 0);     // green
-    c2 = color(160, 32, 240);  // purple
-    t = (progressDisplay - 0.25) / 0.25;
-  } else if (progressDisplay < 0.75) {
-    c1 = color(160, 32, 240);  // purple
-    c2 = color(255, 255, 255); // bright white
-    t = (progressDisplay - 0.5) / 0.25;
-  } else {
-    c1 = color(255, 255, 255); // bright white
-    c2 = color(255, 215, 0);   // gold
-    t = (progressDisplay - 0.99) / 0.01;
-  }
-  let barColor = lerpColor(c1, c2, t);
+  if (dexCategory === 'normal') {
+    fill(255);
+    text(`Normal Discoveries: ${normalDiscovered} / ${normalEntries.length}`, windowWidth / 2, barY - 38);
+    fill(60);
+    rect(windowWidth / 2, barY, barWidth, barHeight, 8);
 
-  // --- shake effect when fully completed ---
-  let shakeX = 0;
-  let shakeY = 0;
-  if (progressDisplay > 0.85 && progressDisplay < 0.999) {
-    shakeX = random(-3 * progressDisplay, 3 * progressDisplay);
-    shakeY = random(-3 * progressDisplay, 3 * progressDisplay);
-  }
+    let normalColorStart;
+    let normalColorEnd;
+    let normalT;
+    if (progressDisplayNormal < 0.25) {
+      normalColorStart = color(255, 0, 0);
+      normalColorEnd = color(0, 255, 0);
+      normalT = progressDisplayNormal / 0.25;
+    } else if (progressDisplayNormal < 0.5) {
+      normalColorStart = color(0, 255, 0);
+      normalColorEnd = color(160, 32, 240);
+      normalT = (progressDisplayNormal - 0.25) / 0.25;
+    } else if (progressDisplayNormal < 0.75) {
+      normalColorStart = color(160, 32, 240);
+      normalColorEnd = color(255, 255, 255);
+      normalT = (progressDisplayNormal - 0.5) / 0.25;
+    } else {
+      normalColorStart = color(255, 255, 255);
+      normalColorEnd = color(255, 215, 0);
+      normalT = map(progressDisplayNormal, 0.99, 1, 0, 1, true);
+    }
+    const normalFillColor = lerpColor(normalColorStart, normalColorEnd, constrain(normalT, 0, 1));
 
-  // draw animated fill
-  push();
-  translate(shakeX, shakeY);
-  fill(barColor);
-  noStroke();
-  rect(windowWidth / 2 - 150 + progressDisplay * 300 / 2, 180, 300 * progressDisplay, 16, 8);
-  pop();
-  rectMode(CORNER);
+    let normalShakeX = 0;
+    let normalShakeY = 0;
+    if (progressDisplayNormal > 0.85 && progressDisplayNormal < 0.999) {
+      normalShakeX = random(-3 * progressDisplayNormal, 3 * progressDisplayNormal);
+      normalShakeY = random(-3 * progressDisplayNormal, 3 * progressDisplayNormal);
+    }
 
-  if (progressDisplay > 0.999) {
-    let glowAlpha = map(sin(frameCount * 0.05), -1, 1, 50, 180); // pulsing glow
-    noFill();
-    stroke(255, 215, 0, glowAlpha);
-    strokeWeight(10);
-    rectMode(CENTER);
-    rect(windowWidth / 2, 180, 310, 20, 10);
+    push();
+    translate(normalShakeX, normalShakeY);
+    fill(normalFillColor);
     noStroke();
+    const normalWidth = barWidth * constrain(progressDisplayNormal, 0, 1);
+    rect(windowWidth / 2 - barWidth / 2 + normalWidth / 2, barY, normalWidth, barHeight, 8);
+    pop();
+
+    if (progressDisplayNormal > 0.999) {
+      const normalGlow = map(sin(frameCount * 0.05), -1, 1, 50, 180);
+      noFill();
+      stroke(255, 215, 0, normalGlow);
+      strokeWeight(10);
+      rect(windowWidth / 2, barY, barWidth + 10, barHeight + 6, 10);
+      noStroke();
+    }
+  } else {
+    fill(255);
+    text(`Exotic Discoveries: ${exoticDiscovered} / ${exoticEntries.length}`, windowWidth / 2, barY - 38);
+    fill(45, 35, 70);
+    rect(windowWidth / 2, barY, barWidth, barHeight, 8);
+
+    let exoticColorStart;
+    let exoticColorEnd;
+    let exoticT;
+    if (progressDisplayExotic < 0.25) {
+      exoticColorStart = color(160, 32, 240);
+      exoticColorEnd = color(60, 110, 255);
+      exoticT = progressDisplayExotic / 0.25;
+    } else if (progressDisplayExotic < 0.5) {
+      exoticColorStart = color(60, 110, 255);
+      exoticColorEnd = color(35, 200, 255);
+      exoticT = (progressDisplayExotic - 0.25) / 0.25;
+    } else if (progressDisplayExotic < 0.75) {
+      exoticColorStart = color(35, 200, 255);
+      exoticColorEnd = color(255, 140, 0);
+      exoticT = (progressDisplayExotic - 0.5) / 0.25;
+    } else {
+      exoticColorStart = color(255, 140, 0);
+      exoticColorEnd = color(255, 80, 200);
+      exoticT = map(progressDisplayExotic, 0.99, 1, 0, 1, true);
+    }
+    const exoticFillColor = lerpColor(exoticColorStart, exoticColorEnd, constrain(exoticT, 0, 1));
+
+    let exoticShakeX = 0;
+    let exoticShakeY = 0;
+    if (progressDisplayExotic > 0.85 && progressDisplayExotic < 0.999) {
+      exoticShakeX = random(-4 * progressDisplayExotic, 4 * progressDisplayExotic);
+      exoticShakeY = random(-4 * progressDisplayExotic, 4 * progressDisplayExotic);
+    }
+
+    push();
+    translate(exoticShakeX, exoticShakeY);
+    fill(exoticFillColor);
+    noStroke();
+    const exoticWidth = barWidth * constrain(progressDisplayExotic, 0, 1);
+    rect(windowWidth / 2 - barWidth / 2 + exoticWidth / 2, barY, exoticWidth, barHeight, 8);
+    pop();
+
+    if (progressDisplayExotic > 0.999) {
+      const exoticGlow = map(sin(frameCount * 0.07), -1, 1, 80, 200);
+      noFill();
+      stroke(255, 80, 200, exoticGlow);
+      strokeWeight(10);
+      rect(windowWidth / 2, barY, barWidth + 16, barHeight + 10, 12);
+      noStroke();
+    }
   }
 
   rectMode(CORNER);
-  
-  // --- Input handling ---
-  if (keyIsDown(38)) dexTargetScroll += dexScrollSpeed; // up
-  if (keyIsDown(40)) dexTargetScroll -= dexScrollSpeed; // down
-  dexTargetScroll = constrain(
-    dexTargetScroll,
-    -((Math.ceil(antDexEntries.length / 2) * 220) - windowHeight + 220),
-    0
-  );
-  dexScrollY = lerp(dexScrollY, dexTargetScroll, 0.2); // smooth scrolling
 
-  // --- Layout parameters ---
-  let colWidth = windowWidth / 2.3;      // space per column
-  let leftColX = windowWidth / 2 - colWidth - 30;
-  let rightColX = windowWidth / 2 + 30;
-  let rowHeight = 220;                   // vertical spacing
-  let baseY = 270 + dexScrollY;
+  if (keyIsDown(38)) dexTargetScroll += dexScrollSpeed;
+  if (keyIsDown(40)) dexTargetScroll -= dexScrollSpeed;
 
-  // --- Draw entries ---
+  const rowHeight = 220;
+  const listTop = barY + 80;
+  const viewHeight = windowHeight - listTop - 80;
+  const totalRows = Math.ceil(visibleEntries.length / 2);
+  const contentHeight = totalRows * rowHeight;
+  const maxOffset = max(0, contentHeight - viewHeight);
+  const minScroll = -maxOffset;
+
+  dexTargetScroll = constrain(dexTargetScroll, minScroll, 0);
+  dexScrollY = lerp(dexScrollY, dexTargetScroll, 0.2);
+
+  const colWidth = windowWidth / 2.3;
+  const leftColX = windowWidth / 2 - colWidth - 30;
+  const rightColX = windowWidth / 2 + 30;
+  const baseY = listTop + dexScrollY;
+
   textAlign(LEFT);
-  for (let i = 0; i < antDexEntries.length; i++) {
-    let e = antDexEntries[i];
-    let col = i % 2;                     // 0 = left, 1 = right
-    let row = Math.floor(i / 2);
-    let x = col === 0 ? leftColX : rightColX;
-    let y = baseY + row * rowHeight;
+  textSize(32);
 
-    // only draw visible cards
-    if (y > -180 && y < windowHeight + 180) {
-      fill(i === selectedDexIndex ? 70 : 40);
+  if (visibleEntries.length === 0) {
+    fill(200);
+    textAlign(CENTER);
+    textSize(24);
+    text("No entries unlocked in this tab yet.", windowWidth / 2, listTop + 40);
+  }
+
+  for (let i = 0; i < visibleEntries.length; i++) {
+    const entry = visibleEntries[i];
+    const col = i % 2;
+    const row = Math.floor(i / 2);
+    const x = col === 0 ? leftColX : rightColX;
+    const y = baseY + row * rowHeight;
+
+    if (y > listTop - 180 && y < windowHeight + 180) {
+      let cardFillColor;
+      let primaryTextColor;
+      let secondaryTextColor;
+
+      if (!entry.discovered) {
+        cardFillColor = color(40);
+        primaryTextColor = color(180);
+        secondaryTextColor = color(180);
+      } else if (entry.category === 'exotic') {
+        cardFillColor = color(255, 204, 0);
+        primaryTextColor = color(0);
+        secondaryTextColor = color(40);
+      } else {
+        cardFillColor = color(235);
+        primaryTextColor = color(10);
+        secondaryTextColor = color(0, 0, 0, 160);
+      }
+
+      fill(cardFillColor);
       rect(x, y - 60, colWidth, 180, 20);
 
-      if (e.discovered) {
-        // --- normal visible entry ---
-        fill(255);
+      if (entry.discovered) {
+        fill(primaryTextColor);
         textSize(32);
-        text(e.name, x + 20, y - 20);
-        // allow for up to 3 lines of description text
+        text(entry.name, x + 20, y - 20);
         textSize(20);
-        text(e.desc, x + 20, y + 5, colWidth - 40, 90);  // was 60 → now 90
+        fill(primaryTextColor);
+        text(entry.desc, x + 20, y + 5, colWidth - 40, 90);
 
-        fill(180);
+        fill(secondaryTextColor);
         textSize(18);
-        text(e.stats, x + 20, y + 100);   
+        text(entry.stats, x + 20, y + 100);
       } else {
-        // --- hidden entry ---
-        fill(180);
+        fill(primaryTextColor);
         textSize(32);
         text("???", x + 20, y - 20);
 
@@ -2101,21 +2232,16 @@ function antdexScreen() {
     }
   }
 
-  // --- Scrollbar (right edge) ---
-  let totalRows = Math.ceil(antDexEntries.length / 2);
-  let contentHeight = totalRows * rowHeight;
-  let viewRatio = windowHeight / contentHeight;
-  let barH = max(60, windowHeight * viewRatio);
-  fill(100, 100, 100, 150);
-  rect(
-    windowWidth - 30,
-    map(-dexTargetScroll, 0, contentHeight - windowHeight + 220, 0, windowHeight - barH),
-    10,
-    barH,
-    5
-  );
+  if (maxOffset > 0) {
+    const viewRatio = viewHeight / contentHeight;
+    const barH = max(60, viewHeight * viewRatio);
+    const scrollableRange = maxOffset;
+    const scrollProgress = scrollableRange === 0 ? 0 : (-dexTargetScroll) / scrollableRange;
+    const barY = listTop + scrollProgress * (viewHeight - barH);
+    fill(100, 100, 100, 150);
+    rect(windowWidth - 30, barY, 10, barH, 5);
+  }
 
-  // --- Exit prompt ---
   fill(255);
   textAlign(CENTER);
   textSize(24);
@@ -2145,6 +2271,37 @@ function mouseWheel(event) {
 
 function touchMoved() {
   if (antdex) dexTargetScroll += (movedY);
+}
+
+function setDexCategory(nextCategory) {
+  if (dexCategory !== nextCategory) {
+    dexCategory = nextCategory;
+    dexTargetScroll = 0;
+    dexScrollY = 0;
+    selectedDexIndex = -1;
+  }
+}
+
+function pointInRect(px, py, rect) {
+  return (
+    px >= rect.x && px <= rect.x + rect.w &&
+    py >= rect.y && py <= rect.y + rect.h
+  );
+}
+
+function mousePressed() {
+  if (!antdex) return;
+
+  const normalTab = dexTabRegions.normal;
+  const exoticTab = dexTabRegions.exotic;
+
+  if (pointInRect(mouseX, mouseY, normalTab)) {
+    setDexCategory('normal');
+    dexTabSwitchCooldown = 10;
+  } else if (pointInRect(mouseX, mouseY, exoticTab)) {
+    setDexCategory('exotic');
+    dexTabSwitchCooldown = 10;
+  }
 }
 
 function updateAntDexEntries() {
@@ -2541,7 +2698,8 @@ function updateAntDexEntries() {
       name: "Land Mine Ants",
       desc: "These ants have humongous bullets dealing devastating damage, so big that they practically aren't even moving, creating traps. It is extremely rare for bullets to get this size.",
       stats: "Bullet Size: > 2.5",
-      discovered: landMineDiscovered
+      discovered: landMineDiscovered,
+      category: 'exotic'
     },
     {
       name: "Basic Bullets Ants",
@@ -2589,7 +2747,8 @@ function updateAntDexEntries() {
       name: "Minimal Fire Rate Ants",
       desc: "What? How? Why? There’s no advantage to this, it starts the game at a faster fire rate already. Fires a bullet every 3.3 seconds.",
       stats: "Bullet Cooldown: 200",
-      discovered: minimalFireRateAntsDiscovered
+      discovered: minimalFireRateAntsDiscovered,
+      category: 'exotic'
     },
     {
       name: "Straight Shooting Ants",
@@ -2645,6 +2804,9 @@ function updateAntDexEntries() {
       stats: "Follow Target: Beetle • Follow Style: Keep Distance • Distance From Target: > 800",
       discovered: playerBasedSnipersDiscovered
     },
-  ];
+  ].map(entry => ({
+    ...entry,
+    category: entry.category || 'normal'
+  }));
   
 }
