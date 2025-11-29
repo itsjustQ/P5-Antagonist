@@ -6,6 +6,12 @@ let ty;
 let start = false;
 let startMenu = false;
 let antdex = false;
+let antdexReturnState = 'menu';
+let antdexOpenCooldown = 0;
+let intermissionMenu = false;
+let intermissionMenuCooldown = 0;
+let gameOverMenu = false;
+let gameOverMenuCooldown = 0;
 let antDexEntries = [];   // array of objects {name, desc, stats}
 let dexScrollY = 0;       // current scroll offset
 let dexTargetScroll = 0;  // for smooth scrolling
@@ -303,6 +309,22 @@ function triggerDiscoveryPopup() {
 
 function draw() {
 
+  if (antdexOpenCooldown > 0) {
+    antdexOpenCooldown--;
+  }
+  if (intermissionMenuCooldown > 0) {
+    intermissionMenuCooldown--;
+  }
+  if (gameOverMenuCooldown > 0) {
+    gameOverMenuCooldown--;
+  }
+
+  if (antdex) {
+    updateAntDexEntries();
+    antdexScreen();
+    return;
+  }
+
   if (start == true){
       for (let i = 1; i <= enemyCount; i++) {
         antMoveX[i] = 0;
@@ -370,6 +392,67 @@ function draw() {
   }
 }
 
+function resetRunState() {
+  end = false;
+  gameOverMenu = false;
+  gameOverMenuCooldown = 0;
+  intermissionMenu = false;
+  intermissionMenuCooldown = 0;
+  liveRankingsPrinted = false;
+  combo = 0;
+  comboTime = 0;
+  comboPoints = 0;
+  streakPoints = 0;
+  level = 1;
+  enemyCount = 1;
+  levelEnd = 0;
+  totalScore = 0;
+  score = 0;
+  health = 10;
+  timeCount = 10;
+  playerRotationValue = 0;
+  bulletShot[enemyIndex] = 0;
+  bulletSpeed[enemyIndex] = 100;
+  playerX = width / 2;
+  playerY = height / 2;
+  shield = 3;
+  shot = 3;
+  shotBreak = 0;
+  dash = false;
+  dashReady = true;
+  dashCoolDown = 0;
+  playerBullets = [];
+  playerBulletShot = false;
+  deathAnimations = [];
+  floatingTexts = [];
+  antX[enemyIndex] = windowWidth * 0.75;
+  antY[enemyIndex] = windowHeight * 0.5;
+}
+
+function restartGame() {
+  resetRunState();
+  start = true;
+  startMenu = false;
+  endmusic.stop();
+  titlemusic.stop();
+  if (!gamemusic.isPlaying()) {
+    gamemusic.play();
+  }
+}
+
+function returnToMainMenu() {
+  resetRunState();
+  antdex = false;
+  start = false;
+  startMenu = true;
+  antdexReturnState = 'menu';
+  endmusic.stop();
+  gamemusic.stop();
+  if (!titlemusic.isPlaying()) {
+    titlemusic.play();
+  }
+}
+
 function drawBackground() {
 
     imageMode(CORNER);
@@ -398,6 +481,12 @@ function drawScoreboard() {
   highScore = getItem('newHighScore');
   if (highScore == null) {
     highScore = 0;
+  }
+
+  const currentRunScore = totalScore + score;
+  if (currentRunScore > highScore) {
+    highScore = currentRunScore;
+    storeItem('newHighScore', highScore);
   }
 
   let padding = 10;
@@ -441,7 +530,7 @@ function drawScoreboard() {
   text(`Score: ${score}`, startX + sectionWidth * 4, yPos);
 
   // Total
-  text(`Total: ${totalScore}`, startX + sectionWidth * 5, yPos);
+  text(`Total: ${currentRunScore}`, startX + sectionWidth * 5, yPos);
 
   // High Score
   text(`High Score: ${highScore}`, startX + sectionWidth * 6, yPos);
@@ -1216,137 +1305,266 @@ function drawDeathEffects() {
 
 function endGame(){
   if (health < 1){
-    fill(128, 0, 0);
+    fill(40, 0, 0);
     rectMode(CORNER);
     rect(0, 0, windowWidth, windowHeight);
-    rectMode(CENTER);
-    fill(240, 164, 0);
-    rect(windowWidth / 2, windowHeight * 0.75, windowWidth / 3, windowHeight / 6); // Moved button further down
-    fill(255, 255, 255);
     if(levelEnd == 0){
+      intermissionMenu = false;
+      intermissionMenuCooldown = 0;
+      gameOverMenu = false;
+      gameOverMenuCooldown = 0;
       totalScore = totalScore + score;
       levelEnd = 1;
     }
-    textAlign(CENTER);
-    textSize(80);
-    text('You Lost', windowWidth / 2, windowHeight / 2 - 120); // moved up
-    textSize(40);
-    text('Round: ' + level, windowWidth / 2, windowHeight / 2 - 60); // new line
-    textSize(50);
-    text('Score: ' + score, windowWidth / 2, windowHeight / 2 - 10);
-    textSize(30);
-    text('Total Score: ' + totalScore, windowWidth / 2, windowHeight / 2 + 30);
-    text('High Score: ' + highScore, windowWidth / 2, windowHeight / 2 + 60);
     highScore = getItem('newHighScore');
+    if (highScore == null) {
+      highScore = 0;
+    }
     if(totalScore > highScore){
       storeItem('newHighScore', totalScore);
+      highScore = totalScore;
     }
     end = true;
-    text('Restart?', windowWidth / 2, windowHeight * 0.75); // Adjusted position
-    textSize(20);
-    text('Press Enter', windowWidth / 2, windowHeight * 0.80); // Adjusted position
+
+    push();
+      rectMode(CENTER);
+      fill(0, 0, 0, 180);
+      rect(windowWidth / 2, windowHeight / 2, windowWidth * 0.65, windowHeight * 0.6, 40);
+
+      textAlign(CENTER, CENTER);
+      fill(255, 170, 170);
+      textSize(64);
+      text('You Lost', windowWidth / 2, windowHeight * 0.32);
+
+      textSize(26);
+      fill(255);
+      text(`Round Reached`, windowWidth / 2 - windowWidth * 0.18, windowHeight * 0.40);
+      text(`High Score`, windowWidth / 2 + windowWidth * 0.18, windowHeight * 0.40);
+
+      textSize(48);
+      fill(255, 220, 120);
+      text(level, windowWidth / 2 - windowWidth * 0.18, windowHeight * 0.46);
+      text(highScore, windowWidth / 2 + windowWidth * 0.18, windowHeight * 0.46);
+
+      textSize(24);
+      fill(180, 220, 255);
+      text(`Final Health`, windowWidth / 2 - windowWidth * 0.20, windowHeight * 0.56);
+      text(`Total Score`, windowWidth / 2 + windowWidth * 0.20, windowHeight * 0.56);
+
+      textSize(42);
+      fill(255, 90, 90);
+      text(Math.max(0, health).toFixed(2), windowWidth / 2 - windowWidth * 0.20, windowHeight * 0.61);
+
+      fill(240, 164, 0);
+      text(totalScore, windowWidth / 2 + windowWidth * 0.20, windowHeight * 0.61);
+
+      if (!gameOverMenu) {
+        push();
+          rectMode(CORNER);
+          fill(0, 0, 0, 160);
+          rect(windowWidth / 2 - windowWidth * 0.275, windowHeight * 0.68, windowWidth * 0.55, windowHeight * 0.12, 18);
+
+          textAlign(CENTER, CENTER);
+          fill(255);
+          textSize(26);
+          text('Press Enter to Restart', windowWidth / 2, windowHeight * 0.70);
+          textSize(20);
+          text('Press Esc for Options', windowWidth / 2, windowHeight * 0.74);
+        pop();
+
+        if (gameOverMenuCooldown === 0 && keyIsDown(27)) {
+          gameOverMenu = true;
+          gameOverMenuCooldown = 20;
+        }
+        if (keyIsDown(13)) {
+          restartGame();
+        } else if (touches.length > 0) {
+          restartGame();
+        }
+      } else {
+        push();
+          rectMode(CORNER);
+          fill(0, 0, 0, 220);
+          rect(0, 0, windowWidth, windowHeight);
+        pop();
+
+        textAlign(CENTER);
+        fill(255);
+        textSize(46);
+        text('Game Over Menu', windowWidth / 2, windowHeight * 0.55);
+        textSize(26);
+        text('1) Start Screen', windowWidth / 2, windowHeight * 0.63);
+        text('2) Antdex', windowWidth / 2, windowHeight * 0.68);
+        text('Esc) Back', windowWidth / 2, windowHeight * 0.73);
+
+        if (keyIsDown(49)) {
+          gameOverMenu = false;
+          gameOverMenuCooldown = 20;
+          returnToMainMenu();
+        } else if (keyIsDown(50)) {
+          gameOverMenu = false;
+          gameOverMenuCooldown = 20;
+          antdexReturnState = 'gameover';
+          antdex = true;
+          antdexOpenCooldown = 20;
+        } else if (gameOverMenuCooldown === 0 && keyIsDown(27)) {
+          gameOverMenu = false;
+          gameOverMenuCooldown = 20;
+        }
+      }
+    pop();
 
     if(!endmusic.isPlaying()) {
       gamemusic.stop();
       endmusic.play();
     }
-    if (keyIsDown(13)) {
-      end = false;
-      level = 1;
-      enemyCount = 1;
-      levelEnd = 0;
-      totalScore = 0;
-      score = 0;
-      health = 10;
-      timeCount = 60;
-      playerRotationValue = 0;
-      bulletShot[enemyIndex] = 0;
-      bulletSpeed[enemyIndex] = 100;
-      playerX = width / 2;
-      playerY = height / 2;
-      shield = 3;
-      shot = 3;
-      //enemy one
-      antX[enemyIndex] = windowWidth * 0.75;
-      antY[enemyIndex] = windowHeight * 0.5;
-      
-      endmusic.stop();
-      gamemusic.play();
-
-    }else if (touches.length > 0) {
-      end = false;
-      level = 1;
-      enemyCount = 1;
-      levelEnd = 0;
-      totalScore = 0;
-      score = 0;
-      health = 10;
-      timeCount = 60;
-      playerRotationValue = 0;
-      bulletShot[enemyIndex] = 0;
-      bulletSpeed[enemyIndex] = 100;
-      playerX = width / 2;
-      playerY = height / 2;
-      shield = 3;
-      shot = 3;
-      //enemy one
-      antX[enemyIndex] = windowWidth * 0.75;
-      antY[enemyIndex] = windowHeight * 0.5;
-      
-      endmusic.stop();
-      gamemusic.play();
+    if (keyIsDown(13) && !gameOverMenu) {
+      restartGame();
+    }else if (touches.length > 0 && !gameOverMenu) {
+      restartGame();
     }
   }
 
 if (timeCount < 0) {
-    fill(0, 128, 0);
+    fill(10, 20, 10);
     rectMode(CORNER);
     rect(0, 0, windowWidth, windowHeight);
     if(levelEnd == 0){
       totalScore = totalScore + score;
       levelEnd = 1;
     }
-    fill(255);
-    textAlign(CENTER);
     if (liveRankingsPrinted === false){
       printLiveAntRankings();
       printWinningAntStats();
       liveRankingsPrinted = true;
     }
-    // Show Round
-    textSize(80);
-    text('Score: ' + score, windowWidth / 2, windowHeight * 0.33);
-
-    textSize(40);
-    text('Total Score: ' + totalScore, windowWidth / 2, windowHeight * 0.42);
-
-    textSize(30);
-    text('High Score: ' + highScore, windowWidth / 2, windowHeight * 0.50);
-
-    highScore = getItem('newHighScore');
-    if (totalScore > highScore) {
-      storeItem('newHighScore', totalScore);
-    }
 
     end = true;
 
-    rectMode(CENTER);
-    fill(240, 164, 0);
-    rect(windowWidth / 2, windowHeight * 0.61, windowWidth / 3, windowHeight / 6);
+    highScore = getItem('newHighScore');
+    if (highScore == null) {
+      highScore = 0;
+    }
+    if (totalScore > highScore) {
+      storeItem('newHighScore', totalScore);
+      highScore = totalScore;
+    }
 
-    fill(255);
-    textSize(30);
-    text('Next Round', windowWidth / 2, windowHeight * 0.60);
-    textSize(20);
-    text('Press Enter', windowWidth / 2, windowHeight * 0.65);
+    const intermissionRound = level;
+    const intermissionHealth = health;
+
+    push();
+      rectMode(CENTER);
+      fill(0, 0, 0, 170);
+      rect(windowWidth / 2, windowHeight / 2, windowWidth * 0.65, windowHeight * 0.6, 40);
+
+      textAlign(CENTER, CENTER);
+      fill(204, 255, 204);
+      textSize(56);
+      text(`Round ${intermissionRound} Cleared`, windowWidth / 2, windowHeight * 0.30);
+
+      textSize(28);
+      fill(255);
+      text(`Score`, windowWidth / 2 - windowWidth * 0.15, windowHeight * 0.40);
+      text(`Total`, windowWidth / 2 + windowWidth * 0.15, windowHeight * 0.40);
+
+      textSize(46);
+      fill(240, 164, 0);
+      text(score, windowWidth / 2 - windowWidth * 0.15, windowHeight * 0.46);
+      text(totalScore, windowWidth / 2 + windowWidth * 0.15, windowHeight * 0.46);
+
+      textSize(24);
+      fill(160, 220, 255);
+      text(`Final Health`, windowWidth / 2 - windowWidth * 0.20, windowHeight * 0.56);
+      text(`High Score`, windowWidth / 2 + windowWidth * 0.20, windowHeight * 0.56);
+
+      textSize(40);
+      if (health >= 10) {
+        fill(120, 255, 120);
+      } else {
+        fill(255, 90, 90);
+      }
+      text(intermissionHealth.toFixed(2), windowWidth / 2 - windowWidth * 0.20, windowHeight * 0.61);
+
+      fill(255, 210, 120);
+      text(highScore, windowWidth / 2 + windowWidth * 0.20, windowHeight * 0.61);
+
+      if (intermissionHealth < 10) {
+        const pulsePhase = sin(frameCount * 10);
+        const pulseAlpha = map(pulsePhase, -1, 1, 140, 255);
+        const pulseScale = map(pulsePhase, -1, 1, 0.92, 1.22);
+        push();
+          translate(windowWidth / 2 + windowWidth * 0.25, windowHeight / 2 - windowHeight * 0.2);
+          angleMode(DEGREES);
+          rotate(45);
+          scale(pulseScale);
+          textAlign(CENTER, CENTER);
+          textSize(36);
+          fill(255, 120, 120, pulseAlpha);
+          text('Close Call!', 0, 0);
+        pop();
+        angleMode(DEGREES);
+      }
+    pop();
+
     if(!endmusic.isPlaying()) {
       gamemusic.stop();
       endmusic.play();
     }
-    if (keyIsDown(13)) {
-      nextRound();
-    }else if (touches.length > 0) {
-      nextRound();
+
+    if (!intermissionMenu) {
+      push();
+        rectMode(CORNER);
+        fill(0, 0, 0, 160);
+        rect(windowWidth / 2 - windowWidth * 0.275, windowHeight * 0.64, windowWidth * 0.55, windowHeight * 0.12, 18);
+
+        textAlign(CENTER);
+        fill(255);
+        textSize(28);
+        text('Press Esc for Menu', windowWidth / 2, windowHeight * 0.675);
+        textSize(20);
+        text('Press Enter to continue', windowWidth / 2, windowHeight * 0.72);
+      pop();
+
+      if (intermissionMenuCooldown === 0 && keyIsDown(27)) {
+        intermissionMenu = true;
+        intermissionMenuCooldown = 20;
+      }
+      if (keyIsDown(13)) {
+        nextRound();
+      } else if (touches.length > 0) {
+        nextRound();
+      }
+    } else {
+      push();
+        rectMode(CORNER);
+        fill(0, 0, 0, 220);
+        rect(0, 0, windowWidth, windowHeight);
+      pop();
+
+      textAlign(CENTER);
+      fill(255);
+      textSize(46);
+      text('Intermission Menu', windowWidth / 2, windowHeight * 0.45);
+      textSize(26);
+      text('1) Next Round', windowWidth / 2, windowHeight * 0.55);
+      text('2) Antdex', windowWidth / 2, windowHeight * 0.60);
+      text('Esc) Back', windowWidth / 2, windowHeight * 0.65);
+
+      if (keyIsDown(49)) {
+        intermissionMenu = false;
+        intermissionMenuCooldown = 20;
+        nextRound();
+      } else if (keyIsDown(50)) {
+        intermissionMenu = false;
+        intermissionMenuCooldown = 20;
+        antdexReturnState = 'intermission';
+        antdex = true;
+        antdexOpenCooldown = 20;
+      } else if (intermissionMenuCooldown === 0 && keyIsDown(27)) {
+        intermissionMenu = false;
+        intermissionMenuCooldown = 20;
+      }
     }
   }
 }
@@ -1446,6 +1664,8 @@ function printWinningAntStats() {
 function nextRound(){
   end = false;
   liveRankingsPrinted = false;
+  intermissionMenu = false;
+  intermissionMenuCooldown = 0;
   let winner = getWinningAnt();
   let topAnts = getTopAnts();  // top 3
   console.log("Top ants this round:", topAnts);
@@ -1712,7 +1932,7 @@ function drawStartScreen(){
       text("Main Menu", windowWidth / 2, windowHeight / 3);
       textSize(40);
       text("1) Start Game", windowWidth / 2, (windowHeight / 3) + 60);
-      text("2) *Under Development*", windowWidth / 2, (windowHeight / 3) + 120);
+      text("2) Antdex", windowWidth / 2, (windowHeight / 3) + 120);
       if (keyIsDown(49)) {
         start = true;
         titlemusic.stop();
@@ -1720,10 +1940,10 @@ function drawStartScreen(){
       }else if (keyIsDown(50)) {
         antdex = true;
         startMenu = false;
+        antdexReturnState = 'menu';
       }
 
     }
-    antdexScreen();
   
   pop();
 }
@@ -1903,7 +2123,18 @@ function antdexScreen() {
 
   if (keyIsDown(27)) {
     antdex = false;
-    startMenu = true;
+    if (antdexReturnState === 'menu') {
+      startMenu = true;
+    } else if (antdexReturnState === 'intermission') {
+      intermissionMenu = false;
+      intermissionMenuCooldown = 20;
+    } else if (antdexReturnState === 'gameover') {
+      end = true;
+      gameOverMenu = false;
+      gameOverMenuCooldown = 20;
+    }
+    antdexOpenCooldown = 20;
+    antdexReturnState = 'menu';
   }
 }
 
