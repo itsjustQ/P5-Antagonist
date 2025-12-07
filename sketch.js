@@ -2865,7 +2865,7 @@ function updateAntDexEntries() {
     // Timed fuse tiers
     {
       name: "Quick Fuse Ants",
-      desc: "Short fuse timers; bullets detonate quickly after being fired.",
+      desc: "Short fuse timers. Bullets detonate quickly after being fired.",
       stats: "Fuse: Low (≤ 300 frames)",
       discovered: quickFuseDiscovered
     },
@@ -2877,7 +2877,7 @@ function updateAntDexEntries() {
     },
     {
       name: "Long Fuse Ants",
-      desc: "Extended fuse timers; bullets linger before detonation.",
+      desc: "Extended fuse timers. Bullets linger before detonation.",
       stats: "Fuse: High (> 600 frames)",
       discovered: longFuseDiscovered
     },
@@ -2897,7 +2897,7 @@ function updateAntDexEntries() {
     },
     {
       name: "Wide Radius Ants",
-      desc: "Explodes from far away; harder to approach safely.",
+      desc: "Explodes from far away. Harder to approach safely.",
       stats: "Proximity Radius: High (> 400)",
       discovered: farProximityDiscovered
     },
@@ -2905,7 +2905,7 @@ function updateAntDexEntries() {
     // Explosion size tiers
     {
       name: "Small Blast Ants",
-      desc: "Smaller explosion radius; safer to close distance.",
+      desc: "Smaller explosion radius. Safer to close distance.",
       stats: "Explosion Size: Low (≤ 1.0x)",
       discovered: smallExplosionDiscovered
     },
@@ -2917,7 +2917,7 @@ function updateAntDexEntries() {
     },
     {
       name: "Massive Blast Ants",
-      desc: "Large explosion radius; keep your distance.",
+      desc: "Large explosion radius. Keep your distance.",
       stats: "Explosion Size: High (> 2.0x)",
       discovered: largeExplosionDiscovered
     },
@@ -2937,7 +2937,7 @@ function updateAntDexEntries() {
     },
     {
       name: "Saturated Detonation Ants",
-      desc: "Heavy residue; screen gets messy fast.",
+      desc: "Heavy residue. The explosions stay for a long time.",
       stats: "Residue: High (> 2.0x)",
       discovered: highResidueDiscovered
     },
