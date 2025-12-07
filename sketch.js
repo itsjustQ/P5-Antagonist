@@ -65,6 +65,31 @@ let midrangeAntsDiscovered = false;
 let farRangeAntsDiscovered = false;
 let playerBasedSnipersDiscovered = false;
 
+// Explosion-related discoveries
+let noExplosionDiscovered = false;
+let timeExplosionDiscovered = false;
+let proximityExplosionDiscovered = false;
+
+// Time-based explosion fuse tiers
+let quickFuseDiscovered = false;     // short fuse
+let averageFuseDiscovered = false;   // mid fuse
+let longFuseDiscovered = false;      // long fuse
+
+// Proximity explosion distance tiers
+let closeProximityDiscovered = false;
+let averageProximityDiscovered = false;
+let farProximityDiscovered = false;
+
+// Explosion size (radius multiplier) tiers
+let smallExplosionDiscovered = false;    // radiusMultiplier ≤ 1.0
+let averageExplosionDiscovered = false;  // 1.0 < radiusMultiplier ≤ 2.0
+let largeExplosionDiscovered = false;    // radiusMultiplier > 2.0
+
+// Explosion residue tiers
+let lowResidueDiscovered = false;        // residueMultiplier ≤ 1.0
+let averageResidueDiscovered = false;    // 1.0 < residueMultiplier ≤ 2.0
+let highResidueDiscovered = false;       // residueMultiplier > 2.0
+
 let showDiscoveryPopup = false;
 let discoveryPopupTimer = 0;
 let discoveryPopupDuration = 240; // frames (~4 seconds)
@@ -2511,6 +2536,106 @@ function updateAntDexEntries() {
   if (getItem('playerBasedSnipersPreviouslyDiscovered') === true) {
     playerBasedSnipersDiscovered = getItem('playerBasedSnipersPreviouslyDiscovered');
   }
+
+  // Explosion type persistence
+  if (noExplosionDiscovered === true) {
+    storeItem('noExplosionPreviouslyDiscovered', noExplosionDiscovered);
+  }
+  if (getItem('noExplosionPreviouslyDiscovered') === true) {
+    noExplosionDiscovered = getItem('noExplosionPreviouslyDiscovered');
+  }
+  if (timeExplosionDiscovered === true) {
+    storeItem('timeExplosionPreviouslyDiscovered', timeExplosionDiscovered);
+  }
+  if (getItem('timeExplosionPreviouslyDiscovered') === true) {
+    timeExplosionDiscovered = getItem('timeExplosionPreviouslyDiscovered');
+  }
+  if (proximityExplosionDiscovered === true) {
+    storeItem('proximityExplosionPreviouslyDiscovered', proximityExplosionDiscovered);
+  }
+  if (getItem('proximityExplosionPreviouslyDiscovered') === true) {
+    proximityExplosionDiscovered = getItem('proximityExplosionPreviouslyDiscovered');
+  }
+
+  // Time fuse tiers persistence
+  if (quickFuseDiscovered === true) {
+    storeItem('quickFusePreviouslyDiscovered', quickFuseDiscovered);
+  }
+  if (getItem('quickFusePreviouslyDiscovered') === true) {
+    quickFuseDiscovered = getItem('quickFusePreviouslyDiscovered');
+  }
+  if (averageFuseDiscovered === true) {
+    storeItem('averageFusePreviouslyDiscovered', averageFuseDiscovered);
+  }
+  if (getItem('averageFusePreviouslyDiscovered') === true) {
+    averageFuseDiscovered = getItem('averageFusePreviouslyDiscovered');
+  }
+  if (longFuseDiscovered === true) {
+    storeItem('longFusePreviouslyDiscovered', longFuseDiscovered);
+  }
+  if (getItem('longFusePreviouslyDiscovered') === true) {
+    longFuseDiscovered = getItem('longFusePreviouslyDiscovered');
+  }
+
+  // Proximity tiers persistence
+  if (closeProximityDiscovered === true) {
+    storeItem('closeProximityPreviouslyDiscovered', closeProximityDiscovered);
+  }
+  if (getItem('closeProximityPreviouslyDiscovered') === true) {
+    closeProximityDiscovered = getItem('closeProximityPreviouslyDiscovered');
+  }
+  if (averageProximityDiscovered === true) {
+    storeItem('averageProximityPreviouslyDiscovered', averageProximityDiscovered);
+  }
+  if (getItem('averageProximityPreviouslyDiscovered') === true) {
+    averageProximityDiscovered = getItem('averageProximityPreviouslyDiscovered');
+  }
+  if (farProximityDiscovered === true) {
+    storeItem('farProximityPreviouslyDiscovered', farProximityDiscovered);
+  }
+  if (getItem('farProximityPreviouslyDiscovered') === true) {
+    farProximityDiscovered = getItem('farProximityPreviouslyDiscovered');
+  }
+
+  // Explosion size tiers persistence
+  if (smallExplosionDiscovered === true) {
+    storeItem('smallExplosionPreviouslyDiscovered', smallExplosionDiscovered);
+  }
+  if (getItem('smallExplosionPreviouslyDiscovered') === true) {
+    smallExplosionDiscovered = getItem('smallExplosionPreviouslyDiscovered');
+  }
+  if (averageExplosionDiscovered === true) {
+    storeItem('averageExplosionPreviouslyDiscovered', averageExplosionDiscovered);
+  }
+  if (getItem('averageExplosionPreviouslyDiscovered') === true) {
+    averageExplosionDiscovered = getItem('averageExplosionPreviouslyDiscovered');
+  }
+  if (largeExplosionDiscovered === true) {
+    storeItem('largeExplosionPreviouslyDiscovered', largeExplosionDiscovered);
+  }
+  if (getItem('largeExplosionPreviouslyDiscovered') === true) {
+    largeExplosionDiscovered = getItem('largeExplosionPreviouslyDiscovered');
+  }
+
+  // Explosion residue tiers persistence
+  if (lowResidueDiscovered === true) {
+    storeItem('lowResiduePreviouslyDiscovered', lowResidueDiscovered);
+  }
+  if (getItem('lowResiduePreviouslyDiscovered') === true) {
+    lowResidueDiscovered = getItem('lowResiduePreviouslyDiscovered');
+  }
+  if (averageResidueDiscovered === true) {
+    storeItem('averageResiduePreviouslyDiscovered', averageResidueDiscovered);
+  }
+  if (getItem('averageResiduePreviouslyDiscovered') === true) {
+    averageResidueDiscovered = getItem('averageResiduePreviouslyDiscovered');
+  }
+  if (highResidueDiscovered === true) {
+    storeItem('highResiduePreviouslyDiscovered', highResidueDiscovered);
+  }
+  if (getItem('highResiduePreviouslyDiscovered') === true) {
+    highResidueDiscovered = getItem('highResiduePreviouslyDiscovered');
+  }
   
   //checks for new discoveries
   if (start === true){
@@ -2631,12 +2756,191 @@ function updateAntDexEntries() {
         playerBasedSnipersDiscovered = true;
         triggerDiscoveryPopup();
       }
+
+      // Explosion type discoveries
+      const expMode = Math.round(explosionBehavior[i]);
+      if (!noExplosionDiscovered && expMode === 0) {
+        noExplosionDiscovered = true;
+        triggerDiscoveryPopup();
+      }
+      if (!timeExplosionDiscovered && expMode === 1) {
+        timeExplosionDiscovered = true;
+        triggerDiscoveryPopup();
+      }
+      if (!proximityExplosionDiscovered && expMode === 2) {
+        proximityExplosionDiscovered = true;
+        triggerDiscoveryPopup();
+      }
+
+      // Time fuse tiers (only when time-based explosion is active)
+      if (expMode === 1) {
+        const fuse = bulletExplodeAfter[i]; // 100..800 typical
+        if (!quickFuseDiscovered && fuse <= 300) {
+          quickFuseDiscovered = true;
+          triggerDiscoveryPopup();
+        }
+        if (!averageFuseDiscovered && fuse > 300 && fuse <= 600) {
+          averageFuseDiscovered = true;
+          triggerDiscoveryPopup();
+        }
+        if (!longFuseDiscovered && fuse > 600) {
+          longFuseDiscovered = true;
+          triggerDiscoveryPopup();
+        }
+      }
+
+      // Proximity tiers (only when proximity explosion is active)
+      if (expMode === 2) {
+        const prox = explosionProximity[i]; // ~0.1..1000 typical
+        if (!closeProximityDiscovered && prox <= 150) {
+          closeProximityDiscovered = true;
+          triggerDiscoveryPopup();
+        }
+        if (!averageProximityDiscovered && prox > 150 && prox <= 400) {
+          averageProximityDiscovered = true;
+          triggerDiscoveryPopup();
+        }
+        if (!farProximityDiscovered && prox > 400) {
+          farProximityDiscovered = true;
+          triggerDiscoveryPopup();
+        }
+      }
+
+      // Explosion size/residue tiers (apply only if explosions are enabled)
+      if (expMode === 1 || expMode === 2) {
+        const radiusMul = explosionRadiusMultiplier[i]; // 0.5..3
+        if (!smallExplosionDiscovered && radiusMul <= 1.0) {
+          smallExplosionDiscovered = true;
+          triggerDiscoveryPopup();
+        }
+        if (!averageExplosionDiscovered && radiusMul > 1.0 && radiusMul <= 2.0) {
+          averageExplosionDiscovered = true;
+          triggerDiscoveryPopup();
+        }
+        if (!largeExplosionDiscovered && radiusMul > 2.0) {
+          largeExplosionDiscovered = true;
+          triggerDiscoveryPopup();
+        }
+
+        const residueMul = explosionResidueMultiplier[i]; // 0.5..3
+        if (!lowResidueDiscovered && residueMul <= 1.0) {
+          lowResidueDiscovered = true;
+          triggerDiscoveryPopup();
+        }
+        if (!averageResidueDiscovered && residueMul > 1.0 && residueMul <= 2.0) {
+          averageResidueDiscovered = true;
+          triggerDiscoveryPopup();
+        }
+        if (!highResidueDiscovered && residueMul > 2.0) {
+          highResidueDiscovered = true;
+          triggerDiscoveryPopup();
+        }
+      }
     }
   }
   
 
   
   antDexEntries = [
+    // Explosion behavior types
+    {
+      name: "Non-Exploding Ants",
+      desc: "Bullets never explode. They persist until collision or leaving the arena.",
+      stats: "Explosion: None",
+      discovered: noExplosionDiscovered
+    },
+    {
+      name: "Timed Explosion Ants",
+      desc: "Bullets explode after a fuse duration unique to each ant.",
+      stats: "Explosion: Time (Fuse)",
+      discovered: timeExplosionDiscovered
+    },
+    {
+      name: "Proximity Explosion Ants",
+      desc: "Bullets explode when close enough to the beetle.",
+      stats: "Explosion: Proximity (Radius)",
+      discovered: proximityExplosionDiscovered
+    },
+
+    // Timed fuse tiers
+    {
+      name: "Quick Fuse Ants",
+      desc: "Short fuse timers; bullets detonate quickly after being fired.",
+      stats: "Fuse: Low (≤ 300 frames)",
+      discovered: quickFuseDiscovered
+    },
+    {
+      name: "Standard Fuse Ants",
+      desc: "Moderate fuse timers typical of most ants.",
+      stats: "Fuse: Average (301–600 frames)",
+      discovered: averageFuseDiscovered
+    },
+    {
+      name: "Long Fuse Ants",
+      desc: "Extended fuse timers; bullets linger before detonation.",
+      stats: "Fuse: High (> 600 frames)",
+      discovered: longFuseDiscovered
+    },
+
+    // Proximity radius tiers
+    {
+      name: "Close Radius Ants",
+      desc: "Explodes only very close to the beetle.",
+      stats: "Proximity Radius: Low (≤ 150)",
+      discovered: closeProximityDiscovered
+    },
+    {
+      name: "Medium Radius Ants",
+      desc: "Explodes at a moderate distance from the beetle.",
+      stats: "Proximity Radius: Average (151–400)",
+      discovered: averageProximityDiscovered
+    },
+    {
+      name: "Wide Radius Ants",
+      desc: "Explodes from far away; harder to approach safely.",
+      stats: "Proximity Radius: High (> 400)",
+      discovered: farProximityDiscovered
+    },
+
+    // Explosion size tiers
+    {
+      name: "Small Blast Ants",
+      desc: "Smaller explosion radius; safer to close distance.",
+      stats: "Explosion Size: Low (≤ 1.0x)",
+      discovered: smallExplosionDiscovered
+    },
+    {
+      name: "Standard Blast Ants",
+      desc: "Typical explosion radius.",
+      stats: "Explosion Size: Average (1.0–2.0x)",
+      discovered: averageExplosionDiscovered
+    },
+    {
+      name: "Massive Blast Ants",
+      desc: "Large explosion radius; keep your distance.",
+      stats: "Explosion Size: High (> 2.0x)",
+      discovered: largeExplosionDiscovered
+    },
+
+    // Explosion residue tiers
+    {
+      name: "Clean Detonation Ants",
+      desc: "Minimal residue left behind after explosions.",
+      stats: "Residue: Low (≤ 1.0x)",
+      discovered: lowResidueDiscovered
+    },
+    {
+      name: "Lingering Detonation Ants",
+      desc: "Typical residue that slightly clutters the arena.",
+      stats: "Residue: Average (1.0–2.0x)",
+      discovered: averageResidueDiscovered
+    },
+    {
+      name: "Saturated Detonation Ants",
+      desc: "Heavy residue; screen gets messy fast.",
+      stats: "Residue: High (> 2.0x)",
+      discovered: highResidueDiscovered
+    },
     {
       name: "Follow Beetle Ants",
       desc: "Follows the movements and intentions of the player, easily influenced and trapped.",
