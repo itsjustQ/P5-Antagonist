@@ -2781,7 +2781,8 @@ function updateAntDexEntries() {
       name: "The Most Off Target Ants",
       desc: "Doesn’t shoot anywhere near the player. Who knows why.",
       stats: "Shot Offset: 500",
-      discovered: mostOffTargetAntsDiscovered
+      discovered: mostOffTargetAntsDiscovered,
+      category: 'exotic'
     },
     {
       name: "Middle Stationed Ants",
