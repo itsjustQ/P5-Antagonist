@@ -255,11 +255,14 @@ function setup() {
     explosionBehavior[i] = 0;
     explosionProximity[i] = 200;
     if (Math.round(explosionBehavior[i]) === 0){
-      explodeOnTermination[i] = true;
+      explodeOnTermination[i] = false;   // non-exploding default
       triggerExplodeViaProximity[i] = false;
     } else if (Math.round(explosionBehavior[i]) === 1){
+      explodeOnTermination[i] = true;    // time-based explosion
+      triggerExplodeViaProximity[i] = false;
+    } else if (Math.round(explosionBehavior[i]) === 2){
       explodeOnTermination[i] = false;
-      triggerExplodeViaProximity[i] = true;
+      triggerExplodeViaProximity[i] = true; // proximity-based explosion
     }
     standingPointX[i] = windowWidth / 2;
     standingPointY[i] = windowHeight / 2;
@@ -1755,7 +1758,7 @@ function nextRound(){
       followValue[i]    = constrain(followValue[parent.id]    + random(-movementMutationRate, movementMutationRate), -0.5, 3.49);
       autonomy[i]    = constrain(autonomy[parent.id]    + random(-movementMutationRate, movementMutationRate), -0.5, 1.5);
       distanceFromAnchor[i]    = constrain(distanceFromAnchor[parent.id]    + random(-100, 100), 0.1, 1000);
-      explosionBehavior[i]    = constrain(explosionBehavior[parent.id]    + random(-movementMutationRate, movementMutationRate), -0.5, 1.5);
+      explosionBehavior[i]    = constrain(explosionBehavior[parent.id]    + random(-movementMutationRate, movementMutationRate), -0.5, 2.5);
       explosionProximity[i]    = constrain(explosionProximity[parent.id]    + random(-100, 100), 0.1, 1000);
       angleFromSpawn[i]    = constrain(angleFromSpawn[parent.id]    + random((-PI / 3), (PI / 3)), 0, TWO_PI);
       bulletSize[i]    = constrain(bulletSize[parent.id]    + random(-(movementMutationRate / 2), (movementMutationRate / 2)), 1, 3);
@@ -1771,9 +1774,12 @@ function nextRound(){
         keepDistance[i] = true;
       }
       if (Math.round(explosionBehavior[i]) === 0){
-        explodeOnTermination[i] = true;
+        explodeOnTermination[i] = false;
         triggerExplodeViaProximity[i] = false;
       } else if (Math.round(explosionBehavior[i]) === 1){
+        explodeOnTermination[i] = true;
+        triggerExplodeViaProximity[i] = false;
+      } else if (Math.round(explosionBehavior[i]) === 2){
         explodeOnTermination[i] = false;
         triggerExplodeViaProximity[i] = true;
       }
@@ -1841,8 +1847,8 @@ function nextRound(){
         : random(0.1, 1000);
       
       explosionBehavior[i] = winner
-        ? constrain(explosionBehavior[winner.id] + random(-movementMutationRate, movementMutationRate), -0.5, 1.5)
-        : random(-0.5, 1.5);
+        ? constrain(explosionBehavior[winner.id] + random(-movementMutationRate, movementMutationRate), -0.5, 2.5)
+        : random(-0.5, 2.5);
       
       explosionProximity[i] = winner
         ? constrain(explosionProximity[winner.id] + random(-100, 100), 0.1, 1000)
@@ -1874,9 +1880,12 @@ function nextRound(){
         keepDistance[i] = true;
       }
       if (Math.round(explosionBehavior[i]) === 0){
-        explodeOnTermination[i] = true;
+        explodeOnTermination[i] = false;
         triggerExplodeViaProximity[i] = false;
       } else if (Math.round(explosionBehavior[i]) === 1){
+        explodeOnTermination[i] = true;
+        triggerExplodeViaProximity[i] = false;
+      } else if (Math.round(explosionBehavior[i]) === 2){
         explodeOnTermination[i] = false;
         triggerExplodeViaProximity[i] = true;
       }
@@ -2091,7 +2100,7 @@ function antdexScreen() {
       noFill();
       stroke(255, 215, 0, normalGlow);
       strokeWeight(10);
-      rect(windowWidth / 2, barY, barWidth + 10, barHeight + 6, 10);
+      rect(windowWidth / 2, barY, barWidth + 9, barHeight + 6, 10);
       noStroke();
     }
   } else {
@@ -2142,7 +2151,7 @@ function antdexScreen() {
       noFill();
       stroke(255, 80, 200, exoticGlow);
       strokeWeight(10);
-      rect(windowWidth / 2, barY, barWidth + 16, barHeight + 10, 12);
+      rect(windowWidth / 2, barY, barWidth + 10, barHeight + 9, 12);
       noStroke();
     }
   }
