@@ -12,6 +12,17 @@ let intermissionMenu = false;
 let intermissionMenuCooldown = 0;
 let gameOverMenu = false;
 let gameOverMenuCooldown = 0;
+let startMenuSelection = 0;
+let gameOverMenuSelection = 0;
+let intermissionMenuSelection = 0;
+let menuNavigationCooldown = 0;
+
+// Gamepad variables
+let gamepad = null;
+let gamepadConnected = false;
+let previousGamepadButtons = {};
+let leftStickDeadzone = 0.15;
+
 let antDexEntries = [];   // array of objects {name, desc, stats}
 let dexScrollY = 0;       // current scroll offset
 let dexTargetScroll = 0;  // for smooth scrolling
@@ -375,6 +386,8 @@ function triggerDiscoveryPopup() {
 }
 
 function draw() {
+  // Poll gamepad each frame
+  updateGamepad();
 
   if (antdexOpenCooldown > 0) {
     antdexOpenCooldown--;
@@ -384,6 +397,9 @@ function draw() {
   }
   if (gameOverMenuCooldown > 0) {
     gameOverMenuCooldown--;
+  }
+  if (menuNavigationCooldown > 0) {
+    menuNavigationCooldown--;
   }
   if (dexTabSwitchCooldown > 0) {
     dexTabSwitchCooldown--;
@@ -965,7 +981,7 @@ function detectKeyboardInput(){
     if(end == false) {
 
       //left
-      if (keyIsDown(65) || keyIsDown(37)) {
+      if (isLeftPressed()) {
         if (playerX > (playerSpeed - 0.1)){
           playerX -= playerSpeed;
         }
@@ -980,7 +996,7 @@ function detectKeyboardInput(){
       }
 
       //right
-      if (keyIsDown(68) || keyIsDown(39)) {
+      if (isRightPressed()) {
         if (playerX < windowWidth - (playerSpeed - 0.1)){
           playerX += playerSpeed;
         }
@@ -995,7 +1011,7 @@ function detectKeyboardInput(){
       }
 
       //up
-      if (keyIsDown(87) || keyIsDown(38)) {
+      if (isUpPressed()) {
         if (playerY > (scoreBarHeight + 25) + (playerSpeed - 0.01)){
           playerY -= playerSpeed;
         }
@@ -1010,7 +1026,7 @@ function detectKeyboardInput(){
       }
 
       //down
-      if (keyIsDown(83) || keyIsDown(40)) {
+      if (isDownPressed()) {
         if (playerY < windowHeight - expBarHeight - expBarBuffer - (playerSpeed - 0.1)){
           playerY += playerSpeed;
         }
@@ -1024,11 +1040,11 @@ function detectKeyboardInput(){
         playerRotationValue = 90;
       }
 
-      if (keyIsDown(16) && dashReady){
+      if (isDashPressed() && dashReady){
         dash = true;
       }
 
-      if (keyIsDown(32) && shot >= 1 && shotBreak <= 0){
+      if (isShootPressed() && shot >= 1 && shotBreak <= 0){
         shot = shot - 1;
         shotBreak = 0.1;
         playerBulletShot = true;
@@ -1548,42 +1564,149 @@ function endGame(){
           text('Press Esc for Options', windowWidth / 2, windowHeight * 0.74);
         pop();
 
-        if (gameOverMenuCooldown === 0 && keyIsDown(27)) {
+        if (gameOverMenuCooldown === 0 && isBackPressed()) {
           gameOverMenu = true;
           gameOverMenuCooldown = 20;
         }
-        if (keyIsDown(13)) {
+        if (isConfirmPressed()) {
           restartGame();
         } else if (touches.length > 0) {
           restartGame();
         }
       } else {
         push();
+          // Dark background like AntDex
           rectMode(CORNER);
-          fill(0, 0, 0, 220);
+          fill(20);
           rect(0, 0, windowWidth, windowHeight);
         pop();
 
+        // Menu navigation with arrow keys, WASD, and gamepad
+        if (menuNavigationCooldown === 0) {
+          if (isUpPressed()) { // Up or W
+            gameOverMenuSelection = (gameOverMenuSelection - 1 + 2) % 2;
+            menuNavigationCooldown = 10;
+          } else if (isDownPressed()) { // Down or S
+            gameOverMenuSelection = (gameOverMenuSelection + 1) % 2;
+            menuNavigationCooldown = 10;
+          }
+        }
+
+        // Title
         textAlign(CENTER);
         fill(255);
-        textSize(46);
-        text('Game Over Menu', windowWidth / 2, windowHeight * 0.55);
-        textSize(26);
-        text('1) Start Screen', windowWidth / 2, windowHeight * 0.63);
-        text('2) Antdex', windowWidth / 2, windowHeight * 0.68);
-        text('Esc) Back', windowWidth / 2, windowHeight * 0.73);
+        textSize(60);
+        text('Game Over Menu', windowWidth / 2, windowHeight * 0.40);
+        
+        // Menu option 0: Start Screen - Card style
+        let option0Y = windowHeight * 0.53;
+        let option0X = windowWidth / 2;
+        let option0W = 320;
+        let option0H = 70;
+        push();
+          rectMode(CENTER);
+          if (gameOverMenuSelection === 0) {
+            fill(255);  // White background for selected
+            stroke(255, 255, 100);
+            strokeWeight(3);
+          } else {
+            fill(50, 50, 50);  // Dark grey for unselected
+            stroke(100, 100, 100);
+            strokeWeight(2);
+          }
+          rect(option0X, option0Y, option0W, option0H, 12);
+          
+          // Text
+          if (gameOverMenuSelection === 0) {
+            fill(10);  // Dark text on white
+          } else {
+            fill(255);  // White text on dark
+          }
+          textSize(28);
+          textAlign(CENTER, CENTER);
+          text('Start Screen', option0X, option0Y);
+        pop();
+        
+        // Menu option 1: Antdex - Card style
+        let option1Y = windowHeight * 0.65;
+        let option1X = windowWidth / 2;
+        let option1W = 320;
+        let option1H = 70;
+        push();
+          rectMode(CENTER);
+          if (gameOverMenuSelection === 1) {
+            fill(255);  // White background for selected
+            stroke(160, 120, 255);  // Purple stroke like exotic tab
+            strokeWeight(3);
+          } else {
+            fill(50, 50, 50);  // Dark grey for unselected
+            stroke(100, 100, 100);
+            strokeWeight(2);
+          }
+          rect(option1X, option1Y, option1W, option1H, 12);
+          
+          // Text
+          if (gameOverMenuSelection === 1) {
+            fill(10);  // Dark text on white
+          } else {
+            fill(255);  // White text on dark
+          }
+          textSize(28);
+          textAlign(CENTER, CENTER);
+          text('Antdex', option1X, option1Y);
+        pop();
+        
+        // Instructions with fade
+        let fadeAlpha = map(sin(frameCount * 0.05), -1, 1, 30, 70);
+        fill(200, fadeAlpha);
+        textSize(18);
+        textAlign(CENTER);
+        text('W/S or ↑/↓ or Left Stick  Navigate  |  Enter or A  Confirm  |  Esc or B  Back', windowWidth / 2, windowHeight * 0.78);
 
-        if (keyIsDown(49)) {
-          gameOverMenu = false;
-          gameOverMenuCooldown = 20;
-          returnToMainMenu();
-        } else if (keyIsDown(50)) {
-          gameOverMenu = false;
-          gameOverMenuCooldown = 20;
-          antdexReturnState = 'gameover';
-          antdex = true;
-          antdexOpenCooldown = 20;
-        } else if (gameOverMenuCooldown === 0 && keyIsDown(27)) {
+        // Mouse click detection
+        if (mouseIsPressed) {
+          let mx = mouseX;
+          let my = mouseY;
+          
+          // Check option 0 (Start Screen)
+          if (mx > option0X - option0W/2 && mx < option0X + option0W/2 &&
+              my > option0Y - option0H/2 && my < option0Y + option0H/2) {
+            if (menuNavigationCooldown === 0) {
+              gameOverMenu = false;
+              gameOverMenuCooldown = 20;
+              returnToMainMenu();
+              menuNavigationCooldown = 20;
+            }
+          } 
+          // Check option 1 (Antdex)
+          else if (mx > option1X - option1W/2 && mx < option1X + option1W/2 &&
+                   my > option1Y - option1H/2 && my < option1Y + option1H/2) {
+            if (menuNavigationCooldown === 0) {
+              gameOverMenu = false;
+              gameOverMenuCooldown = 20;
+              antdexReturnState = 'gameover';
+              antdex = true;
+              antdexOpenCooldown = 20;
+              menuNavigationCooldown = 20;
+            }
+          }
+        }
+
+        // Enter key to select
+        if (isConfirmPressed() && menuNavigationCooldown === 0) {
+          if (gameOverMenuSelection === 0) {
+            gameOverMenu = false;
+            gameOverMenuCooldown = 20;
+            returnToMainMenu();
+          } else if (gameOverMenuSelection === 1) {
+            gameOverMenu = false;
+            gameOverMenuCooldown = 20;
+            antdexReturnState = 'gameover';
+            antdex = true;
+            antdexOpenCooldown = 20;
+          }
+          menuNavigationCooldown = 20;
+        } else if (gameOverMenuCooldown === 0 && isBackPressed()) {
           gameOverMenu = false;
           gameOverMenuCooldown = 20;
         }
@@ -1594,7 +1717,7 @@ function endGame(){
       gamemusic.stop();
       endmusic.play();
     }
-    if (keyIsDown(13) && !gameOverMenu) {
+    if (isConfirmPressed() && !gameOverMenu) {
       restartGame();
     }else if (touches.length > 0 && !gameOverMenu) {
       restartGame();
@@ -1737,7 +1860,7 @@ if (timeCount < 0) {
       // Handle case where all upgrades are maxed
       if (displayedUpgrades.length === 0) {
         // Just allow Enter to continue
-        if (keyIsDown(13)) {
+        if (isConfirmPressed()) {
           if (!upgradeEnterPressed && upgradeKeyDebounce === 0) {
             upgradeAvailable = false;
             upgradeMenuActive = false;
@@ -1753,10 +1876,10 @@ if (timeCount < 0) {
         
         // Handle left/right arrow navigation
         if (upgradeKeyDebounce === 0) {
-          if (keyIsDown(37) || keyIsDown(65)) {  // Left or A
+          if (isLeftPressed()) {  // Left or A
             selectedUpgrade = (selectedUpgrade - 1 + numOptions) % numOptions;
             upgradeKeyDebounce = 10;
-          } else if (keyIsDown(39) || keyIsDown(68)) {  // Right or D
+          } else if (isRightPressed()) {  // Right or D
             selectedUpgrade = (selectedUpgrade + 1) % numOptions;
             upgradeKeyDebounce = 10;
           }
@@ -1772,7 +1895,7 @@ if (timeCount < 0) {
         }
         
         // Confirm selection with Enter (wait for key release between selections)
-        if (keyIsDown(13)) {
+        if (isConfirmPressed()) {
           if (!upgradeEnterPressed && upgradeKeyDebounce === 0) {
             applyUpgrade(selectedUpgrade);
             upgradeKeyDebounce = 20;
@@ -1801,42 +1924,149 @@ if (timeCount < 0) {
         text('Press Enter to continue', windowWidth / 2, windowHeight * 0.72);
       pop();
 
-      if (intermissionMenuCooldown === 0 && keyIsDown(27)) {
+      if (intermissionMenuCooldown === 0 && isBackPressed()) {
         intermissionMenu = true;
         intermissionMenuCooldown = 20;
       }
-      if (upgradeKeyDebounce === 0 && keyIsDown(13)) {
+      if (upgradeKeyDebounce === 0 && isConfirmPressed()) {
         nextRound();
       } else if (touches.length > 0) {
         nextRound();
       }
     } else {
       push();
+        // Dark background like AntDex
         rectMode(CORNER);
-        fill(0, 0, 0, 220);
+        fill(20);
         rect(0, 0, windowWidth, windowHeight);
       pop();
 
+      // Menu navigation with arrow keys, WASD, and gamepad
+      if (menuNavigationCooldown === 0) {
+        if (isUpPressed()) { // Up or W
+          intermissionMenuSelection = (intermissionMenuSelection - 1 + 2) % 2;
+          menuNavigationCooldown = 10;
+        } else if (isDownPressed()) { // Down or S
+          intermissionMenuSelection = (intermissionMenuSelection + 1) % 2;
+          menuNavigationCooldown = 10;
+        }
+      }
+
+      // Title
       textAlign(CENTER);
       fill(255);
-      textSize(46);
-      text('Intermission Menu', windowWidth / 2, windowHeight * 0.45);
-      textSize(26);
-      text('1) Next Round', windowWidth / 2, windowHeight * 0.55);
-      text('2) Antdex', windowWidth / 2, windowHeight * 0.60);
-      text('Esc) Back', windowWidth / 2, windowHeight * 0.65);
+      textSize(60);
+      text('Intermission Menu', windowWidth / 2, windowHeight * 0.30);
+      
+      // Menu option 0: Next Round - Card style
+      let option0Y = windowHeight * 0.45;
+      let option0X = windowWidth / 2;
+      let option0W = 320;
+      let option0H = 70;
+      push();
+        rectMode(CENTER);
+        if (intermissionMenuSelection === 0) {
+          fill(255);  // White background for selected
+          stroke(255, 255, 100);
+          strokeWeight(3);
+        } else {
+          fill(50, 50, 50);  // Dark grey for unselected
+          stroke(100, 100, 100);
+          strokeWeight(2);
+        }
+        rect(option0X, option0Y, option0W, option0H, 12);
+        
+        // Text
+        if (intermissionMenuSelection === 0) {
+          fill(10);  // Dark text on white
+        } else {
+          fill(255);  // White text on dark
+        }
+        textSize(28);
+        textAlign(CENTER, CENTER);
+        text('Next Round', option0X, option0Y);
+      pop();
+      
+      // Menu option 1: Antdex - Card style
+      let option1Y = windowHeight * 0.57;
+      let option1X = windowWidth / 2;
+      let option1W = 320;
+      let option1H = 70;
+      push();
+        rectMode(CENTER);
+        if (intermissionMenuSelection === 1) {
+          fill(255);  // White background for selected
+          stroke(160, 120, 255);  // Purple stroke like exotic tab
+          strokeWeight(3);
+        } else {
+          fill(50, 50, 50);  // Dark grey for unselected
+          stroke(100, 100, 100);
+          strokeWeight(2);
+        }
+        rect(option1X, option1Y, option1W, option1H, 12);
+        
+        // Text
+        if (intermissionMenuSelection === 1) {
+          fill(10);  // Dark text on white
+        } else {
+          fill(255);  // White text on dark
+        }
+        textSize(28);
+        textAlign(CENTER, CENTER);
+        text('Antdex', option1X, option1Y);
+      pop();
+      
+      // Instructions with fade
+      let fadeAlpha = map(sin(frameCount * 0.05), -1, 1, 30, 70);
+      fill(200, fadeAlpha);
+      textSize(18);
+      textAlign(CENTER);
+      text('W/S or ↑/↓ or Left Stick  Navigate  |  Enter or A  Confirm  |  Esc or B  Back', windowWidth / 2, windowHeight * 0.75);
 
-      if (keyIsDown(49)) {
-        intermissionMenu = false;
-        intermissionMenuCooldown = 20;
-        nextRound();
-      } else if (keyIsDown(50)) {
-        intermissionMenu = false;
-        intermissionMenuCooldown = 20;
-        antdexReturnState = 'intermission';
-        antdex = true;
-        antdexOpenCooldown = 20;
-      } else if (intermissionMenuCooldown === 0 && keyIsDown(27)) {
+      // Mouse click detection
+      if (mouseIsPressed) {
+        let mx = mouseX;
+        let my = mouseY;
+        
+        // Check option 0 (Next Round)
+        if (mx > option0X - option0W/2 && mx < option0X + option0W/2 &&
+            my > option0Y - option0H/2 && my < option0Y + option0H/2) {
+          if (menuNavigationCooldown === 0) {
+            intermissionMenu = false;
+            intermissionMenuCooldown = 20;
+            nextRound();
+            menuNavigationCooldown = 20;
+          }
+        } 
+        // Check option 1 (Antdex)
+        else if (mx > option1X - option1W/2 && mx < option1X + option1W/2 &&
+                 my > option1Y - option1H/2 && my < option1Y + option1H/2) {
+          if (menuNavigationCooldown === 0) {
+            intermissionMenu = false;
+            intermissionMenuCooldown = 20;
+            antdexReturnState = 'intermission';
+            antdex = true;
+            antdexOpenCooldown = 20;
+            menuNavigationCooldown = 20;
+          }
+        }
+      }
+
+      // Enter key to select
+      if (isConfirmPressed() && menuNavigationCooldown === 0) {
+        if (intermissionMenuSelection === 0) {
+          intermissionMenu = false;
+          intermissionMenuCooldown = 20;
+          nextRound();
+        } else if (intermissionMenuSelection === 1) {
+          intermissionMenu = false;
+          intermissionMenuCooldown = 20;
+          antdexReturnState = 'intermission';
+          antdex = true;
+          antdexOpenCooldown = 20;
+        }
+        menuNavigationCooldown = 20;
+      } else if (intermissionMenuCooldown === 0 && isBackPressed()) {
         intermissionMenu = false;
         intermissionMenuCooldown = 20;
       }
@@ -2594,8 +2824,9 @@ function drawStartScreen(){
       if(!titlemusic.isPlaying()) {
         titlemusic.play();
       }
-      if (keyIsDown(13)) {
+      if (isConfirmPressed()) {
         startMenu = true;
+        menuNavigationCooldown = 20; // Prevent immediate menu selection
       }
     }
     if (startMenu === true){
@@ -2604,24 +2835,132 @@ function drawStartScreen(){
       if(!titlemusic.isPlaying()) {
         titlemusic.play();
       }
+      // Dark background like AntDex
       imageMode(CORNER);
-      fill(0, 0, 0, 200);
+      fill(20);
       rect(0, 0, windowWidth, windowHeight);
-      fill(255, 255, 255);
+      
+      // Menu navigation with arrow keys, WASD, and gamepad
+      if (menuNavigationCooldown === 0) {
+        if (isUpPressed()) { // Up or W
+          startMenuSelection = (startMenuSelection - 1 + 2) % 2;
+          menuNavigationCooldown = 10;
+        } else if (isDownPressed()) { // Down or S
+          startMenuSelection = (startMenuSelection + 1) % 2;
+          menuNavigationCooldown = 10;
+        }
+      }
+
+      // Title
+      fill(255);
       textAlign(CENTER);
-      textSize(80);
-      text("Main Menu", windowWidth / 2, windowHeight / 3);
-      textSize(40);
-      text("1) Start Game", windowWidth / 2, (windowHeight / 3) + 60);
-      text("2) Antdex", windowWidth / 2, (windowHeight / 3) + 120);
-      if (keyIsDown(49)) {
-        start = true;
-        titlemusic.stop();
-        gamemusic.play();
-      }else if (keyIsDown(50)) {
-        antdex = true;
-        startMenu = false;
-        antdexReturnState = 'menu';
+      textSize(70);
+      text("Main Menu", windowWidth / 2, windowHeight * 0.25);
+      
+      // Menu option 0: Start Game - Card style
+      let option0Y = windowHeight * 0.42;
+      let option0X = windowWidth / 2;
+      let option0W = 340;
+      let option0H = 80;
+      push();
+        rectMode(CENTER);
+        if (startMenuSelection === 0) {
+          fill(255);  // White background for selected
+          stroke(255, 255, 100);
+          strokeWeight(3);
+        } else {
+          fill(50, 50, 50);  // Dark grey for unselected
+          stroke(100, 100, 100);
+          strokeWeight(2);
+        }
+        rect(option0X, option0Y, option0W, option0H, 12);
+        
+        // Text
+        if (startMenuSelection === 0) {
+          fill(10);  // Dark text on white
+        } else {
+          fill(255);  // White text on dark
+        }
+        textSize(32);
+        textAlign(CENTER, CENTER);
+        text("Start Game", option0X, option0Y);
+      pop();
+      
+      // Menu option 1: Antdex - Card style
+      let option1Y = windowHeight * 0.56;
+      let option1X = windowWidth / 2;
+      let option1W = 340;
+      let option1H = 80;
+      push();
+        rectMode(CENTER);
+        if (startMenuSelection === 1) {
+          fill(255);  // White background for selected
+          stroke(160, 120, 255);  // Purple stroke like exotic tab
+          strokeWeight(3);
+        } else {
+          fill(50, 50, 50);  // Dark grey for unselected
+          stroke(100, 100, 100);
+          strokeWeight(2);
+        }
+        rect(option1X, option1Y, option1W, option1H, 12);
+        
+        // Text
+        if (startMenuSelection === 1) {
+          fill(10);  // Dark text on white
+        } else {
+          fill(255);  // White text on dark
+        }
+        textSize(32);
+        textAlign(CENTER, CENTER);
+        text("Antdex", option1X, option1Y);
+      pop();
+      
+      // Instructions with fade
+      let fadeAlpha = map(sin(frameCount * 0.05), -1, 1, 30, 70);
+      fill(200, fadeAlpha);
+      textSize(18);
+      textAlign(CENTER);
+      text('W/S or ↑/↓ or Left Stick  Navigate  |  Enter or A  Confirm', windowWidth / 2, windowHeight * 0.72);
+
+      // Mouse click detection
+      if (mouseIsPressed) {
+        let mx = mouseX;
+        let my = mouseY;
+        
+        // Check option 0 (Start Game)
+        if (mx > option0X - option0W/2 && mx < option0X + option0W/2 &&
+            my > option0Y - option0H/2 && my < option0Y + option0H/2) {
+          if (menuNavigationCooldown === 0) {
+            start = true;
+            titlemusic.stop();
+            gamemusic.play();
+            menuNavigationCooldown = 20;
+          }
+        } 
+        // Check option 1 (Antdex)
+        else if (mx > option1X - option1W/2 && mx < option1X + option1W/2 &&
+                 my > option1Y - option1H/2 && my < option1Y + option1H/2) {
+          if (menuNavigationCooldown === 0) {
+            antdex = true;
+            startMenu = false;
+            antdexReturnState = 'menu';
+            menuNavigationCooldown = 20;
+          }
+        }
+      }
+
+      // Enter key to select
+      if (isConfirmPressed() && menuNavigationCooldown === 0) {
+        if (startMenuSelection === 0) {
+          start = true;
+          titlemusic.stop();
+          gamemusic.play();
+        } else if (startMenuSelection === 1) {
+          antdex = true;
+          startMenu = false;
+          antdexReturnState = 'menu';
+        }
+        menuNavigationCooldown = 20;
       }
 
     }
@@ -2633,10 +2972,10 @@ function antdexScreen() {
   if (!antdex) return;
 
   if (dexTabSwitchCooldown === 0) {
-    if (keyIsDown(37)) {
+    if (isLeftPressed()) {
       setDexCategory('normal');
       dexTabSwitchCooldown = 10;
-    } else if (keyIsDown(39)) {
+    } else if (isRightPressed()) {
       setDexCategory('exotic');
       dexTabSwitchCooldown = 10;
     }
@@ -2704,7 +3043,7 @@ function antdexScreen() {
   let fadeAlpha = map(sin(frameCount * 0.05), -1, 1, 30, 70);
   textSize(18);
   fill(200, fadeAlpha);
-  text("Press ← or click for Normal • Press → or click for Exotic", windowWidth / 2, tabY + 50);
+  text("← or A or click for Normal • → or D or click for Exotic", windowWidth / 2, tabY + 50);
 
   const barWidth = 360;
   const barHeight = 18;
@@ -2820,8 +3159,8 @@ function antdexScreen() {
 
   rectMode(CORNER);
 
-  if (keyIsDown(38)) dexTargetScroll += dexScrollSpeed;
-  if (keyIsDown(40)) dexTargetScroll -= dexScrollSpeed;
+  if (isUpPressed()) dexTargetScroll += dexScrollSpeed;
+  if (isDownPressed()) dexTargetScroll -= dexScrollSpeed;
 
   const rowHeight = 220;
   const listTop = barY + 80;
@@ -2917,9 +3256,9 @@ function antdexScreen() {
   fill(255, fadeAlpha);
   textAlign(CENTER);
   textSize(24);
-  text("Press ESC to return", windowWidth / 2, windowHeight - 40);
+  text("Esc or B  Back", windowWidth / 2, windowHeight - 40);
 
-  if (keyIsDown(27)) {
+  if (isBackPressed()) {
     antdex = false;
     if (antdexReturnState === 'menu') {
       startMenu = true;
@@ -3781,4 +4120,93 @@ function updateAntDexEntries() {
     category: entry.category || 'normal'
   }));
   
+}
+
+// ========== GAMEPAD SUPPORT ==========
+
+function updateGamepad() {
+  const gamepads = navigator.getGamepads ? navigator.getGamepads() : [];
+  gamepad = null;
+  
+  for (let i = 0; i < gamepads.length; i++) {
+    if (gamepads[i]) {
+      gamepad = gamepads[i];
+      gamepadConnected = true;
+      break;
+    }
+  }
+  
+  if (!gamepad) {
+    gamepadConnected = false;
+  }
+}
+
+// Check if left/A is pressed (keyboard A/Left or gamepad left stick left)
+function isLeftPressed() {
+  if (keyIsDown(65) || keyIsDown(37)) return true;
+  if (gamepad && gamepad.axes[0] < -leftStickDeadzone) return true;
+  return false;
+}
+
+// Check if right/D is pressed (keyboard D/Right or gamepad left stick right)
+function isRightPressed() {
+  if (keyIsDown(68) || keyIsDown(39)) return true;
+  if (gamepad && gamepad.axes[0] > leftStickDeadzone) return true;
+  return false;
+}
+
+// Check if up/W is pressed (keyboard W/Up or gamepad left stick up)
+function isUpPressed() {
+  if (keyIsDown(87) || keyIsDown(38)) return true;
+  if (gamepad && gamepad.axes[1] < -leftStickDeadzone) return true;
+  return false;
+}
+
+// Check if down/S is pressed (keyboard S/Down or gamepad left stick down)
+function isDownPressed() {
+  if (keyIsDown(83) || keyIsDown(40)) return true;
+  if (gamepad && gamepad.axes[1] > leftStickDeadzone) return true;
+  return false;
+}
+
+// Check if space/shoot is pressed (keyboard Space or gamepad right trigger)
+function isShootPressed() {
+  if (keyIsDown(32)) return true;
+  if (gamepad && gamepad.buttons[7] && gamepad.buttons[7].pressed) return true; // Right trigger (R2/RT)
+  return false;
+}
+
+// Check if enter/confirm is pressed (keyboard Enter or gamepad A button)
+function isConfirmPressed() {
+  if (keyIsDown(13)) return true;
+  if (gamepad && gamepad.buttons[0] && gamepad.buttons[0].pressed) return true; // A button (Xbox) / Cross (PS)
+  return false;
+}
+
+// Check if escape/back is pressed (keyboard Esc or gamepad B button)
+function isBackPressed() {
+  if (keyIsDown(27)) return true;
+  if (gamepad && gamepad.buttons[1] && gamepad.buttons[1].pressed) return true; // B button (Xbox) / Circle (PS)
+  return false;
+}
+
+// Check if shift/dash is pressed (keyboard Shift or gamepad left stick click)
+function isDashPressed() {
+  if (keyIsDown(16)) return true;
+  if (gamepad && gamepad.buttons[10] && gamepad.buttons[10].pressed) return true; // L3 (left stick click)
+  return false;
+}
+
+// Get left stick X axis value (-1 to 1)
+function getLeftStickX() {
+  if (!gamepad) return 0;
+  const value = gamepad.axes[0];
+  return Math.abs(value) < leftStickDeadzone ? 0 : value;
+}
+
+// Get left stick Y axis value (-1 to 1)
+function getLeftStickY() {
+  if (!gamepad) return 0;
+  const value = gamepad.axes[1];
+  return Math.abs(value) < leftStickDeadzone ? 0 : value;
 }
