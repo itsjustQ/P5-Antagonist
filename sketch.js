@@ -100,8 +100,8 @@ let speedTime = 0.5;
 let dashCoolDown;
 let dash = false;
 let dashReady = true;
-let shield = 3;
-let shot = 3;
+let shield = 0;
+let shot = 0;
 let shotBreak = 0;
 let playerBullets = []; 
 let playerBulletShot = false;
@@ -181,6 +181,8 @@ let buttons = {};
 //let canvasSize = 600;
 let playerSpeed = 4;
 let scoreBarHeight = 40;
+let expBarHeight = 25;
+let expBarBuffer = 15;
 let score = 0;
 let totalScore = 0;
 let health = 10;
@@ -192,6 +194,35 @@ let combo = 0;
 let comboConstant = 50;
 let comboPoints = 0;
 let streakPoints = 0;
+
+// EXP Level System
+let expLevel = 1;
+let expProgress = 0;
+let expRequired = 500;
+let upgradeAvailable = false;
+let upgradeMenuActive = false;
+let selectedUpgrade = 0;  // 0, 1, or 2 for three options
+let upgradeKeyDebounce = 0;
+let upgradeEnterPressed = false;  // Track if Enter was pressed to prevent bleed-through
+let upgrade1Level = 0;  // Walking Speed (max 4)
+let upgrade2Level = 0;  // Dash Speed (max 5)
+let upgrade3Level = 0;  // Dash Cooldown (max 5)
+let upgrade4Level = 0;  // Add Shield (max 9)
+let upgrade5Level = 0;  // Add Bullets (max 16)
+let upgrade6Level = 0;  // Shield Regeneration (max 5, requires Add Shield)
+let upgrade7Level = 0;  // Bullet Reload (max 5, requires Add Bullets)
+let upgrade8Level = 0;  // Bullet Speed (max 5, requires Add Bullets)
+let displayedUpgrades = [];  // Array of up to 3 randomly selected upgrade indices (0-7)
+
+// Actual upgrade stat variables
+let movementSpeed = 3;
+let dashSpeedStat = 2;
+let dashCooldownStat = 3;
+let shieldQuantity = 0;
+let bulletQuantity = 0;
+let shieldRegenerationRate = 600;
+let bulletReloadRate = 180;
+let playerBulletSpeed = 1;
 
 let beetle;
 let ant;
@@ -243,14 +274,14 @@ function setup() {
   playerBulletX = playerX;
   playerBulletY = playerY;
   playerBulletRotationValue = playerRotationValue;
-  playerSpeed = BASE_PLAYER_SPEED / enemyCount;
+  playerSpeed = movementSpeed / enemyCount;
   let dashCooldown = 0;
 
 
   for (let i = 1; i < enemyCount + 1; i++) {
     //enemy one
       antX[i] = random(0, windowWidth);
-      antY[i] = random(scoreBarHeight + ANT_SPAWN_BUFFER, windowHeight - ANT_SPAWN_BUFFER);
+      antY[i] = random(scoreBarHeight + ANT_SPAWN_BUFFER, windowHeight - expBarHeight - expBarBuffer - ANT_SPAWN_BUFFER);
       spawnX[i] = antX[i] + cos(angleFromSpawn[i]);
       spawnY[i] = antY[i] + sin(angleFromSpawn[i]);
     //console.log(antX[i]);
@@ -357,6 +388,9 @@ function draw() {
   if (dexTabSwitchCooldown > 0) {
     dexTabSwitchCooldown--;
   }
+  if (upgradeKeyDebounce > 0) {
+    upgradeKeyDebounce--;
+  }
 
   if (antdex) {
     updateAntDexEntries();
@@ -454,8 +488,8 @@ function resetRunState() {
   bulletSpeed[enemyIndex] = 100;
   playerX = width / 2;
   playerY = height / 2;
-  shield = 3;
-  shot = 3;
+  shield = shieldQuantity > 0 ? shieldQuantity : 0;
+  shot = bulletQuantity > 0 ? bulletQuantity : 0;
   shotBreak = 0;
   dash = false;
   dashReady = true;
@@ -466,6 +500,25 @@ function resetRunState() {
   floatingTexts = [];
   antX[enemyIndex] = windowWidth * 0.75;
   antY[enemyIndex] = windowHeight * 0.5;
+  
+  // Reset EXP system
+  expLevel = 1;
+  expProgress = 0;
+  expRequired = 500;
+  upgradeAvailable = false;
+  upgradeMenuActive = false;
+  selectedUpgrade = 0;
+  upgradeEnterPressed = false;
+  upgrade1Level = 0;
+  upgrade2Level = 0;
+  upgrade3Level = 0;
+  upgrade4Level = 0;
+  upgrade5Level = 0;
+  upgrade6Level = 0;
+  upgrade7Level = 0;
+  upgrade8Level = 0;
+  displayedUpgrades = [];
+  updateUpgradeBooleans();  // Reset all upgrade booleans to false
 }
 
 function restartGame() {
@@ -510,10 +563,12 @@ function drawBackground() {
 
 function drawScoreboard() {
   rectMode(CORNER);
-  fill(128, 200, 0);
+  fill(0, 50, 120);  // Darker blue background
   rect(0, 0, windowWidth, scoreBarHeight);
 
-  fill(0);
+  fill(255);  // White text
+  stroke(0);  // Black border
+  strokeWeight(2);
   textSize(16);
   textAlign(CENTER);
 
@@ -538,18 +593,31 @@ function drawScoreboard() {
   // Left to right: Round, Time, Combo, Health, Score, Total, High Score
   
   // Round
-  fill(0);
+  fill(255);
   text(`Round: ${level}`, startX, yPos);
 
   // Time
   text(`Time: ${round(timeCount)}`, startX + sectionWidth, yPos);
 
-  // Combo (colored)
+  // Combo (colored - fades yellow → red → white)
   let comboText = `Combo: ${combo}`;
   if (streakPoints > 0) {
     comboText += ` +${streakPoints}`;
   }
-  fill(Math.pow(comboTime, 2), comboTime * 5, 0);
+  // Color transition: Yellow (60) → Red (30) → White (0)
+  let r, g, b;
+  if (comboTime > 30) {
+    // Yellow to Red transition
+    r = 255;
+    g = map(comboTime, 60, 30, 255, 0);  // 255 at 60 (yellow), 0 at 30 (red)
+    b = 0;
+  } else {
+    // Red to White transition
+    r = 255;
+    g = map(comboTime, 30, 0, 0, 255);   // 0 at 30 (red), 255 at 0 (white)
+    b = map(comboTime, 30, 0, 0, 255);   // 0 at 30 (red), 255 at 0 (white)
+  }
+  fill(r, g, b);
   text(comboText, startX + sectionWidth * 2, yPos);
 
   // Health
@@ -557,12 +625,15 @@ function drawScoreboard() {
   if (health < 10) {
     let flashAlpha = map(sin(frameCount * 20/health), -1, 1, 50, 150);
     fill(255, 0, 0, flashAlpha);
+    noStroke();
     rectMode(CENTER);
     rect(startX + sectionWidth * 3, scoreBarHeight / 2, sectionWidth * 0.8, scoreBarHeight * 1);
     rectMode(CORNER);
   }
   
-  fill(0);
+  fill(255);
+  stroke(0);
+  strokeWeight(2);
   text(`Health: ${health.toFixed(2)}`, startX + sectionWidth * 3, yPos);
 
   // Score
@@ -574,8 +645,63 @@ function drawScoreboard() {
   // High Score
   text(`High Score: ${highScore}`, startX + sectionWidth * 6, yPos);
 
+  // EXP Progress Bar
+  drawExpBar();
+
   if (!end) {
     timeCount -= (1 / 100);
+  }
+}
+
+function drawExpBar() {
+  // EXP bar dimensions
+  let barWidth = windowWidth;  // Full screen width
+  let barHeight = expBarHeight;
+  let barX = 0;  // Start at left edge
+  let barY = windowHeight - barHeight;  // At the bottom of screen
+  
+  // Background (empty bar)
+  fill(80, 80, 0);  // Dark yellow
+  stroke(0);
+  strokeWeight(2);
+  rectMode(CORNER);
+  rect(barX, barY, barWidth, barHeight);
+  
+  // Progress (filled portion)
+  let progressWidth = map(expProgress, 0, expRequired, 0, barWidth);
+  fill(255, 255, 0);  // Bright yellow
+  noStroke();
+  rect(barX, barY, progressWidth, barHeight);
+  
+  // EXP Level text (with border)
+  if (upgradeAvailable) {
+    // Pulsing "Upgrade Available" text
+    let pulseSize = map(sin(frameCount * 0.1), -1, 1, 14, 18);
+    let pulseAlpha = map(sin(frameCount * 0.1), -1, 1, 180, 255);
+    fill(255, pulseAlpha);
+    stroke(0);
+    strokeWeight(3);
+    textSize(pulseSize);
+    textAlign(CENTER);
+    text(`UPGRADE AVAILABLE!`, windowWidth / 2, barY + barHeight / 2 + 5);
+  } else {
+    fill(255);
+    stroke(0);
+    strokeWeight(3);
+    textSize(14);
+    textAlign(CENTER);
+    text(`EXP Level: ${expLevel} | ${expProgress}/${expRequired}`, windowWidth / 2, barY + barHeight / 2 + 5);
+  }
+}
+
+function addScore(points) {
+  score += points;
+  expProgress += points;
+  
+  // Check if upgrade should be available
+  if (expProgress >= expRequired && !upgradeAvailable) {
+    upgradeAvailable = true;
+    // Don't auto-level - wait for upgrade selection at round end
   }
 }
 
@@ -621,43 +747,51 @@ function drawBeetle(){
       image(beetle, 0, 0, 130, 130);
     pop()
 
-    // Shot icons on right side
-    if (shot >= 1){
-      image(acidFull, -50, -50, 50, 50);
-    } else {
-      image(acidEmpty, -50, -50, 50, 50);
-    }
-    if (shot >= 2){
-      image(acidFull, -40, -50, 50, 50);
-    } else {
-      image(acidEmpty, -40, -50, 50, 50);
-    }
-    if (shot >= 3){
-      image(acidFull, -30, -50, 50, 50);
-    }else {
-      image(acidEmpty, -30, -50, 50, 50);
+    // Shot icons on right side - dynamic 4x4 grid (up to 16 bullets)
+    let maxBullets = bulletQuantity > 0 ? bulletQuantity : 0; // No bullets until upgrade
+    let bulletIconSize = 50;
+    let bulletSpacing = 10;
+    let bulletStartX = -55;
+    let bulletStartY = -50;
+    
+    for (let i = 0; i < maxBullets; i++) {
+      let col = i % 4;  // 4 columns
+      let row = Math.floor(i / 4);  // 4 rows max
+      let bx = bulletStartX + col * bulletSpacing;
+      let by = bulletStartY + row * bulletSpacing;
+      
+      if (shot >= i + 1) {
+        image(acidFull, bx, by, bulletIconSize, bulletIconSize);
+      } else {
+        image(acidEmpty, bx, by, bulletIconSize, bulletIconSize);
+      }
     }
 
-    // Shield icons on left side
-    if (shield > 1) {
-      image(shieldFull, 30, -50, 30, 30);
-    } else {
-      image(shieldEmpty, 30, -50, 30, 30);
-    }
-    if (shield > 2) {
-      image(shieldFull, 50, -50, 30, 30);
-    } else {
-      image(shieldEmpty, 50, -50, 30, 30);
-    }
-    if (shield >= 3) {
-      image(shieldFull, 70, -50, 30, 30);
-    } else {
-      image(shieldEmpty, 70, -50, 30, 30);
+    // Shield icons on left side - dynamic 3x3 grid (up to 9 shields)
+    let maxShields = shieldQuantity > 0 ? shieldQuantity : 0; // No shields until upgrade
+    let shieldIconSize = 30;
+    let shieldSpacing = 20;
+    let shieldStartX = 30;
+    let shieldStartY = -50;
+    
+    for (let i = 0; i < maxShields; i++) {
+      let col = i % 3;  // 3 columns
+      let row = Math.floor(i / 3);  // 3 rows max
+      let sx = shieldStartX + col * shieldSpacing;
+      let sy = shieldStartY + row * shieldSpacing;
+      
+      if (shield > i) {
+        image(shieldFull, sx, sy, shieldIconSize, shieldIconSize);
+      } else {
+        image(shieldEmpty, sx, sy, shieldIconSize, shieldIconSize);
+      }
     }
   pop();
 
-  if (shot < 3){
-    shot = shot + (1 / 150);
+  // Reload shots based on bulletQuantity
+  let maxShots = bulletQuantity > 0 ? bulletQuantity : 0;
+  if (shot < maxShots){
+    shot = shot + (1 / bulletReloadRate);
   }
 
 }
@@ -672,11 +806,11 @@ function enemyInteraction1(){
         combo = combo + 1;
         calculateBonus();
         streakPoints = streakPoints + comboPoints;
-        score = score + 100 + comboPoints;
+        addScore(100 + comboPoints);
         health = health + 1;
         addDeathEffect(antX[i], antY[i], 100 + comboPoints);
         antX[i] = random(0, windowWidth);
-        antY[i] = random(scoreBarHeight + ANT_SPAWN_BUFFER, windowHeight - ANT_SPAWN_BUFFER);
+        antY[i] = random(scoreBarHeight + ANT_SPAWN_BUFFER, windowHeight - expBarHeight - expBarBuffer - ANT_SPAWN_BUFFER);
         spawnX[i] = antX[i] + cos(angleFromSpawn[i]);
         spawnY[i] = antY[i] + sin(angleFromSpawn[i]);
         antLives[i]++;
@@ -773,7 +907,7 @@ function enemyShoot1() {
 
         if (
           bullet.x < 0 || bullet.x > windowWidth ||
-          bullet.y < scoreBarHeight || bullet.y > windowHeight
+          bullet.y < scoreBarHeight || bullet.y > windowHeight - expBarHeight - expBarBuffer
         ) {
           enemyBullets[i].splice(b, 1);
         } else if (
@@ -791,7 +925,7 @@ function enemyShoot1() {
 
 function handlePlayerHit(i){
   if (end == false){
-    if (shield > 1){
+    if (shield > 0){
       shield = shield - bulletSize[i];
       antPoints[i] = antPoints[i] + bulletSize[i];
       console.log("Ant", i, "points:", antPoints[i]);
@@ -877,12 +1011,12 @@ function detectKeyboardInput(){
 
       //down
       if (keyIsDown(83) || keyIsDown(40)) {
-        if (playerY < windowHeight - (playerSpeed - 0.1)){
+        if (playerY < windowHeight - expBarHeight - expBarBuffer - (playerSpeed - 0.1)){
           playerY += playerSpeed;
         }
         if (followTarget[i] === true){
           if (followBeetle[i] === true){
-            if (antY[i] < windowHeight - ((antSpeed[i]) -.01)){
+            if (antY[i] < windowHeight - expBarHeight - expBarBuffer - ((antSpeed[i]) -.01)){
               antY[i] += (antSpeed[i]);
             }
           }
@@ -920,7 +1054,7 @@ function detectKeyboardInput(){
             antY[i] += dy * antSpeed[i];
 
             antX[i] = constrain(antX[i], 0, windowWidth);
-            antY[i] = constrain(antY[i], scoreBarHeight + 15, windowHeight);
+            antY[i] = constrain(antY[i], scoreBarHeight + 15, windowHeight - expBarHeight - expBarBuffer);
           }
         }
       }
@@ -992,10 +1126,10 @@ function beetleShoot() {
     let b = playerBullets[i];
 
     // move bullet in its facing direction
-    if (b.rotation == 90)  b.y += BASE_PLAYER_SPEED * 3;
-    if (b.rotation == 0)   b.x += BASE_PLAYER_SPEED * 3;
-    if (b.rotation == 270) b.y -= BASE_PLAYER_SPEED * 3;
-    if (b.rotation == 180) b.x -= BASE_PLAYER_SPEED * 3;
+    if (b.rotation == 90)  b.y += 4 * playerBulletSpeed;
+    if (b.rotation == 0)   b.x += 4 * playerBulletSpeed;
+    if (b.rotation == 270) b.y -= 4 * playerBulletSpeed;
+    if (b.rotation == 180) b.x -= 4 * playerBulletSpeed;
 
     // draw bullet
     push();
@@ -1019,11 +1153,11 @@ function beetleShoot() {
         combo++;
         calculateBonus();
         streakPoints += comboPoints;
-        score += 100 + comboPoints;
+        addScore(100 + comboPoints);
         health++;
         addDeathEffect(antX[j], antY[j], 100 + comboPoints);
         antX[j] = random(0, windowWidth);
-        antY[j] = random(scoreBarHeight + ANT_SPAWN_BUFFER, windowHeight - ANT_SPAWN_BUFFER);
+        antY[j] = random(scoreBarHeight + ANT_SPAWN_BUFFER, windowHeight - expBarHeight - expBarBuffer - ANT_SPAWN_BUFFER);
         spawnX[j] = antX[j] + cos(angleFromSpawn[j]);
         spawnY[j] = antY[j] + sin(angleFromSpawn[j]);
         playerBullets.splice(i, 1);
@@ -1031,12 +1165,12 @@ function beetleShoot() {
       }
     }
 
-    // remove bullet if off-screen
+    // remove bullet if off-screen or hitting EXP bar
     if (
       b.x < 0 ||
       b.x > windowWidth ||
       b.y < scoreBarHeight ||
-      b.y > windowHeight
+      b.y > windowHeight - expBarHeight - expBarBuffer
     ) {
       playerBullets.splice(i, 1);
     }
@@ -1047,11 +1181,11 @@ function beetleDash(){
 
   //handle dash
   if (dash == true && dashReady == true) {
-    playerSpeed = BASE_PLAYER_SPEED / enemyCount * 7;
+    playerSpeed = movementSpeed / enemyCount * dashSpeedStat;
     speedTime = speedTime - (1 / 100);
     if (speedTime <= 0){
       dash = false;
-      dashCoolDown = 2;
+      dashCoolDown = dashCooldownStat;
       dashReady = false;
 
       if(!sFast.isPlaying()) {
@@ -1062,7 +1196,7 @@ function beetleDash(){
   } else {
     dashCoolDown = dashCoolDown - (1 / 100);
     //console.log(round(dashCoolDown));
-    playerSpeed = BASE_PLAYER_SPEED / enemyCount;
+    playerSpeed = movementSpeed / enemyCount;
     if (dashCoolDown <= 0){
       speedTime = 0.25;
       dashReady = true;
@@ -1086,8 +1220,9 @@ function enemyStrike() {
     fill( 0, 0, 255, 75);
     rect(0, 0, windowWidth, windowHeight);
   }
-  if (shield < 3){
-    shield = shield + (1 / 500);
+  let maxShields = shieldQuantity > 0 ? shieldQuantity : 0;
+  if (shield < maxShields){
+    shield = shield + (1 / shieldRegenerationRate);
   }
 }
 
@@ -1242,7 +1377,7 @@ function autonomousAntMovement(){
           antY[i] -= antSpeed[i];
         }
         antX[i] = constrain(antX[i], 0, windowWidth);
-        antY[i] = constrain(antY[i], scoreBarHeight + 15, windowHeight);
+        antY[i] = constrain(antY[i], scoreBarHeight + 15, windowHeight - expBarHeight - expBarBuffer);
       }
     }
   }
@@ -1300,7 +1435,7 @@ function autonomousAntMovement(){
     }
     // --- Keep on screen ---
     antX[i] = constrain(antX[i], 0, windowWidth);
-    antY[i] = constrain(antY[i], scoreBarHeight + 15, windowHeight);
+    antY[i] = constrain(antY[i], scoreBarHeight + 15, windowHeight - expBarHeight - expBarBuffer);
   }
 }
 
@@ -1329,6 +1464,7 @@ function drawDeathEffects() {
     push();
       textAlign(CENTER);
       textSize(24);
+      noStroke();
       fill(255, 255, 0, t.opacity);
       text(t.text, t.x, t.y);
     pop();
@@ -1343,7 +1479,7 @@ function drawDeathEffects() {
 
 
 function endGame(){
-  if (health < 1){
+  if (health < 0){
     fill(40, 0, 0);
     rectMode(CORNER);
     rect(0, 0, windowWidth, windowHeight);
@@ -1403,8 +1539,9 @@ function endGame(){
           fill(0, 0, 0, 160);
           rect(windowWidth / 2 - windowWidth * 0.275, windowHeight * 0.68, windowWidth * 0.55, windowHeight * 0.12, 18);
 
+          let fadeAlpha = map(sin(frameCount * 1), -1, 1, 30, 70);
           textAlign(CENTER, CENTER);
-          fill(255);
+          fill(255, fadeAlpha);
           textSize(26);
           text('Press Enter to Restart', windowWidth / 2, windowHeight * 0.70);
           textSize(20);
@@ -1551,14 +1688,113 @@ if (timeCount < 0) {
       endmusic.play();
     }
 
+    // Check if upgrade menu should be shown first
+    if (upgradeAvailable && !upgradeMenuActive && !intermissionMenu) {
+      upgradeMenuActive = true;
+      selectedUpgrade = 0;  // Default to first option
+      upgradeKeyDebounce = 0;
+      
+      // Get upgrade levels and max levels
+      let upgradeLevels = [upgrade1Level, upgrade2Level, upgrade3Level, upgrade4Level, upgrade5Level, upgrade6Level, upgrade7Level, upgrade8Level];
+      let upgradeMaxLevels = [4, 5, 5, 9, 16, 5, 5, 5];  // Walking Speed, Dash Speed, Dash Cooldown, Add Shield, Add Bullets, Shield Regen, Bullet Reload, Bullet Speed
+      
+      // Filter out maxed upgrades and locked upgrades (prerequisites not met)
+      let availableUpgrades = [];
+      for (let i = 0; i < 8; i++) {
+        // Check if upgrade is not maxed
+        if (upgradeLevels[i] < upgradeMaxLevels[i]) {
+          // Check prerequisites
+          if (i === 5 && upgrade4Level === 0) continue;  // Shield Regeneration requires Add Shield
+          if (i === 6 && upgrade5Level === 0) continue;  // Bullet Reload requires Add Bullets
+          if (i === 7 && upgrade5Level === 0) continue;  // Bullet Speed requires Add Bullets
+          availableUpgrades.push(i);
+        }
+      }
+      
+      // Randomly select up to 3 upgrades from available ones
+      displayedUpgrades = [];
+      let numToSelect = min(3, availableUpgrades.length);
+      for (let i = 0; i < numToSelect; i++) {
+        let randomIndex = floor(random(availableUpgrades.length));
+        displayedUpgrades.push(availableUpgrades[randomIndex]);
+        availableUpgrades.splice(randomIndex, 1);
+      }
+      // Constrain selectedUpgrade to valid range
+      if (displayedUpgrades.length > 0) {
+        selectedUpgrade = constrain(selectedUpgrade, 0, displayedUpgrades.length - 1);
+      }
+    }
+
+    // Show upgrade screen if active (as its own separate screen)
+    if (upgradeMenuActive) {
+      // Draw a fresh background - matching AntDex background
+      fill(20);
+      rectMode(CORNER);
+      rect(0, 0, windowWidth, windowHeight);
+      
+      drawUpgradeScreen();
+      
+      // Handle case where all upgrades are maxed
+      if (displayedUpgrades.length === 0) {
+        // Just allow Enter to continue
+        if (keyIsDown(13)) {
+          if (!upgradeEnterPressed && upgradeKeyDebounce === 0) {
+            upgradeAvailable = false;
+            upgradeMenuActive = false;
+            upgradeKeyDebounce = 20;
+          }
+          upgradeEnterPressed = true;
+        } else {
+          upgradeEnterPressed = false;
+        }
+      } else {
+        // Normal upgrade selection logic
+        let numOptions = displayedUpgrades.length;
+        
+        // Handle left/right arrow navigation
+        if (upgradeKeyDebounce === 0) {
+          if (keyIsDown(37) || keyIsDown(65)) {  // Left or A
+            selectedUpgrade = (selectedUpgrade - 1 + numOptions) % numOptions;
+            upgradeKeyDebounce = 10;
+          } else if (keyIsDown(39) || keyIsDown(68)) {  // Right or D
+            selectedUpgrade = (selectedUpgrade + 1) % numOptions;
+            upgradeKeyDebounce = 10;
+          }
+        }
+        
+        // Handle number key selection
+        if (numOptions >= 1 && keyIsDown(49)) {  // 1
+          selectedUpgrade = 0;
+        } else if (numOptions >= 2 && keyIsDown(50)) {  // 2
+          selectedUpgrade = 1;
+        } else if (numOptions >= 3 && keyIsDown(51)) {  // 3
+          selectedUpgrade = 2;
+        }
+        
+        // Confirm selection with Enter (wait for key release between selections)
+        if (keyIsDown(13)) {
+          if (!upgradeEnterPressed && upgradeKeyDebounce === 0) {
+            applyUpgrade(selectedUpgrade);
+            upgradeKeyDebounce = 20;
+          }
+          upgradeEnterPressed = true;
+        } else {
+          upgradeEnterPressed = false;  // Enter was released, ready for next press
+        }
+      }
+      
+      return;  // Don't show normal intermission while upgrade menu is active
+    }
+
     if (!intermissionMenu) {
       push();
         rectMode(CORNER);
         fill(0, 0, 0, 160);
         rect(windowWidth / 2 - windowWidth * 0.275, windowHeight * 0.64, windowWidth * 0.55, windowHeight * 0.12, 18);
 
+        let fadeAlpha = map(sin(frameCount * 1), -1, 1, 30, 70);
         textAlign(CENTER);
-        fill(255);
+        fill(255, fadeAlpha);
         textSize(28);
         text('Press Esc for Menu', windowWidth / 2, windowHeight * 0.675);
         textSize(20);
@@ -1569,7 +1805,7 @@ if (timeCount < 0) {
         intermissionMenu = true;
         intermissionMenuCooldown = 20;
       }
-      if (keyIsDown(13)) {
+      if (upgradeKeyDebounce === 0 && keyIsDown(13)) {
         nextRound();
       } else if (touches.length > 0) {
         nextRound();
@@ -1607,6 +1843,406 @@ if (timeCount < 0) {
     }
   }
 }
+
+function drawUpgradeScreen() {
+  // Define all 8 upgrade options with their max levels
+  let upgradeMaxLevels = [7, 5, 5, 9, 8, 5, 5, 5];
+  let allUpgrades = [
+    {
+      title: 'Walking Speed',
+      description: 'Increase your movement speed.',
+      level: upgrade1Level,
+      maxLevel: 7
+    },
+    {
+      title: 'Dash Speed',
+      description: 'Increase dash velocity.',
+      level: upgrade2Level,
+      maxLevel: 5
+    },
+    {
+      title: 'Dash Cooldown',
+      description: 'Reduce time between dashes.',
+      level: upgrade3Level,
+      maxLevel: 5
+    },
+    {
+      title: 'Add Shield',
+      description: 'Increase shield capacity.',
+      level: upgrade4Level,
+      maxLevel: 9
+    },
+    {
+      title: 'Add Bullets',
+      description: 'Increase bullet capacity.',
+      level: upgrade5Level,
+      maxLevel: 8
+    },
+    {
+      title: 'Shield Regeneration',
+      description: 'Regenerate shields over time.',
+      level: upgrade6Level,
+      maxLevel: 5
+    },
+    {
+      title: 'Bullet Reload',
+      description: 'Faster bullet reload speed.',
+      level: upgrade7Level,
+      maxLevel: 5
+    },
+    {
+      title: 'Bullet Speed',
+      description: 'Increase bullet velocity.',
+      level: upgrade8Level,
+      maxLevel: 5
+    }
+  ];
+  
+  // Get the randomly selected upgrades
+  let upgrades = displayedUpgrades.map(index => allUpgrades[index]);
+  let numOptions = displayedUpgrades.length;
+
+  push();
+    // Pulsing title at top
+    let pulseSize = map(sin(frameCount * 0.08), -1, 1, 48, 56);
+    fill(255);
+    stroke(0);
+    strokeWeight(4);
+    textSize(pulseSize);
+    textAlign(CENTER, CENTER);
+    
+    // Check if all upgrades are maxed
+    if (numOptions === 0) {
+      text('ALL STATS MAXED OUT!', windowWidth / 2, windowHeight * 0.08);
+      
+      // Show message
+      fill(255);
+      noStroke();
+      textSize(32);
+      text('You have reached maximum level on all upgrades!', windowWidth / 2, windowHeight * 0.35);
+      
+      let fadeAlpha = map(sin(frameCount * 1), -1, 1, 30, 70);
+      fill(180, fadeAlpha);
+      textSize(24);
+      text('Press Enter to continue', windowWidth / 2, windowHeight * 0.65);
+    } else {
+      text('LEVEL UP! Choose an Upgrade', windowWidth / 2, windowHeight * 0.08);
+
+      // Draw side-by-side cards
+      let cardWidth = windowWidth * 0.25;
+      let cardHeight = windowHeight * 0.48;
+      let cardY = windowHeight * 0.50;
+      let spacing = windowWidth * 0.05;
+      let totalWidth = (cardWidth * numOptions) + (spacing * (numOptions - 1));
+      let startX = (windowWidth - totalWidth) / 2 + cardWidth / 2;
+
+      for (let i = 0; i < numOptions; i++) {
+      let cardX = startX + i * (cardWidth + spacing);
+      
+      // Card background - using AntDex color scheme
+      rectMode(CENTER);
+      if (selectedUpgrade === i) {
+        // Selected card - white like normal AntDex cards
+        stroke(255);
+        strokeWeight(6);
+        fill(235);
+      } else {
+        // Unselected card - dark grey
+        stroke(90, 90, 90);
+        strokeWeight(2);
+        fill(40);
+      }
+      rect(cardX, cardY, cardWidth, cardHeight, 15);
+
+      // Number indicator at top
+      if (selectedUpgrade === i) {
+        fill(10);  // Dark text on white background
+      } else {
+        fill(180);  // Light grey text on dark background
+      }
+      noStroke();
+      textSize(18);
+      textAlign(CENTER, CENTER);
+      text(`[${i + 1}]`, cardX, cardY - cardHeight * 0.40);
+
+      // Title
+      if (selectedUpgrade === i) {
+        fill(10);  // Dark text on white background
+      } else {
+        fill(255);  // White text on dark background
+      }
+      textSize(28);
+      textAlign(CENTER, CENTER);
+      text(upgrades[i].title, cardX, cardY - cardHeight * 0.28);
+
+      // Description
+      if (selectedUpgrade === i) {
+        fill(40);  // Dark grey text on white background
+      } else {
+        fill(180);  // Light grey text on dark background
+      }
+      textSize(16);
+      textAlign(CENTER, TOP);
+      text(upgrades[i].description, cardX, cardY + cardHeight * 0.02, cardWidth * 0.8, cardHeight * 0.4);
+
+      // Level counter at bottom
+      if (selectedUpgrade === i) {
+        fill(10);  // Dark text on white background
+      } else {
+        fill(255);  // White text on dark background
+      }
+      textSize(20);
+      textAlign(CENTER, CENTER);
+      let levelText = upgrades[i].level >= upgrades[i].maxLevel ? 'MAX LEVEL' : `Level ${upgrades[i].level}`;
+      text(levelText, cardX, cardY + cardHeight * 0.38);
+    }
+
+      // Fade effect for navigation elements
+      let fadeAlpha = map(sin(frameCount * 1), -1, 1, 30, 70);
+
+      // Navigation arrows with fade
+      fill(180, fadeAlpha);  // Light grey with fading alpha
+      noStroke();
+      textSize(48);
+      textAlign(CENTER, CENTER);
+      if (selectedUpgrade > 0) {
+        text('◄', windowWidth * 0.1, cardY);
+      }
+      if (selectedUpgrade < numOptions - 1) {
+        text('►', windowWidth * 0.9, cardY);
+      }
+
+      // Instructions with fade effect
+      fill(180, fadeAlpha);  // Light grey with fading alpha
+      noStroke();
+      textSize(20);
+      textAlign(CENTER, CENTER);
+      let navText = '← →  Navigate  |  ';
+      for (let i = 0; i < numOptions; i++) {
+        navText += (i + 1);
+        if (i < numOptions - 1) navText += ' ';
+      }
+      navText += '  Quick Select  |  Enter  Confirm';
+      text(navText, windowWidth / 2, windowHeight * 0.85);
+    }
+  pop();
+}
+
+function applyUpgrade(upgradeIndex) {
+  // Get the actual upgrade ID from the displayed upgrades
+  let actualUpgradeId = displayedUpgrades[upgradeIndex];
+  let upgradeMaxLevels = [4, 5, 5, 9, 16, 5, 5, 5];
+  
+  // Increment the selected upgrade's level (capped at respective max)
+  if (actualUpgradeId === 0 && upgrade1Level < upgradeMaxLevels[0]) {
+    upgrade1Level++;
+  } else if (actualUpgradeId === 1 && upgrade2Level < upgradeMaxLevels[1]) {
+    upgrade2Level++;
+  } else if (actualUpgradeId === 2 && upgrade3Level < upgradeMaxLevels[2]) {
+    upgrade3Level++;
+  } else if (actualUpgradeId === 3 && upgrade4Level < upgradeMaxLevels[3]) {
+    upgrade4Level++;
+  } else if (actualUpgradeId === 4 && upgrade5Level < upgradeMaxLevels[4]) {
+    upgrade5Level++;
+  } else if (actualUpgradeId === 5 && upgrade6Level < upgradeMaxLevels[5]) {
+    upgrade6Level++;
+  } else if (actualUpgradeId === 6 && upgrade7Level < upgradeMaxLevels[6]) {
+    upgrade7Level++;
+  } else if (actualUpgradeId === 7 && upgrade8Level < upgradeMaxLevels[7]) {
+    upgrade8Level++;
+  }
+  
+  // Level up the EXP system
+  expProgress -= expRequired;
+  expLevel++;
+  let roundedEXPLevel = Math.ceil(expLevel / 5);
+  expRequired += 500 * roundedEXPLevel;
+  
+  // Check if another upgrade is available immediately
+  if (expProgress >= expRequired) {
+    upgradeAvailable = true;
+    // Keep upgrade menu active and regenerate upgrade options
+    let upgradeLevels = [upgrade1Level, upgrade2Level, upgrade3Level, upgrade4Level, upgrade5Level, upgrade6Level, upgrade7Level, upgrade8Level];
+    let upgradeMaxLevels = [4, 5, 5, 9, 16, 5, 5, 5];
+    let availableUpgrades = [];
+    for (let i = 0; i < 8; i++) {
+      // Check if upgrade is not maxed
+      if (upgradeLevels[i] < upgradeMaxLevels[i]) {
+        // Check prerequisites
+        if (i === 5 && upgrade4Level === 0) continue;  // Shield Regeneration requires Add Shield
+        if (i === 6 && upgrade5Level === 0) continue;  // Bullet Reload requires Add Bullets
+        if (i === 7 && upgrade5Level === 0) continue;  // Bullet Speed requires Add Bullets
+        availableUpgrades.push(i);
+      }
+    }
+    
+    displayedUpgrades = [];
+    let numToSelect = min(3, availableUpgrades.length);
+    for (let i = 0; i < numToSelect; i++) {
+      let randomIndex = floor(random(availableUpgrades.length));
+      displayedUpgrades.push(availableUpgrades[randomIndex]);
+      availableUpgrades.splice(randomIndex, 1);
+    }
+    selectedUpgrade = 0;  // Reset to first option
+    // Constrain selectedUpgrade to valid range
+    if (displayedUpgrades.length > 0) {
+      selectedUpgrade = constrain(selectedUpgrade, 0, displayedUpgrades.length - 1);
+    }
+    upgradeEnterPressed = true;  // Wait for Enter release before next selection
+  } else {
+    upgradeAvailable = false;
+    upgradeMenuActive = false;
+  }
+  
+  // TODO: Add actual upgrade effects based on actualUpgradeId (0-7)
+  let levels = [upgrade1Level, upgrade2Level, upgrade3Level, upgrade4Level, upgrade5Level, upgrade6Level, upgrade7Level, upgrade8Level];
+  let upgradeNames = ['Walking Speed', 'Dash Speed', 'Dash Cooldown', 'Add Shield', 'Add Bullets', 'Shield Regeneration', 'Bullet Reload', 'Bullet Speed'];
+  console.log(`${upgradeNames[actualUpgradeId]} selected! Level: ${levels[actualUpgradeId]}`);
+  
+  // Update upgrade booleans
+  updateUpgradeBooleans();
+}
+
+function updateUpgradeBooleans() {
+  // Walking Speed (7 levels)
+  if (upgrade1Level === 1) {
+    movementSpeed = 3.5;
+  } else if (upgrade1Level === 2) {
+    movementSpeed = 4;
+  } else if (upgrade1Level === 3) {
+    movementSpeed = 4.5;
+  } else if (upgrade1Level === 4) {
+    movementSpeed = 5;
+  } else if (upgrade1Level === 5) {
+    movementSpeed = 5.5;
+  } else if (upgrade1Level === 6) {
+    movementSpeed = 6;
+  } else if (upgrade1Level === 7) {
+    movementSpeed = 7;
+  } else {
+    movementSpeed = 3;
+  }
+  
+  // Dash Speed (5 levels)
+  if (upgrade2Level === 1) {
+    dashSpeedStat = 3; // Set value for level 1
+  } else if (upgrade2Level === 2) {
+    dashSpeedStat = 4; // Set value for level 2
+  } else if (upgrade2Level === 3) {
+    dashSpeedStat = 5; // Set value for level 3
+  } else if (upgrade2Level === 4) {
+    dashSpeedStat = 6; // Set value for level 4
+  } else if (upgrade2Level === 5) {
+    dashSpeedStat = 7; // Set value for level 5
+  } else {
+    dashSpeedStat = 2;
+  }
+  
+  // Dash Cooldown (5 levels)
+  if (upgrade3Level === 1) {
+    dashCooldownStat = 2.5; // Set value for level 1
+  } else if (upgrade3Level === 2) {
+    dashCooldownStat = 2; // Set value for level 2
+  } else if (upgrade3Level === 3) {
+    dashCooldownStat = 1.5; // Set value for level 3
+  } else if (upgrade3Level === 4) {
+    dashCooldownStat = 1; // Set value for level 4
+  } else if (upgrade3Level === 5) {
+    dashCooldownStat = 0.5; // Set value for level 5
+  } else {
+    dashCooldownStat = 3;
+  }
+  
+  // Add Shield (9 levels)
+  if (upgrade4Level === 1) {
+    shieldQuantity = 1; // Set value for level 1
+  } else if (upgrade4Level === 2) {
+    shieldQuantity = 2; // Set value for level 2
+  } else if (upgrade4Level === 3) {
+    shieldQuantity = 3; // Set value for level 3
+  } else if (upgrade4Level === 4) {
+    shieldQuantity = 4; // Set value for level 4
+  } else if (upgrade4Level === 5) {
+    shieldQuantity = 5; // Set value for level 5
+  } else if (upgrade4Level === 6) {
+    shieldQuantity = 6; // Set value for level 6
+  } else if (upgrade4Level === 7) {
+    shieldQuantity = 7; // Set value for level 7
+  } else if (upgrade4Level === 8) {
+    shieldQuantity = 8; // Set value for level 8
+  } else if (upgrade4Level === 9) {
+    shieldQuantity = 9; // Set value for level 9
+  } else {
+    shieldQuantity = 0;
+  }
+  
+  // Add Bullets (8 levels, 2 bullets per level)
+  if (upgrade5Level === 1) {
+    bulletQuantity = 2;
+  } else if (upgrade5Level === 2) {
+    bulletQuantity = 4;
+  } else if (upgrade5Level === 3) {
+    bulletQuantity = 6;
+  } else if (upgrade5Level === 4) {
+    bulletQuantity = 8;
+  } else if (upgrade5Level === 5) {
+    bulletQuantity = 10;
+  } else if (upgrade5Level === 6) {
+    bulletQuantity = 12;
+  } else if (upgrade5Level === 7) {
+    bulletQuantity = 14;
+  } else if (upgrade5Level === 8) {
+    bulletQuantity = 16;
+  } else {
+    bulletQuantity = 0;
+  }
+  
+  // Shield Regeneration (5 levels)
+  if (upgrade6Level === 1) {
+    shieldRegenerationRate = 500; // Set value for level 1
+  } else if (upgrade6Level === 2) {
+    shieldRegenerationRate = 400; // Set value for level 2
+  } else if (upgrade6Level === 3) {
+    shieldRegenerationRate = 300; // Set value for level 3
+  } else if (upgrade6Level === 4) {
+    shieldRegenerationRate = 200; // Set value for level 4
+  } else if (upgrade6Level === 5) {
+    shieldRegenerationRate = 100; // Set value for level 5
+  } else {
+    shieldRegenerationRate = 600;
+  }
+  
+  // Bullet Reload (5 levels)
+  if (upgrade7Level === 1) {
+    bulletReloadRate = 150; // Set value for level 1
+  } else if (upgrade7Level === 2) {
+    bulletReloadRate = 120; // Set value for level 2
+  } else if (upgrade7Level === 3) {
+    bulletReloadRate = 90; // Set value for level 3
+  } else if (upgrade7Level === 4) {
+    bulletReloadRate = 60; // Set value for level 4
+  } else if (upgrade7Level === 5) {
+    bulletReloadRate = 30; // Set value for level 5
+  } else {
+    bulletReloadRate = 180;
+  }
+  
+  // Bullet Speed (5 levels)
+  if (upgrade8Level === 1) {
+    playerBulletSpeed = 2; // Set value for level 1
+  } else if (upgrade8Level === 2) {
+    playerBulletSpeed = 4; // Set value for level 2
+  } else if (upgrade8Level === 3) {
+    playerBulletSpeed = 6; // Set value for level 3
+  } else if (upgrade8Level === 4) {
+    playerBulletSpeed = 8; // Set value for level 4
+  } else if (upgrade8Level === 5) {
+    playerBulletSpeed = 10; // Set value for level 5
+  } else {
+    playerBulletSpeed = 1;
+  }
+}
+
 function getWinningAnt() {
   let antStats = [];
   for (let i = 1; i <= enemyCount; i++) {
@@ -1728,7 +2364,7 @@ function nextRound(){
   
   for (let i = 1; i <= enemyCount; i++) {
     antX[i] = random(0, windowWidth);
-    antY[i] = random(scoreBarHeight + ANT_SPAWN_BUFFER, windowHeight - ANT_SPAWN_BUFFER);
+    antY[i] = random(scoreBarHeight + ANT_SPAWN_BUFFER, windowHeight - expBarHeight - expBarBuffer - ANT_SPAWN_BUFFER);
   }
 
   playerRotationValue = 0;
@@ -1737,11 +2373,11 @@ function nextRound(){
   playerY = height / 2;
   console.log("enemy count:", enemyCount);
 
-  shield = 3;
-  shot = 3;
+  shield = shieldQuantity > 0 ? shieldQuantity : 0;
+  shot = bulletQuantity > 0 ? bulletQuantity : 0;
   dashCoolDown = 0;
 
-  playerSpeed = BASE_PLAYER_SPEED / enemyCount;
+  playerSpeed = movementSpeed / enemyCount;
   
   endmusic.stop();
   gamemusic.play();
@@ -1775,7 +2411,7 @@ function nextRound(){
       console.log(`Ant ${i} inherits from parent Ant ${parent.id}`);
       bulletSpeed[i]   = constrain(bulletSpeed[parent.id]   + random(-50, 50), 60, 300);
       bulletCooldown[i]= constrain(floor(bulletCooldown[parent.id] + random(-5, 5)), 79, 200);
-      antSpeed[i]      = constrain(antSpeed[parent.id]      + random(-0.3, 0.3), 0.9, 3);
+      antSpeed[i]      = constrain(antSpeed[parent.id]      + random(-0.3, 0.3), 0.9, 3.5);
       shotOffsetX[i]   = constrain(shotOffsetX[parent.id]   + random(-50, 50), -500, 500);
       shotOffsetY[i]   = constrain(shotOffsetY[parent.id]   + random(-50, 50), -500, 500);
       standingPointX[i]   = constrain(standingPointX[parent.id]   + random(-100, 100), 0, windowWidth);
@@ -1840,7 +2476,7 @@ function nextRound(){
         : floor(random(79, 200));
 
       antSpeed[i] = winner 
-        ? constrain(antSpeed[winner.id] + random(-0.5, 0.5), 0.9, 3)   
+        ? constrain(antSpeed[winner.id] + random(-0.5, 0.5), 0.9, 3.5)   
         : random(0.9, 3);
 
       shotOffsetX[i] = winner 
@@ -1856,8 +2492,8 @@ function nextRound(){
         : random(0, windowWidth);
 
       standingPointY[i] = winner 
-        ? constrain(standingPointY[winner.id] + random(-100, 100), scoreBarHeight, windowHeight)
-        : random(scoreBarHeight, windowHeight);
+        ? constrain(standingPointY[winner.id] + random(-100, 100), scoreBarHeight, windowHeight - expBarHeight - expBarBuffer)
+        : random(scoreBarHeight, windowHeight - expBarHeight - expBarBuffer);
       
       followValue[i] = winner 
         ? constrain(followValue[winner.id] + random(-movementMutationRate, movementMutationRate), -0.5, 3.49)
@@ -2065,8 +2701,9 @@ function antdexScreen() {
   text("Normal Types", dexTabRegions.normal.x + tabWidth / 2, tabY);
   text("Exotic Types", dexTabRegions.exotic.x + tabWidth / 2, tabY);
 
+  let fadeAlpha = map(sin(frameCount * 0.05), -1, 1, 30, 70);
   textSize(18);
-  fill(200);
+  fill(200, fadeAlpha);
   text("Press ← or click for Normal • Press → or click for Exotic", windowWidth / 2, tabY + 50);
 
   const barWidth = 360;
@@ -2276,7 +2913,8 @@ function antdexScreen() {
     rect(windowWidth - 30, barY, 10, barH, 5);
   }
 
-  fill(255);
+  fadeAlpha = map(sin(frameCount * 0.05), -1, 1, 30, 70);
+  fill(255, fadeAlpha);
   textAlign(CENTER);
   textSize(24);
   text("Press ESC to return", windowWidth / 2, windowHeight - 40);
@@ -2324,6 +2962,26 @@ function pointInRect(px, py, rect) {
 }
 
 function mousePressed() {
+  // Handle upgrade menu clicks
+  if (upgradeMenuActive) {
+    let cardWidth = windowWidth * 0.25;
+    let cardHeight = windowHeight * 0.48;
+    let cardY = windowHeight * 0.50;
+    let spacing = windowWidth * 0.05;
+    let totalWidth = (cardWidth * 3) + (spacing * 2);
+    let startX = (windowWidth - totalWidth) / 2 + cardWidth / 2;
+    
+    for (let i = 0; i < 3; i++) {
+      let cardX = startX + i * (cardWidth + spacing);
+      // Check if click is within card bounds
+      if (mouseX > cardX - cardWidth/2 && mouseX < cardX + cardWidth/2 &&
+          mouseY > cardY - cardHeight/2 && mouseY < cardY + cardHeight/2) {
+        applyUpgrade(i);
+        return;
+      }
+    }
+  }
+  
   if (!antdex) return;
 
   const normalTab = dexTabRegions.normal;
@@ -2672,7 +3330,7 @@ function updateAntDexEntries() {
         movementType8Discovered = true;
         triggerDiscoveryPopup();
       }
-      if (!maxSpeedDiscovered && antSpeed[i] === 3) {
+      if (!maxSpeedDiscovered && antSpeed[i] === 3.5) {
         maxSpeedDiscovered = true;
         triggerDiscoveryPopup();
       }
@@ -2858,7 +3516,7 @@ function updateAntDexEntries() {
     {
       name: "Proximity Explosion Ants",
       desc: "Bullets explode when close enough to the beetle.",
-      stats: "Explosion: Proximity (Radius)",
+      stats: "Explosion: Proximity",
       discovered: proximityExplosionDiscovered
     },
 
@@ -2884,19 +3542,19 @@ function updateAntDexEntries() {
 
     // Proximity radius tiers
     {
-      name: "Close Radius Ants",
+      name: "Close Proximity Ants",
       desc: "Explodes only very close to the beetle.",
       stats: "Proximity Radius: Low (≤ 150)",
       discovered: closeProximityDiscovered
     },
     {
-      name: "Medium Radius Ants",
+      name: "Medium Proximity Ants",
       desc: "Explodes at a moderate distance from the beetle.",
       stats: "Proximity Radius: Average (151–400)",
       discovered: averageProximityDiscovered
     },
     {
-      name: "Wide Radius Ants",
+      name: "Wide Proximity Ants",
       desc: "Explodes from far away. Harder to approach safely.",
       stats: "Proximity Radius: High (> 400)",
       discovered: farProximityDiscovered
@@ -2905,7 +3563,7 @@ function updateAntDexEntries() {
     // Explosion size tiers
     {
       name: "Small Blast Ants",
-      desc: "Smaller explosion radius. Safer to close distance.",
+      desc: "Smaller explosion radius. Easier to dodge its area of effect.",
       stats: "Explosion Size: Low (≤ 1.0x)",
       discovered: smallExplosionDiscovered
     },
@@ -2917,7 +3575,7 @@ function updateAntDexEntries() {
     },
     {
       name: "Massive Blast Ants",
-      desc: "Large explosion radius. Keep your distance.",
+      desc: "Large explosion radius. A small bullet could have a big surprise.",
       stats: "Explosion Size: High (> 2.0x)",
       discovered: largeExplosionDiscovered
     },
