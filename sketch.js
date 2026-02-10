@@ -17,6 +17,26 @@ let gameOverMenuSelection = 0;
 let intermissionMenuSelection = 0;
 let menuNavigationCooldown = 0;
 
+// Multiplayer variables
+let multiplayerMode = false;
+let playerSelectScreen = false;
+let playerSelectSelection = 0; // 0 = 2 players, 1 = 3 players, etc.
+let numPlayers = 1;
+let currentPlayerIndex = 0; // Track whose turn it is
+let players = [];
+let playerColors = [
+  [100, 200, 255],  // Blue
+  [255, 100, 100],  // Red
+  [100, 255, 100],  // Green
+  [255, 255, 100],  // Yellow
+  [255, 150, 255],  // Pink
+  [255, 150, 100]   // Orange
+];
+let multiplayerScoreboard = false;
+let multiplayerWinner = -1;
+let showPlayerTurnScreen = false;
+let playerTurnScreenTimer = 0;
+
 // Gamepad variables
 let gamepad = null;
 let gamepadConnected = false;
@@ -215,6 +235,7 @@ let upgradeMenuActive = false;
 let selectedUpgrade = 0;  // 0, 1, or 2 for three options
 let upgradeKeyDebounce = 0;
 let upgradeEnterPressed = false;  // Track if Enter was pressed to prevent bleed-through
+let previousConfirmPressed = false;  // Track previous frame's confirm state for debouncing
 let upgrade1Level = 0;  // Walking Speed (max 4)
 let upgrade2Level = 0;  // Dash Speed (max 5)
 let upgrade3Level = 0;  // Dash Cooldown (max 5)
@@ -406,6 +427,18 @@ function draw() {
   }
   if (upgradeKeyDebounce > 0) {
     upgradeKeyDebounce--;
+  }
+
+  // Show multiplayer scoreboard
+  if (multiplayerScoreboard) {
+    drawMultiplayerScoreboard();
+    return;
+  }
+  
+  // Show player turn screen
+  if (showPlayerTurnScreen) {
+    drawPlayerTurnScreen();
+    return;
   }
 
   if (antdex) {
@@ -1496,6 +1529,38 @@ function drawDeathEffects() {
 
 function endGame(){
   if (health < 0){
+    // Multiplayer mode: mark player as dead and advance
+    if (multiplayerMode && players.length > 0) {
+      if (!players[currentPlayerIndex].scoredDeath) {
+        players[currentPlayerIndex].alive = false;
+        players[currentPlayerIndex].totalScore += score;
+        players[currentPlayerIndex].hasPlayedRound = true;
+        players[currentPlayerIndex].scoredDeath = true;
+        savePlayerState(currentPlayerIndex);
+        
+        // Check if only 1 or 0 players left
+        if (checkMultiplayerWinCondition()) {
+          multiplayerScoreboard = true;
+          return;
+        }
+        
+        // Check if all alive players have played this round
+        let alivePlayers = players.filter(p => p.alive);
+        let playersWhoPlayed = alivePlayers.filter(p => p.hasPlayedRound);
+        
+        if (playersWhoPlayed.length < alivePlayers.length) {
+          // More players need to play, advance to next
+          advanceToNextAlivePlayer();
+          return;
+        } else {
+          // All alive players have played, show scoreboard
+          multiplayerScoreboard = true;
+          return;
+        }
+      }
+    }
+    
+    // Single player mode
     fill(40, 0, 0);
     rectMode(CORNER);
     rect(0, 0, windowWidth, windowHeight);
@@ -1740,6 +1805,9 @@ if (timeCount < 0) {
 
     end = true;
 
+    // Multiplayer mode: Don't auto-advance, wait for button press
+    // Button handler will check and advance to next player or show scoreboard
+
     highScore = getItem('newHighScore');
     if (highScore == null) {
       highScore = 0;
@@ -1929,6 +1997,27 @@ if (timeCount < 0) {
         intermissionMenuCooldown = 20;
       }
       if (upgradeKeyDebounce === 0 && isConfirmPressed()) {
+        // Multiplayer: check if more players need to play this round
+        if (multiplayerMode) {
+          if (!players[currentPlayerIndex].hasPlayedRound) {
+            players[currentPlayerIndex].hasPlayedRound = true;
+            players[currentPlayerIndex].totalScore += score;
+            savePlayerState(currentPlayerIndex);
+          }
+          
+          let alivePlayers = players.filter(p => p.alive);
+          let playersWhoPlayed = alivePlayers.filter(p => p.hasPlayedRound);
+          
+          if (playersWhoPlayed.length < alivePlayers.length) {
+            // More players need to play
+            advanceToNextAlivePlayer();
+            return;
+          } else {
+            // All players done, show scoreboard
+            multiplayerScoreboard = true;
+            return;
+          }
+        }
         nextRound();
       } else if (touches.length > 0) {
         nextRound();
@@ -2557,7 +2646,8 @@ function printWinningAntStats() {
     );
   }
 
-  console.log(`\nNext generation distribution:`);
+  console.log(`
+Next generation distribution:`);
   console.log(`   ${count1} ants inherit from #1`);
   console.log(`   ${count2} ants inherit from #2`);
   console.log(`   ${count3} ants inherit from #3`);
@@ -2567,6 +2657,20 @@ function printWinningAntStats() {
 
 
 function nextRound(){
+  // Multiplayer mode handling
+  if (multiplayerMode && !multiplayerScoreboard) {
+    // This shouldn't happen now, as all players have played before showing scoreboard
+    // Show scoreboard between rounds
+    multiplayerScoreboard = true;
+    return;
+  }
+  
+  // Store if we're in multiplayer transitioning from scoreboard
+  let multiplayerTransition = multiplayerMode && multiplayerScoreboard;
+  if (multiplayerTransition) {
+    multiplayerScoreboard = false;
+  }
+  
   end = false;
   liveRankingsPrinted = false;
   intermissionMenu = false;
@@ -2810,6 +2914,34 @@ function nextRound(){
     console.log(`Ant ${i} bulletSpeed = ${bulletSpeed[i]}, cooldown = ${bulletCooldown[i]}`);
   }
 
+  // Multiplayer: After setting up the new round, prepare for first player
+  if (multiplayerTransition) {
+    // Reset round flags for all players
+    for (let p of players) {
+      p.hasPlayedRound = false;
+      p.scoredDeath = false;
+    }
+    
+    // Find first alive player for the new round
+    currentPlayerIndex = -1;
+    for (let i = 0; i < numPlayers; i++) {
+      if (players[i].alive) {
+        currentPlayerIndex = i;
+        break;
+      }
+    }
+    
+    if (currentPlayerIndex === -1) {
+      // No players alive - return to menu
+      returnToMainMenu();
+      return;
+    }
+    
+    // Load first player's state and show turn screen
+    loadPlayerState(currentPlayerIndex);
+    showPlayerTurnScreen = true;
+  }
+
 }
 
 
@@ -2818,6 +2950,92 @@ function nextRound(){
 function drawStartScreen(){
 
   push();
+    // Player selection screen for multiplayer
+    if (playerSelectScreen) {
+      // Dark background
+      fill(20);
+      rect(0, 0, windowWidth, windowHeight);
+      
+      // Title
+      fill(255);
+      textAlign(CENTER);
+      textSize(60);
+      text("Select Number of Players", windowWidth / 2, windowHeight * 0.25);
+      
+      // Navigation
+      if (menuNavigationCooldown === 0) {
+        if (isLeftPressed()) {
+          playerSelectSelection = (playerSelectSelection - 1 + 5) % 5;
+          menuNavigationCooldown = 10;
+        } else if (isRightPressed()) {
+          playerSelectSelection = (playerSelectSelection + 1) % 5;
+          menuNavigationCooldown = 10;
+        }
+      }
+      
+      // Player count options (2-6 players)
+      let optionSpacing = 100;
+      let startX = windowWidth / 2 - (4 * optionSpacing) / 2;
+      
+      for (let i = 0; i < 5; i++) {
+        let optionX = startX + i * optionSpacing;
+        let optionY = windowHeight * 0.45;
+        let optionSize = 80;
+        
+        push();
+          rectMode(CENTER);
+          if (playerSelectSelection === i) {
+            fill(255);
+            stroke(255, 255, 100);
+            strokeWeight(3);
+          } else {
+            fill(50, 50, 50);
+            stroke(100, 100, 100);
+            strokeWeight(2);
+          }
+          rect(optionX, optionY, optionSize, optionSize, 12);
+          
+          if (playerSelectSelection === i) {
+            fill(10);
+          } else {
+            fill(255);
+          }
+          textSize(36);
+          textAlign(CENTER, CENTER);
+          text(i + 2, optionX, optionY);
+        pop();
+      }
+      
+      // Instructions
+      let fadeAlpha = map(sin(frameCount * 0.05), -1, 1, 30, 70);
+      fill(200, fadeAlpha);
+      textSize(18);
+      textAlign(CENTER);
+      text('A/D or ←/→ or Left Stick  Navigate  |  Enter or A  Start  |  Esc or B  Back', windowWidth / 2, windowHeight * 0.65);
+      
+      // Confirm selection
+      if (isConfirmPressed() && menuNavigationCooldown === 0) {
+        numPlayers = playerSelectSelection + 2;
+        multiplayerMode = true;
+        playerSelectScreen = false;
+        initializeMultiplayer();
+        start = true;
+        titlemusic.stop();
+        gamemusic.play();
+        menuNavigationCooldown = 20;
+      }
+      
+      // Back to menu
+      if (isBackPressed() && menuNavigationCooldown === 0) {
+        playerSelectScreen = false;
+        startMenu = true;
+        menuNavigationCooldown = 20;
+      }
+      
+      pop();
+      return;
+    }
+    
     if (startMenu === false){
       imageMode(CENTER);
       image(splashScreen, windowWidth / 2, windowHeight / 2, windowHeight * 1.4, windowHeight);
@@ -2843,10 +3061,10 @@ function drawStartScreen(){
       // Menu navigation with arrow keys, WASD, and gamepad
       if (menuNavigationCooldown === 0) {
         if (isUpPressed()) { // Up or W
-          startMenuSelection = (startMenuSelection - 1 + 2) % 2;
+          startMenuSelection = (startMenuSelection - 1 + 3) % 3;
           menuNavigationCooldown = 10;
         } else if (isDownPressed()) { // Down or S
-          startMenuSelection = (startMenuSelection + 1) % 2;
+          startMenuSelection = (startMenuSelection + 1) % 3;
           menuNavigationCooldown = 10;
         }
       }
@@ -2855,13 +3073,13 @@ function drawStartScreen(){
       fill(255);
       textAlign(CENTER);
       textSize(70);
-      text("Main Menu", windowWidth / 2, windowHeight * 0.25);
+      text("Main Menu", windowWidth / 2, windowHeight * 0.20);
       
-      // Menu option 0: Start Game - Card style
-      let option0Y = windowHeight * 0.42;
+      // Menu option 0: Single Player - Card style
+      let option0Y = windowHeight * 0.35;
       let option0X = windowWidth / 2;
       let option0W = 340;
-      let option0H = 80;
+      let option0H = 70;
       push();
         rectMode(CENTER);
         if (startMenuSelection === 0) {
@@ -2883,11 +3101,11 @@ function drawStartScreen(){
         }
         textSize(32);
         textAlign(CENTER, CENTER);
-        text("Start Game", option0X, option0Y);
+        text("Single Player", option0X, option0Y);
       pop();
       
-      // Menu option 1: Antdex - Card style
-      let option1Y = windowHeight * 0.56;
+      // Menu option 1: Multiplayer - Card style
+      let option1Y = windowHeight * 0.47;
       let option1X = windowWidth / 2;
       let option1W = 340;
       let option1H = 80;
@@ -2895,7 +3113,7 @@ function drawStartScreen(){
         rectMode(CENTER);
         if (startMenuSelection === 1) {
           fill(255);  // White background for selected
-          stroke(160, 120, 255);  // Purple stroke like exotic tab
+          stroke(100, 255, 100);  // Green stroke
           strokeWeight(3);
         } else {
           fill(50, 50, 50);  // Dark grey for unselected
@@ -2912,7 +3130,36 @@ function drawStartScreen(){
         }
         textSize(32);
         textAlign(CENTER, CENTER);
-        text("Antdex", option1X, option1Y);
+        text("Multiplayer", option1X, option1Y);
+      pop();
+      
+      // Menu option 2: Antdex - Card style
+      let option2Y = windowHeight * 0.59;
+      let option2X = windowWidth / 2;
+      let option2W = 340;
+      let option2H = 70;
+      push();
+        rectMode(CENTER);
+        if (startMenuSelection === 2) {
+          fill(255);  // White background for selected
+          stroke(160, 120, 255);  // Purple stroke like exotic tab
+          strokeWeight(3);
+        } else {
+          fill(50, 50, 50);  // Dark grey for unselected
+          stroke(100, 100, 100);
+          strokeWeight(2);
+        }
+        rect(option2X, option2Y, option2W, option2H, 12);
+        
+        // Text
+        if (startMenuSelection === 2) {
+          fill(10);  // Dark text on white
+        } else {
+          fill(255);  // White text on dark
+        }
+        textSize(32);
+        textAlign(CENTER, CENTER);
+        text("Antdex", option2X, option2Y);
       pop();
       
       // Instructions with fade
@@ -2927,19 +3174,30 @@ function drawStartScreen(){
         let mx = mouseX;
         let my = mouseY;
         
-        // Check option 0 (Start Game)
+        // Check option 0 (Single Player)
         if (mx > option0X - option0W/2 && mx < option0X + option0W/2 &&
             my > option0Y - option0H/2 && my < option0Y + option0H/2) {
           if (menuNavigationCooldown === 0) {
+            multiplayerMode = false;
+            numPlayers = 1;
             start = true;
             titlemusic.stop();
             gamemusic.play();
             menuNavigationCooldown = 20;
           }
         } 
-        // Check option 1 (Antdex)
+        // Check option 1 (Multiplayer)
         else if (mx > option1X - option1W/2 && mx < option1X + option1W/2 &&
                  my > option1Y - option1H/2 && my < option1Y + option1H/2) {
+          if (menuNavigationCooldown === 0) {
+            playerSelectScreen = true;
+            startMenu = false;
+            menuNavigationCooldown = 20;
+          }
+        }
+        // Check option 2 (Antdex)
+        else if (mx > option2X - option2W/2 && mx < option2X + option2W/2 &&
+                 my > option2Y - option2H/2 && my < option2Y + option2H/2) {
           if (menuNavigationCooldown === 0) {
             antdex = true;
             startMenu = false;
@@ -2952,10 +3210,15 @@ function drawStartScreen(){
       // Enter key to select
       if (isConfirmPressed() && menuNavigationCooldown === 0) {
         if (startMenuSelection === 0) {
+          multiplayerMode = false;
+          numPlayers = 1;
           start = true;
           titlemusic.stop();
           gamemusic.play();
         } else if (startMenuSelection === 1) {
+          playerSelectScreen = true;
+          startMenu = false;
+        } else if (startMenuSelection === 2) {
           antdex = true;
           startMenu = false;
           antdexReturnState = 'menu';
@@ -4177,10 +4440,16 @@ function isShootPressed() {
 }
 
 // Check if enter/confirm is pressed (keyboard Enter or gamepad A button)
+// Returns true only on NEW press, not when held down
 function isConfirmPressed() {
-  if (keyIsDown(13)) return true;
-  if (gamepad && gamepad.buttons[0] && gamepad.buttons[0].pressed) return true; // A button (Xbox) / Cross (PS)
-  return false;
+  let currentlyPressed = false;
+  if (keyIsDown(13)) currentlyPressed = true;
+  if (gamepad && gamepad.buttons[0] && gamepad.buttons[0].pressed) currentlyPressed = true; // A button (Xbox) / Cross (PS)
+  
+  // Only return true if currently pressed AND was not pressed last frame
+  let result = currentlyPressed && !previousConfirmPressed;
+  previousConfirmPressed = currentlyPressed;
+  return result;
 }
 
 // Check if escape/back is pressed (keyboard Esc or gamepad B button)
@@ -4210,3 +4479,408 @@ function getLeftStickY() {
   const value = gamepad.axes[1];
   return Math.abs(value) < leftStickDeadzone ? 0 : value;
 }
+
+// ========== MULTIPLAYER FUNCTIONS ==========
+
+function savePlayerState(playerIndex) {
+  if (!multiplayerMode || !players[playerIndex]) return;
+  
+  let p = players[playerIndex];
+  
+  // Save upgrade levels
+  p.upgrade1 = upgrade1Level;
+  p.upgrade2 = upgrade2Level;
+  p.upgrade3 = upgrade3Level;
+  p.upgrade4 = upgrade4Level;
+  p.upgrade5 = upgrade5Level;
+  p.upgrade6 = upgrade6Level;
+  p.upgrade7 = upgrade7Level;
+  p.upgrade8 = upgrade8Level;
+  
+  // Save experience
+  p.expLevel = expLevel;
+  p.expProgress = expProgress;
+  p.expRequired = expRequired;
+  
+  // Save stats
+  p.movementSpeed = movementSpeed;
+  p.dashSpeedStat = dashSpeedStat;
+  p.dashCooldownStat = dashCooldownStat;
+  p.shieldQuantity = shieldQuantity;
+  p.bulletQuantity = bulletQuantity;
+  p.shieldRegenerationRate = shieldRegenerationRate;
+  p.bulletReloadRate = bulletReloadRate;
+  p.playerBulletSpeed = playerBulletSpeed;
+}
+
+function loadPlayerState(playerIndex) {
+  if (!multiplayerMode || !players[playerIndex]) return;
+  
+  let p = players[playerIndex];
+  
+  // Load upgrade levels
+  upgrade1Level = p.upgrade1;
+  upgrade2Level = p.upgrade2;
+  upgrade3Level = p.upgrade3;
+  upgrade4Level = p.upgrade4;
+  upgrade5Level = p.upgrade5;
+  upgrade6Level = p.upgrade6;
+  upgrade7Level = p.upgrade7;
+  upgrade8Level = p.upgrade8;
+  
+  // Load experience
+  expLevel = p.expLevel;
+  expProgress = p.expProgress;
+  expRequired = p.expRequired;
+  
+  // Load stats
+  movementSpeed = p.movementSpeed;
+  dashSpeedStat = p.dashSpeedStat;
+  dashCooldownStat = p.dashCooldownStat;
+  shieldQuantity = p.shieldQuantity;
+  bulletQuantity = p.bulletQuantity;
+  shieldRegenerationRate = p.shieldRegenerationRate;
+  bulletReloadRate = p.bulletReloadRate;
+  playerBulletSpeed = p.playerBulletSpeed;
+  
+  // Set current shield and bullets to full based on this player's upgrade levels
+  shield = shieldQuantity > 0 ? shieldQuantity : 0;
+  shot = bulletQuantity > 0 ? bulletQuantity : 0;
+  
+  // Update upgrade booleans based on loaded levels
+  updateUpgradeBooleans();
+}
+
+function initializeMultiplayer() {
+  players = [];
+  currentPlayerIndex = 0;
+  
+  // Player controls mapping
+  // Player 1: WASD + Space + Shift
+  // Player 2: Arrow Keys + Numpad0 + RightShift  
+  // Player 3-6: Gamepad
+  
+  const playerStartPositions = [
+    {x: windowWidth * 0.25, y: windowHeight * 0.5},
+    {x: windowWidth * 0.75, y: windowHeight * 0.5},
+    {x: windowWidth * 0.5, y: windowHeight * 0.3},
+    {x: windowWidth * 0.5, y: windowHeight * 0.7},
+    {x: windowWidth * 0.3, y: windowHeight * 0.7},
+    {x: windowWidth * 0.7, y: windowHeight * 0.3}
+  ];
+  
+  for (let i = 0; i < numPlayers; i++) {
+    players.push({
+      id: i,
+      x: playerStartPositions[i].x,
+      y: playerStartPositions[i].y,
+      rotation: 0,
+      speed: BASE_PLAYER_SPEED,
+      health: health,
+      shield: 0,
+      bullets: 5,
+      shotBreak: 0,
+      dash: false,
+      dashReady: true,
+      dashCooldown: 0,
+      playerBullets: [],
+      score: 0,
+      totalScore: 0,
+      alive: true,
+      hasPlayedRound: false,
+      scoredDeath: false,
+      color: playerColors[i],
+      // Individual upgrades
+      upgrade1: 0, // Walking speed
+      upgrade2: 0, // Dash speed
+      upgrade3: 0, // Dash cooldown
+      upgrade4: 0, // Shield
+      upgrade5: 0, // Bullets
+      upgrade6: 0, // Shield regen
+      upgrade7: 0, // Bullet reload
+      upgrade8: 0, // Bullet speed
+      // Experience and stats
+      expLevel: 1,
+      expProgress: 0,
+      expRequired: 500,
+      movementSpeed: 3,
+      dashSpeedStat: 2,
+      dashCooldownStat: 3,
+      shieldQuantity: 0,
+      bulletQuantity: 0,
+      shieldRegenerationRate: 600,
+      bulletReloadRate: 180,
+      playerBulletSpeed: 1
+    });
+  }
+  
+  // Show first player's turn screen
+  showPlayerTurnScreen = true;
+}
+
+function checkMultiplayerWinCondition() {
+  let alivePlayers = players.filter(p => p.alive);
+  
+  if (alivePlayers.length === 1) {
+    multiplayerWinner = alivePlayers[0].id;
+    end = true;
+    gameOverMenu = false;
+    return true;
+  }
+  
+  if (alivePlayers.length === 0) {
+    multiplayerWinner = -1; // Draw
+    end = true;
+    gameOverMenu = false;
+    return true;
+  }
+  
+  return false;
+}
+
+function advanceToNextPlayer() {
+  // Find next alive player
+  let origIndex = currentPlayerIndex;
+  let attempts = 0;
+  
+  do {
+    currentPlayerIndex = (currentPlayerIndex + 1) % numPlayers;
+    attempts++;
+    if (attempts > numPlayers) {
+      // Safety break - shouldn't happen but prevents infinite loop
+      break;
+    }
+  } while (!players[currentPlayerIndex].alive);
+  
+  // Reset game state for next player's turn (same round)
+  end = false;
+  levelEnd = 0;
+  score = 0;
+  health = 10;
+  
+  // Reset player position and state
+  playerX = width / 2;
+  playerY = height / 2;
+  playerRotationValue = 0;
+  
+  // Reset shields and bullets based on upgrades
+  shield = shieldQuantity > 0 ? shieldQuantity : 0;
+  shot = bulletQuantity > 0 ? bulletQuantity : 0;
+  dashCoolDown = 0;
+  playerSpeed = movementSpeed / enemyCount;
+  
+  // Reset all enemies to starting positions
+  for (let i = 1; i <= enemyCount; i++) {
+    antX[i] = random(0, windowWidth);
+    antY[i] = random(scoreBarHeight + ANT_SPAWN_BUFFER, windowHeight - expBarHeight - expBarBuffer - ANT_SPAWN_BUFFER);
+    strikeX[i] = 0;
+    strikeY[i] = 0;
+    strikeTime1[i] = 0;
+    drawStrike1[i] = 1;
+    bulletShot[i] = 0;
+    enemyBullets[i] = [];
+  }
+  
+  // Show turn screen for next player
+  showPlayerTurnScreen = true;
+}
+
+function advanceToNextAlivePlayer() {
+  // Save current player's state before switching
+  savePlayerState(currentPlayerIndex);
+  
+  // Find next alive player who hasn't played this round yet
+  let attempts = 0;
+  
+  do {
+    currentPlayerIndex = (currentPlayerIndex + 1) % numPlayers;
+    attempts++;
+    if (attempts > numPlayers) {
+      // Safety break
+      break;
+    }
+  } while (!players[currentPlayerIndex].alive || players[currentPlayerIndex].hasPlayedRound);
+  
+  // Reset game state for next player's turn (same round)
+  end = false;
+  levelEnd = 0;
+  score = 0;
+  health = 10;
+  
+  // Load next player's state
+  loadPlayerState(currentPlayerIndex);
+  
+  // Reset upgrade menu state
+  upgradeAvailable = false;
+  upgradeMenuActive = false;
+  upgradeEnterPressed = false;
+  selectedUpgrade = 0;
+  displayedUpgrades = [];
+  
+  // Reset time based on level
+  if (level <= 3) {
+    timeCount = 10; 
+  } else if (level <= 7) {
+    timeCount = 30; 
+  } else {
+    timeCount = 60; 
+  }
+  
+  // Reset player position and state
+  playerX = width / 2;
+  playerY = height / 2;
+  playerRotationValue = 0;
+  
+  // Reset shields and bullets based on upgrades
+  shield = shieldQuantity > 0 ? shieldQuantity : 0;
+  shot = bulletQuantity > 0 ? bulletQuantity : 0;
+  dashCoolDown = 0;
+  playerSpeed = movementSpeed / enemyCount;
+  
+  // Reset all enemies to starting positions AND lives for this player's turn
+  for (let i = 1; i <= enemyCount; i++) {
+    antX[i] = random(0, windowWidth);
+    antY[i] = random(scoreBarHeight + ANT_SPAWN_BUFFER, windowHeight - expBarHeight - expBarBuffer - ANT_SPAWN_BUFFER);
+    strikeX[i] = 0;
+    strikeY[i] = 0;
+    strikeTime1[i] = 0;
+    drawStrike1[i] = 1;
+    bulletShot[i] = 0;
+    enemyBullets[i] = [];
+    antLives[i] = 1; // Each player gets fresh ants
+  }
+  
+  // Show turn screen for next player
+  showPlayerTurnScreen = true;
+}
+
+function drawMultiplayerScoreboard() {
+  push();
+    fill(20);
+    rect(0, 0, windowWidth, windowHeight);
+    
+    fill(255);
+    textAlign(CENTER);
+    textSize(50);
+    text("Round " + level + " Complete", windowWidth / 2, 80);
+    
+    // Sort players by total score
+    let sortedPlayers = [...players].sort((a, b) => b.totalScore - a.totalScore);
+    
+    textSize(30);
+    text("Scoreboard", windowWidth / 2, 150);
+    
+    let startY = 220;
+    let rowHeight = 60;
+    
+    for (let i = 0; i < sortedPlayers.length; i++) {
+      let p = sortedPlayers[i];
+      let y = startY + i * rowHeight;
+      
+      // Player color box
+      push();
+        rectMode(CENTER);
+        fill(p.color[0], p.color[1], p.color[2]);
+        if (!p.alive) {
+          fill(100); // Gray out dead players
+        }
+        rect(windowWidth * 0.3, y, 40, 40, 8);
+      pop();
+      
+      // Player number and status
+      fill(255);
+      textAlign(LEFT);
+      textSize(24);
+      let status = p.alive ? "" : " (OUT)";
+      text("Player " + (p.id + 1) + status, windowWidth * 0.35, y + 8);
+      
+      // Score
+      textAlign(RIGHT);
+      text("Score: " + p.totalScore, windowWidth * 0.7, y + 8);
+    }
+    
+    // Instructions
+    let fadeAlpha = map(sin(frameCount * 0.05), -1, 1, 30, 70);
+    fill(200, fadeAlpha);
+    textSize(18);
+    textAlign(CENTER);
+    
+    let alivePlayers = players.filter(p => p.alive);
+    if (alivePlayers.length > 1) {
+      text('Enter or A  Continue to Next Round', windowWidth / 2, windowHeight - 60);
+      
+      if (isConfirmPressed() && menuNavigationCooldown === 0) {
+        nextRound();
+        menuNavigationCooldown = 20;
+      }
+    } else {
+      // Game over
+      fill(255, 255, 100);
+      textSize(50);
+      if (multiplayerWinner >= 0) {
+        push();
+          fill(players[multiplayerWinner].color[0], 
+               players[multiplayerWinner].color[1], 
+               players[multiplayerWinner].color[2]);
+          text("Player " + (multiplayerWinner + 1) + " Wins!", windowWidth / 2, windowHeight - 150);
+        pop();
+      } else {
+        text("Draw!", windowWidth / 2, windowHeight - 150);
+      }
+      
+      fill(200, fadeAlpha);
+      textSize(18);
+      text('Enter or A  Return to Main Menu', windowWidth / 2, windowHeight - 60);
+      
+      if (isConfirmPressed() && menuNavigationCooldown === 0) {
+        returnToMainMenu();
+        multiplayerScoreboard = false;
+        multiplayerMode = false;
+        multiplayerWinner = -1;
+        currentPlayerIndex = 0;
+        players = [];
+        menuNavigationCooldown = 20;
+      }
+    }
+  pop();
+}
+
+function drawPlayerTurnScreen() {
+  push();
+    fill(20);
+    rect(0, 0, windowWidth, windowHeight);
+    
+    let currentPlayer = players[currentPlayerIndex];
+    
+    // Player color box
+    push();
+      rectMode(CENTER);
+      fill(currentPlayer.color[0], currentPlayer.color[1], currentPlayer.color[2]);
+      rect(windowWidth / 2, windowHeight * 0.35, 150, 150, 20);
+    pop();
+    
+    // Title
+    fill(255);
+    textAlign(CENTER);
+    textSize(60);
+    text("Player " + (currentPlayerIndex + 1) + "'s Turn", windowWidth / 2, windowHeight * 0.55);
+    
+    textSize(30);
+    text("Round " + level, windowWidth / 2, windowHeight * 0.63);
+    
+    // Instructions
+    let fadeAlpha = map(sin(frameCount * 0.05), -1, 1, 30, 70);
+    fill(200, fadeAlpha);
+    textSize(24);
+    text('Press Enter or A to Begin', windowWidth / 2, windowHeight * 0.75);
+    
+    if (isConfirmPressed() && menuNavigationCooldown === 0) {
+      showPlayerTurnScreen = false;
+      loadPlayerState(currentPlayerIndex);
+      menuNavigationCooldown = 20;
+    }
+  pop();
+}
+
+
+
