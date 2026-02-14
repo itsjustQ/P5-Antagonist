@@ -214,6 +214,7 @@ let playerSpeed = 4;
 let scoreBarHeight = 40;
 let expBarHeight = 25;
 let expBarBuffer = 15;
+let sideBuffer = 25;
 let score = 0;
 let totalScore = 0;
 let health = 10;
@@ -982,7 +983,7 @@ function enemyShoot1() {
 
         if (
           bullet.x < 0 || bullet.x > windowWidth ||
-          bullet.y < scoreBarHeight || bullet.y > windowHeight - expBarHeight - expBarBuffer
+          bullet.y < scoreBarHeight || bullet.y > windowHeight - expBarHeight
         ) {
           enemyBullets[i].splice(b, 1);
         } else if (
@@ -1062,12 +1063,12 @@ function detectKeyboardInput(){
       //left
       if (isLeftPressed() || gamepadXAxis < 0) {
         let currentMoveSpeed = (isGamepadMoving && gamepadXAxis < 0) ? moveSpeedX : playerSpeed;
-        if (playerX > (currentMoveSpeed - 0.1)){
+        if (playerX > sideBuffer + (currentMoveSpeed - 0.1)){
           playerX -= currentMoveSpeed;
         }
         if (followTarget[i] === true){
           if (followBeetle[i] === true){
-            if (antX[i] > ((antSpeed[i]) -.01)){
+            if (antX[i] > sideBuffer + ((antSpeed[i]) -.01)){
               antX[i] -= (antSpeed[i]);
             }
           }
@@ -1081,12 +1082,12 @@ function detectKeyboardInput(){
       //right
       if (isRightPressed() || gamepadXAxis > 0) {
         let currentMoveSpeed = (isGamepadMoving && gamepadXAxis > 0) ? moveSpeedX : playerSpeed;
-        if (playerX < windowWidth - (currentMoveSpeed - 0.1)){
+        if (playerX < windowWidth - sideBuffer - (currentMoveSpeed - 0.1)){
           playerX += currentMoveSpeed;
         }
         if (followTarget[i] === true){
           if (followBeetle[i] === true){
-            if (antX[i] < windowWidth - ((antSpeed[i]) -.01)){
+            if (antX[i] < windowWidth - sideBuffer - ((antSpeed[i]) -.01)){
               antX[i] += (antSpeed[i]);
             }
           }
@@ -1145,12 +1146,14 @@ function detectKeyboardInput(){
         playerBulletShot = true;
       }
     }
+    // Calculate ant movement vectors for followAnt behavior
     for (let i = 1; i <= enemyCount; i++) {
       antMoveX[i] = antX[i] - antPrevX[i];
       antMoveY[i] = antY[i] - antPrevY[i];
     }
-    if (followTarget[i] === true){
-      if (followAnt[i] === true) {
+    // Handle followAnt + followTarget ants (follow nearest ant's movement vector)
+    for (let i = 1; i <= enemyCount; i++) {
+      if (followTarget[i] === true && followAnt[i] === true) {
         let nearest = getNearestAnt(i);
         if (nearest !== -1) {
           let dx = antMoveX[nearest];
@@ -1164,13 +1167,14 @@ function detectKeyboardInput(){
             antX[i] += dx * antSpeed[i];
             antY[i] += dy * antSpeed[i];
 
-            antX[i] = constrain(antX[i], 0, windowWidth);
+            antX[i] = constrain(antX[i], sideBuffer, windowWidth - sideBuffer);
             antY[i] = constrain(antY[i], scoreBarHeight + 15, windowHeight - expBarHeight - expBarBuffer);
           }
         }
       }
     }
   }
+  // Update previous ant positions for next frame
   for (let i = 1; i <= enemyCount; i++) {
     antPrevX[i] = antX[i];
     antPrevY[i] = antY[i];
@@ -1290,7 +1294,7 @@ function beetleShoot() {
       b.x < 0 ||
       b.x > windowWidth ||
       b.y < scoreBarHeight ||
-      b.y > windowHeight - expBarHeight - expBarBuffer
+      b.y > windowHeight - expBarHeight
     ) {
       playerBullets.splice(i, 1);
     }
@@ -1496,7 +1500,7 @@ function autonomousAntMovement(){
         } else if (standingPointY[i] < antY[i] - antSpeed[i]) {
           antY[i] -= antSpeed[i];
         }
-        antX[i] = constrain(antX[i], 0, windowWidth);
+        antX[i] = constrain(antX[i], sideBuffer, windowWidth - sideBuffer);
         antY[i] = constrain(antY[i], scoreBarHeight + 15, windowHeight - expBarHeight - expBarBuffer);
       }
     }
@@ -1554,7 +1558,7 @@ function autonomousAntMovement(){
       }
     }
     // --- Keep on screen ---
-    antX[i] = constrain(antX[i], 0, windowWidth);
+    antX[i] = constrain(antX[i], sideBuffer, windowWidth - sideBuffer);
     antY[i] = constrain(antY[i], scoreBarHeight + 15, windowHeight - expBarHeight - expBarBuffer);
   }
 }
@@ -5099,6 +5103,5 @@ function drawPlayerTurnScreen() {
     }
   pop();
 }
-
 
 
