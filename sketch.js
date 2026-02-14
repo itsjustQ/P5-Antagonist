@@ -244,7 +244,16 @@ let upgrade5Level = 0;  // Add Bullets (max 16)
 let upgrade6Level = 0;  // Shield Regeneration (max 5, requires Add Shield)
 let upgrade7Level = 0;  // Bullet Reload (max 5, requires Add Bullets)
 let upgrade8Level = 0;  // Bullet Speed (max 5, requires Add Bullets)
+let upgrade9Level = 0;  // Free-Angle Aiming (max 1, requires Add Bullets)
 let displayedUpgrades = [];  // Array of up to 3 randomly selected upgrade indices (0-7)
+
+// Free aiming variables
+let freeAimEnabled = false;  // Based on upgrade9Level
+let isAiming = false;  // True when mouse/right stick is being used to aim
+let aimAngle = 0;  // Current aim angle in degrees (atan2 returns degrees when angleMode is DEGREES)
+let lastAimInputTime = 0;  // Track when last aiming input was received
+let aimInputTimeout = 30;  // Frames before reverting to movement-based rotation
+let rightStickDeadzone = 0.2;  // Deadzone for right stick aiming
 
 // Actual upgrade stat variables
 let movementSpeed = 3;
@@ -566,6 +575,7 @@ function resetRunState() {
   upgrade6Level = 0;
   upgrade7Level = 0;
   upgrade8Level = 0;
+  upgrade9Level = 0;
   displayedUpgrades = [];
   updateUpgradeBooleans();  // Reset all upgrade booleans to false
 }
@@ -626,8 +636,18 @@ function drawScoreboard() {
     highScore = 0;
   }
 
-  const currentRunScore = totalScore + score;
-  if (currentRunScore > highScore) {
+  // Calculate current run score based on mode
+  let currentRunScore;
+  if (multiplayerMode && players.length > 0) {
+    // In multiplayer, show current player's total + current round score
+    currentRunScore = players[currentPlayerIndex].totalScore + score;
+  } else {
+    // In single player, use global totalScore
+    currentRunScore = totalScore + score;
+  }
+  
+  // Only update high score in single player mode during gameplay
+  if (!multiplayerMode && currentRunScore > highScore) {
     highScore = currentRunScore;
     storeItem('newHighScore', highScore);
   }
@@ -792,7 +812,13 @@ function drawBeetle(){
     imageMode(CENTER);
     translate(playerX, playerY);
     push()
-      rotate(playerRotationValue);
+      // When aiming, use aimAngle; otherwise use playerRotationValue
+      // Both are in degrees thanks to angleMode(DEGREES) affecting atan2
+      if (isAiming && freeAimEnabled) {
+        rotate(aimAngle);
+      } else {
+        rotate(playerRotationValue);
+      }
       image(beetle, 0, 0, 130, 130);
     pop()
 
@@ -1010,13 +1036,34 @@ function detectKeyboardInput(){
   if (touches.length > 0) {
     handleMobileInput(mouseX, mouseY);
   }
+  
+  // Update free aiming if enabled
+  updateFreeAim();
+  
   for (let i = 1; i < enemyCount + 1; i++) {
     if(end == false) {
 
+      // Get gamepad analog values for proportional movement
+      let gamepadXAxis = getGamepadLeftStickX();
+      let gamepadYAxis = getGamepadLeftStickY();
+      
+      // Calculate movement speeds (keyboard = full speed, gamepad = proportional)
+      let moveSpeedX = playerSpeed;
+      let moveSpeedY = playerSpeed;
+      let isGamepadMoving = false;
+      
+      // Check if using gamepad for movement
+      if (gamepadConnected && (Math.abs(gamepadXAxis) > 0 || Math.abs(gamepadYAxis) > 0)) {
+        isGamepadMoving = true;
+        moveSpeedX = playerSpeed * Math.abs(gamepadXAxis);
+        moveSpeedY = playerSpeed * Math.abs(gamepadYAxis);
+      }
+
       //left
-      if (isLeftPressed()) {
-        if (playerX > (playerSpeed - 0.1)){
-          playerX -= playerSpeed;
+      if (isLeftPressed() || gamepadXAxis < 0) {
+        let currentMoveSpeed = (isGamepadMoving && gamepadXAxis < 0) ? moveSpeedX : playerSpeed;
+        if (playerX > (currentMoveSpeed - 0.1)){
+          playerX -= currentMoveSpeed;
         }
         if (followTarget[i] === true){
           if (followBeetle[i] === true){
@@ -1025,13 +1072,17 @@ function detectKeyboardInput(){
             }
           }
         } 
-        playerRotationValue = 180;
+        // Only update rotation if not aiming
+        if (!isAiming && (!isGamepadMoving || Math.abs(gamepadYAxis) < Math.abs(gamepadXAxis))) {
+          playerRotationValue = 180;
+        }
       }
 
       //right
-      if (isRightPressed()) {
-        if (playerX < windowWidth - (playerSpeed - 0.1)){
-          playerX += playerSpeed;
+      if (isRightPressed() || gamepadXAxis > 0) {
+        let currentMoveSpeed = (isGamepadMoving && gamepadXAxis > 0) ? moveSpeedX : playerSpeed;
+        if (playerX < windowWidth - (currentMoveSpeed - 0.1)){
+          playerX += currentMoveSpeed;
         }
         if (followTarget[i] === true){
           if (followBeetle[i] === true){
@@ -1040,13 +1091,17 @@ function detectKeyboardInput(){
             }
           }
         } 
-        playerRotationValue = 0;
+        // Only update rotation if not aiming
+        if (!isAiming && (!isGamepadMoving || Math.abs(gamepadYAxis) < Math.abs(gamepadXAxis))) {
+          playerRotationValue = 0;
+        }
       }
 
       //up
-      if (isUpPressed()) {
-        if (playerY > (scoreBarHeight + 25) + (playerSpeed - 0.01)){
-          playerY -= playerSpeed;
+      if (isUpPressed() || gamepadYAxis < 0) {
+        let currentMoveSpeed = (isGamepadMoving && gamepadYAxis < 0) ? moveSpeedY : playerSpeed;
+        if (playerY > (scoreBarHeight + 25) + (currentMoveSpeed - 0.01)){
+          playerY -= currentMoveSpeed;
         }
         if (followTarget[i] === true){
           if (followBeetle[i] === true){
@@ -1055,13 +1110,17 @@ function detectKeyboardInput(){
             }
           }
         }
-        playerRotationValue = 270;
+        // Only update rotation if not aiming
+        if (!isAiming && (!isGamepadMoving || Math.abs(gamepadYAxis) >= Math.abs(gamepadXAxis))) {
+          playerRotationValue = 270;
+        }
       }
 
       //down
-      if (isDownPressed()) {
-        if (playerY < windowHeight - expBarHeight - expBarBuffer - (playerSpeed - 0.1)){
-          playerY += playerSpeed;
+      if (isDownPressed() || gamepadYAxis > 0) {
+        let currentMoveSpeed = (isGamepadMoving && gamepadYAxis > 0) ? moveSpeedY : playerSpeed;
+        if (playerY < windowHeight - expBarHeight - expBarBuffer - (currentMoveSpeed - 0.1)){
+          playerY += currentMoveSpeed;
         }
         if (followTarget[i] === true){
           if (followBeetle[i] === true){
@@ -1070,7 +1129,10 @@ function detectKeyboardInput(){
             }
           }
         }
-        playerRotationValue = 90;
+        // Only update rotation if not aiming
+        if (!isAiming && (!isGamepadMoving || Math.abs(gamepadYAxis) >= Math.abs(gamepadXAxis))) {
+          playerRotationValue = 90;
+        }
       }
 
       if (isDashPressed() && dashReady){
@@ -1174,11 +1236,20 @@ function beetleShoot() {
   for (let i = playerBullets.length - 1; i >= 0; i--) {
     let b = playerBullets[i];
 
-    // move bullet in its facing direction
-    if (b.rotation == 90)  b.y += 4 * playerBulletSpeed;
-    if (b.rotation == 0)   b.x += 4 * playerBulletSpeed;
-    if (b.rotation == 270) b.y -= 4 * playerBulletSpeed;
-    if (b.rotation == 180) b.x -= 4 * playerBulletSpeed;
+    // Move bullet in its facing direction
+    // Check if using free aim (arbitrary angle) or cardinal directions
+    if (b.rotation === 90 || b.rotation === 0 || b.rotation === 270 || b.rotation === 180) {
+      // Cardinal directions (original behavior)
+      if (b.rotation == 90)  b.y += 4 * playerBulletSpeed;
+      if (b.rotation == 0)   b.x += 4 * playerBulletSpeed;
+      if (b.rotation == 270) b.y -= 4 * playerBulletSpeed;
+      if (b.rotation == 180) b.x -= 4 * playerBulletSpeed;
+    } else {
+      // Free aim - use trigonometry for arbitrary angles
+      // Since angleMode(DEGREES) is set, cos/sin expect degrees not radians
+      b.x += cos(b.rotation) * 4 * playerBulletSpeed;
+      b.y += sin(b.rotation) * 4 * playerBulletSpeed;
+    }
 
     // draw bullet
     push();
@@ -1533,7 +1604,10 @@ function endGame(){
     if (multiplayerMode && players.length > 0) {
       if (!players[currentPlayerIndex].scoredDeath) {
         players[currentPlayerIndex].alive = false;
-        players[currentPlayerIndex].totalScore += score;
+        // Only add score if they haven't already scored this round
+        if (!players[currentPlayerIndex].hasPlayedRound) {
+          players[currentPlayerIndex].totalScore += score;
+        }
         players[currentPlayerIndex].hasPlayedRound = true;
         players[currentPlayerIndex].scoredDeath = true;
         savePlayerState(currentPlayerIndex);
@@ -1794,7 +1868,10 @@ if (timeCount < 0) {
     rectMode(CORNER);
     rect(0, 0, windowWidth, windowHeight);
     if(levelEnd == 0){
-      totalScore = totalScore + score;
+      // Only update global totalScore in single player mode
+      if (!multiplayerMode) {
+        totalScore = totalScore + score;
+      }
       levelEnd = 1;
     }
     if (liveRankingsPrinted === false){
@@ -1812,13 +1889,25 @@ if (timeCount < 0) {
     if (highScore == null) {
       highScore = 0;
     }
-    if (totalScore > highScore) {
+    // Only update high score in single player mode during intermission
+    if (!multiplayerMode && totalScore > highScore) {
       storeItem('newHighScore', totalScore);
       highScore = totalScore;
     }
 
     const intermissionRound = level;
     const intermissionHealth = health;
+    
+    // Calculate scores to display based on mode
+    let displayScore = score;
+    let displayTotal;
+    if (multiplayerMode && players.length > 0) {
+      // In multiplayer, show current player's total + this round's score
+      displayTotal = players[currentPlayerIndex].totalScore + score;
+    } else {
+      // In single player, use global totalScore
+      displayTotal = totalScore;
+    }
 
     push();
       rectMode(CENTER);
@@ -1837,8 +1926,8 @@ if (timeCount < 0) {
 
       textSize(46);
       fill(240, 164, 0);
-      text(score, windowWidth / 2 - windowWidth * 0.15, windowHeight * 0.46);
-      text(totalScore, windowWidth / 2 + windowWidth * 0.15, windowHeight * 0.46);
+      text(displayScore, windowWidth / 2 - windowWidth * 0.15, windowHeight * 0.46);
+      text(displayTotal, windowWidth / 2 + windowWidth * 0.15, windowHeight * 0.46);
 
       textSize(24);
       fill(160, 220, 255);
@@ -1886,18 +1975,19 @@ if (timeCount < 0) {
       upgradeKeyDebounce = 0;
       
       // Get upgrade levels and max levels
-      let upgradeLevels = [upgrade1Level, upgrade2Level, upgrade3Level, upgrade4Level, upgrade5Level, upgrade6Level, upgrade7Level, upgrade8Level];
-      let upgradeMaxLevels = [4, 5, 5, 9, 16, 5, 5, 5];  // Walking Speed, Dash Speed, Dash Cooldown, Add Shield, Add Bullets, Shield Regen, Bullet Reload, Bullet Speed
+      let upgradeLevels = [upgrade1Level, upgrade2Level, upgrade3Level, upgrade4Level, upgrade5Level, upgrade6Level, upgrade7Level, upgrade8Level, upgrade9Level];
+      let upgradeMaxLevels = [4, 5, 5, 9, 16, 5, 5, 5, 1];  // Walking Speed, Dash Speed, Dash Cooldown, Add Shield, Add Bullets, Shield Regen, Bullet Reload, Bullet Speed, Free-Angle Aiming
       
       // Filter out maxed upgrades and locked upgrades (prerequisites not met)
       let availableUpgrades = [];
-      for (let i = 0; i < 8; i++) {
+      for (let i = 0; i < 9; i++) {
         // Check if upgrade is not maxed
         if (upgradeLevels[i] < upgradeMaxLevels[i]) {
           // Check prerequisites
           if (i === 5 && upgrade4Level === 0) continue;  // Shield Regeneration requires Add Shield
           if (i === 6 && upgrade5Level === 0) continue;  // Bullet Reload requires Add Bullets
           if (i === 7 && upgrade5Level === 0) continue;  // Bullet Speed requires Add Bullets
+          if (i === 8 && (upgrade5Level === 0 || upgrade7Level === 0 || upgrade8Level === 0)) continue;  // Free-Angle Aiming requires Add Bullets, Bullet Reload, and Bullet Speed
           availableUpgrades.push(i);
         }
       }
@@ -1999,9 +2089,10 @@ if (timeCount < 0) {
       if (upgradeKeyDebounce === 0 && isConfirmPressed()) {
         // Multiplayer: check if more players need to play this round
         if (multiplayerMode) {
+          // Add score only if not already added this round
           if (!players[currentPlayerIndex].hasPlayedRound) {
-            players[currentPlayerIndex].hasPlayedRound = true;
             players[currentPlayerIndex].totalScore += score;
+            players[currentPlayerIndex].hasPlayedRound = true;
             savePlayerState(currentPlayerIndex);
           }
           
@@ -2164,8 +2255,8 @@ if (timeCount < 0) {
 }
 
 function drawUpgradeScreen() {
-  // Define all 8 upgrade options with their max levels
-  let upgradeMaxLevels = [7, 5, 5, 9, 8, 5, 5, 5];
+  // Define all 9 upgrade options with their max levels
+  let upgradeMaxLevels = [7, 5, 5, 9, 8, 5, 5, 5, 1];
   let allUpgrades = [
     {
       title: 'Walking Speed',
@@ -2214,6 +2305,12 @@ function drawUpgradeScreen() {
       description: 'Increase bullet velocity.',
       level: upgrade8Level,
       maxLevel: 5
+    },
+    {
+      title: 'Free-Angle Aiming',
+      description: 'Aim with mouse or right stick. Requires all bullet upgrades.',
+      level: upgrade9Level,
+      maxLevel: 1
     }
   ];
   
@@ -2350,7 +2447,7 @@ function drawUpgradeScreen() {
 function applyUpgrade(upgradeIndex) {
   // Get the actual upgrade ID from the displayed upgrades
   let actualUpgradeId = displayedUpgrades[upgradeIndex];
-  let upgradeMaxLevels = [4, 5, 5, 9, 16, 5, 5, 5];
+  let upgradeMaxLevels = [4, 5, 5, 9, 16, 5, 5, 5, 1];
   
   // Increment the selected upgrade's level (capped at respective max)
   if (actualUpgradeId === 0 && upgrade1Level < upgradeMaxLevels[0]) {
@@ -2369,6 +2466,8 @@ function applyUpgrade(upgradeIndex) {
     upgrade7Level++;
   } else if (actualUpgradeId === 7 && upgrade8Level < upgradeMaxLevels[7]) {
     upgrade8Level++;
+  } else if (actualUpgradeId === 8 && upgrade9Level < upgradeMaxLevels[8]) {
+    upgrade9Level++;
   }
   
   // Level up the EXP system
@@ -2381,16 +2480,17 @@ function applyUpgrade(upgradeIndex) {
   if (expProgress >= expRequired) {
     upgradeAvailable = true;
     // Keep upgrade menu active and regenerate upgrade options
-    let upgradeLevels = [upgrade1Level, upgrade2Level, upgrade3Level, upgrade4Level, upgrade5Level, upgrade6Level, upgrade7Level, upgrade8Level];
-    let upgradeMaxLevels = [4, 5, 5, 9, 16, 5, 5, 5];
+    let upgradeLevels = [upgrade1Level, upgrade2Level, upgrade3Level, upgrade4Level, upgrade5Level, upgrade6Level, upgrade7Level, upgrade8Level, upgrade9Level];
+    let upgradeMaxLevels = [4, 5, 5, 9, 16, 5, 5, 5, 1];
     let availableUpgrades = [];
-    for (let i = 0; i < 8; i++) {
+    for (let i = 0; i < 9; i++) {
       // Check if upgrade is not maxed
       if (upgradeLevels[i] < upgradeMaxLevels[i]) {
         // Check prerequisites
         if (i === 5 && upgrade4Level === 0) continue;  // Shield Regeneration requires Add Shield
         if (i === 6 && upgrade5Level === 0) continue;  // Bullet Reload requires Add Bullets
         if (i === 7 && upgrade5Level === 0) continue;  // Bullet Speed requires Add Bullets
+        if (i === 8 && (upgrade5Level === 0 || upgrade7Level === 0 || upgrade8Level === 0)) continue;  // Free-Angle Aiming requires Add Bullets, Bullet Reload, and Bullet Speed
         availableUpgrades.push(i);
       }
     }
@@ -2413,9 +2513,9 @@ function applyUpgrade(upgradeIndex) {
     upgradeMenuActive = false;
   }
   
-  // TODO: Add actual upgrade effects based on actualUpgradeId (0-7)
-  let levels = [upgrade1Level, upgrade2Level, upgrade3Level, upgrade4Level, upgrade5Level, upgrade6Level, upgrade7Level, upgrade8Level];
-  let upgradeNames = ['Walking Speed', 'Dash Speed', 'Dash Cooldown', 'Add Shield', 'Add Bullets', 'Shield Regeneration', 'Bullet Reload', 'Bullet Speed'];
+  // TODO: Add actual upgrade effects based on actualUpgradeId (0-8)
+  let levels = [upgrade1Level, upgrade2Level, upgrade3Level, upgrade4Level, upgrade5Level, upgrade6Level, upgrade7Level, upgrade8Level, upgrade9Level];
+  let upgradeNames = ['Walking Speed', 'Dash Speed', 'Dash Cooldown', 'Add Shield', 'Add Bullets', 'Shield Regeneration', 'Bullet Reload', 'Bullet Speed', 'Free-Angle Aiming'];
   console.log(`${upgradeNames[actualUpgradeId]} selected! Level: ${levels[actualUpgradeId]}`);
   
   // Update upgrade booleans
@@ -2559,6 +2659,13 @@ function updateUpgradeBooleans() {
     playerBulletSpeed = 10; // Set value for level 5
   } else {
     playerBulletSpeed = 1;
+  }
+  
+  // Free-Angle Aiming (1 level - toggle)
+  if (upgrade9Level === 1) {
+    freeAimEnabled = true;
+  } else {
+    freeAimEnabled = false;
   }
 }
 
@@ -2920,6 +3027,7 @@ function nextRound(){
     for (let p of players) {
       p.hasPlayedRound = false;
       p.scoredDeath = false;
+      p.roundScore = 0;
     }
     
     // Find first alive player for the new round
@@ -4432,11 +4540,94 @@ function isDownPressed() {
   return false;
 }
 
-// Check if space/shoot is pressed (keyboard Space or gamepad right trigger)
+// Check if space/shoot is pressed (keyboard Space, left mouse button, or gamepad right trigger)
 function isShootPressed() {
   if (keyIsDown(32)) return true;
+  if (mouseIsPressed && mouseButton === LEFT) return true;
   if (gamepad && gamepad.buttons[7] && gamepad.buttons[7].pressed) return true; // Right trigger (R2/RT)
   return false;
+}
+
+// Get gamepad left stick X axis value (returns -1 to 1, accounting for deadzone)
+function getGamepadLeftStickX() {
+  if (!gamepad || !gamepad.axes[0]) return 0;
+  let value = gamepad.axes[0];
+  // Apply deadzone
+  if (Math.abs(value) < leftStickDeadzone) return 0;
+  // Rescale to make deadzone edge = 0, full tilt = 1 or -1
+  if (value > 0) {
+    return (value - leftStickDeadzone) / (1 - leftStickDeadzone);
+  } else {
+    return (value + leftStickDeadzone) / (1 - leftStickDeadzone);
+  }
+}
+
+// Get gamepad left stick Y axis value (returns -1 to 1, accounting for deadzone)
+function getGamepadLeftStickY() {
+  if (!gamepad || !gamepad.axes[1]) return 0;
+  let value = gamepad.axes[1];
+  // Apply deadzone
+  if (Math.abs(value) < leftStickDeadzone) return 0;
+  // Rescale to make deadzone edge = 0, full tilt = 1 or -1
+  if (value > 0) {
+    return (value - leftStickDeadzone) / (1 - leftStickDeadzone);
+  } else {
+    return (value + leftStickDeadzone) / (1 - leftStickDeadzone);
+  }
+}
+
+// Get right stick X axis for aiming (axes[2])
+function getRightStickX() {
+  if (!gamepad || !gamepad.axes[2]) return 0;
+  let value = gamepad.axes[2];
+  if (Math.abs(value) < rightStickDeadzone) return 0;
+  return value;
+}
+
+// Get right stick Y axis for aiming (axes[3])
+function getRightStickY() {
+  if (!gamepad || !gamepad.axes[3]) return 0;
+  let value = gamepad.axes[3];
+  if (Math.abs(value) < rightStickDeadzone) return 0;
+  return value;
+}
+
+// Update aiming based on mouse or right stick
+function updateFreeAim() {
+  if (!freeAimEnabled || end) {
+    isAiming = false;
+    return;
+  }
+  
+  let rightStickX = getRightStickX();
+  let rightStickY = getRightStickY();
+  
+  // Check right stick first (controller has priority)
+  if (Math.abs(rightStickX) > 0 || Math.abs(rightStickY) > 0) {
+    isAiming = true;
+    lastAimInputTime = frameCount;
+    // Calculate angle from right stick using atan2
+    // Since angleMode is DEGREES globally, atan2 returns degrees
+    aimAngle = atan2(rightStickY, rightStickX);
+    playerRotationValue = aimAngle;  // Already in degrees from atan2
+  }
+  // For mouse aiming, use the same system as ants: atan2(mouseY - playerY, mouseX - playerX)
+  else if (mouseIsPressed || (mouseX !== pmouseX || mouseY !== pmouseY)) {
+    // Calculate angle from player to mouse like ants do
+    // Since angleMode is DEGREES globally, atan2 returns degrees
+    aimAngle = atan2(mouseY - playerY, mouseX - playerX);
+    playerRotationValue = aimAngle;  // Already in degrees from atan2
+    isAiming = true;
+    lastAimInputTime = frameCount;
+  }
+  // If no recent aiming input, deactivate aiming mode
+  else if (frameCount - lastAimInputTime > aimInputTimeout) {
+    isAiming = false;
+  }
+  // Still aiming but no new input - maintain last angle
+  else if (isAiming) {
+    playerRotationValue = aimAngle;
+  }
 }
 
 // Check if enter/confirm is pressed (keyboard Enter or gamepad A button)
@@ -4487,6 +4678,9 @@ function savePlayerState(playerIndex) {
   
   let p = players[playerIndex];
   
+  // Save the current round score
+  p.roundScore = score;
+  
   // Save upgrade levels
   p.upgrade1 = upgrade1Level;
   p.upgrade2 = upgrade2Level;
@@ -4496,6 +4690,7 @@ function savePlayerState(playerIndex) {
   p.upgrade6 = upgrade6Level;
   p.upgrade7 = upgrade7Level;
   p.upgrade8 = upgrade8Level;
+  p.upgrade9 = upgrade9Level;
   
   // Save experience
   p.expLevel = expLevel;
@@ -4527,6 +4722,7 @@ function loadPlayerState(playerIndex) {
   upgrade6Level = p.upgrade6;
   upgrade7Level = p.upgrade7;
   upgrade8Level = p.upgrade8;
+  upgrade9Level = p.upgrade9;
   
   // Load experience
   expLevel = p.expLevel;
@@ -4586,6 +4782,7 @@ function initializeMultiplayer() {
       playerBullets: [],
       score: 0,
       totalScore: 0,
+      roundScore: 0,
       alive: true,
       hasPlayedRound: false,
       scoredDeath: false,
@@ -4599,6 +4796,7 @@ function initializeMultiplayer() {
       upgrade6: 0, // Shield regen
       upgrade7: 0, // Bullet reload
       upgrade8: 0, // Bullet speed
+      upgrade9: 0, // Free-angle aiming
       // Experience and stats
       expLevel: 1,
       expProgress: 0,
@@ -4768,14 +4966,20 @@ function drawMultiplayerScoreboard() {
     let sortedPlayers = [...players].sort((a, b) => b.totalScore - a.totalScore);
     
     textSize(30);
-    text("Scoreboard", windowWidth / 2, 150);
+    text("Scoreboard - Ranked by Total Score", windowWidth / 2, 150);
     
     let startY = 220;
-    let rowHeight = 60;
+    let rowHeight = 80;
     
     for (let i = 0; i < sortedPlayers.length; i++) {
       let p = sortedPlayers[i];
       let y = startY + i * rowHeight;
+      
+      // Rank number
+      fill(255, 215, 0); // Gold color
+      textAlign(CENTER);
+      textSize(32);
+      text("#" + (i + 1), windowWidth * 0.15, y + 5);
       
       // Player color box
       push();
@@ -4784,7 +4988,7 @@ function drawMultiplayerScoreboard() {
         if (!p.alive) {
           fill(100); // Gray out dead players
         }
-        rect(windowWidth * 0.3, y, 40, 40, 8);
+        rect(windowWidth * 0.25, y, 40, 40, 8);
       pop();
       
       // Player number and status
@@ -4792,11 +4996,19 @@ function drawMultiplayerScoreboard() {
       textAlign(LEFT);
       textSize(24);
       let status = p.alive ? "" : " (OUT)";
-      text("Player " + (p.id + 1) + status, windowWidth * 0.35, y + 8);
+      text("Player " + (p.id + 1) + status, windowWidth * 0.3, y - 10);
       
-      // Score
+      // Stats - smaller text for details
+      textSize(18);
+      fill(200, 200, 255);
+      text("Total: " + p.totalScore, windowWidth * 0.3, y + 12);
+      text("Round: " + p.roundScore, windowWidth * 0.3, y + 30);
+      
+      // EXP Level on the right
       textAlign(RIGHT);
-      text("Score: " + p.totalScore, windowWidth * 0.7, y + 8);
+      fill(255, 255, 100);
+      textSize(22);
+      text("EXP Lv. " + p.expLevel, windowWidth * 0.8, y + 5);
     }
     
     // Instructions
@@ -4833,6 +5045,12 @@ function drawMultiplayerScoreboard() {
       text('Enter or A  Return to Main Menu', windowWidth / 2, windowHeight - 60);
       
       if (isConfirmPressed() && menuNavigationCooldown === 0) {
+        // Update high score with winner's score before returning to menu
+        if (multiplayerWinner >= 0 && players[multiplayerWinner].totalScore > highScore) {
+          highScore = players[multiplayerWinner].totalScore;
+          storeItem('newHighScore', highScore);
+        }
+        
         returnToMainMenu();
         multiplayerScoreboard = false;
         multiplayerMode = false;
