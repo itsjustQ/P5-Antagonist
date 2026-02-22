@@ -210,7 +210,7 @@ let buttons = {};
 
 
 //let canvasSize = 600;
-let playerSpeed = 4;
+let playerSpeed = 3;
 let scoreBarHeight = 40;
 let expBarHeight = 25;
 let expBarBuffer = 15;
@@ -246,7 +246,8 @@ let upgrade6Level = 0;  // Shield Regeneration (max 5, requires Add Shield)
 let upgrade7Level = 0;  // Bullet Reload (max 5, requires Add Bullets)
 let upgrade8Level = 0;  // Bullet Speed (max 5, requires Add Bullets)
 let upgrade9Level = 0;  // Free-Angle Aiming (max 1, requires Add Bullets)
-let displayedUpgrades = [];  // Array of up to 3 randomly selected upgrade indices (0-7)
+let upgrade10Level = 0; // Tiger Beetle (max 1, requires Walking Speed maxed)
+let displayedUpgrades = [];  // Array of up to 3 randomly selected upgrade indices (0-9)
 
 // Free aiming variables
 let freeAimEnabled = false;  // Based on upgrade9Level
@@ -265,6 +266,12 @@ let bulletQuantity = 0;
 let shieldRegenerationRate = 600;
 let bulletReloadRate = 180;
 let playerBulletSpeed = 1;
+
+// Tiger Beetle effect variables
+let tigerBeetleActive = false;
+let playerPrevX = 0;
+let playerPrevY = 0;
+let tigerBeetleMoving = false;
 
 let beetle;
 let ant;
@@ -313,6 +320,8 @@ function setup() {
   //Beetle
   playerX = width / 2;
   playerY = height / 2;
+  playerPrevX = playerX;
+  playerPrevY = playerY;
   playerBulletX = playerX;
   playerBulletY = playerY;
   playerBulletRotationValue = playerRotationValue;
@@ -458,6 +467,16 @@ function draw() {
   }
 
   if (start == true){
+      // Check if Tiger Beetle is moving (for visual effects)
+      if (tigerBeetleActive) {
+        let playerMoved = (playerX !== playerPrevX || playerY !== playerPrevY);
+        tigerBeetleMoving = playerMoved;
+        playerPrevX = playerX;
+        playerPrevY = playerY;
+      } else {
+        tigerBeetleMoving = false;
+      }
+      
       for (let i = 1; i <= enemyCount; i++) {
         antMoveX[i] = 0;
         antMoveY[i] = 0;
@@ -547,6 +566,9 @@ function resetRunState() {
   bulletSpeed[enemyIndex] = 100;
   playerX = width / 2;
   playerY = height / 2;
+  playerPrevX = playerX;
+  playerPrevY = playerY;
+  tigerBeetleMoving = false;
   shield = shieldQuantity > 0 ? shieldQuantity : 0;
   shot = bulletQuantity > 0 ? bulletQuantity : 0;
   shotBreak = 0;
@@ -577,6 +599,7 @@ function resetRunState() {
   upgrade7Level = 0;
   upgrade8Level = 0;
   upgrade9Level = 0;
+  upgrade10Level = 0;
   displayedUpgrades = [];
   updateUpgradeBooleans();  // Reset all upgrade booleans to false
 }
@@ -606,7 +629,30 @@ function returnToMainMenu() {
 }
 
 function drawBackground() {
-
+  // Check if Tiger Beetle is active and player is moving
+  if (tigerBeetleActive && tigerBeetleMoving) {
+    // Draw blurry black and white stripes
+    push();
+    noStroke();
+    let stripeWidth = 40;
+    let offset = (frameCount * 3) % (stripeWidth * 2); // Moving stripes
+    
+    for (let x = -stripeWidth * 2 - offset; x < windowWidth + stripeWidth * 2; x += stripeWidth * 2) {
+      // Alternate between black and white with blur effect
+      fill(0);
+      rect(x, 0, stripeWidth, windowHeight);
+      fill(255);
+      rect(x + stripeWidth, 0, stripeWidth, windowHeight);
+    }
+    
+    // Add blur effect by overlaying semi-transparent layers
+    fill(128, 60);
+    rect(0, 0, windowWidth, windowHeight);
+    fill(128, 40);
+    rect(0, 0, windowWidth, windowHeight);
+    pop();
+  } else {
+    // Normal background
     imageMode(CORNER);
     tx = 0;
     ty = 0;
@@ -618,7 +664,7 @@ function drawBackground() {
     image(bg, tx * windowWidth / 2, ty * windowHeight / 2, windowWidth / 2, windowHeight / 2);
     ty = ty + 1;
     image(bg, tx * windowWidth / 2, ty * windowHeight / 2, windowWidth / 2, windowHeight / 2);
-
+  }
 }
 
 function drawScoreboard() {
@@ -776,6 +822,11 @@ function addScore(points) {
 }
 
 function drawStrikes(){
+  // Skip rendering if Tiger Beetle is active and moving
+  if (tigerBeetleActive && tigerBeetleMoving) {
+    return;
+  }
+  
   if(drawStrike1[enemyIndex] == 1){
   push();
     image(beetleHit, strikeX[enemyIndex], strikeY[enemyIndex], 150, 150);
@@ -788,6 +839,11 @@ function drawStrikes(){
 }
 
 function drawEnemy(){
+  // Skip rendering if Tiger Beetle is active and moving
+  if (tigerBeetleActive && tigerBeetleMoving) {
+    return;
+  }
+  
   //enemy one
   for (let i = 1; i < enemyCount + 1; i++) {
 
@@ -963,14 +1019,16 @@ function enemyShoot1() {
           continue;
         }
 
-        // draw bullet normally
-        push();
-        angleMode(DEGREES);
-        imageMode(CENTER);
-        translate(bullet.x, bullet.y);
-        rotate(bullet.angle);
-        image(bulletImage, 0, 0, (20 * bulletSize[i]), (20 * bulletSize[i]));
-        pop();
+        // draw bullet normally (skip if Tiger Beetle is moving)
+        if (!(tigerBeetleActive && tigerBeetleMoving)) {
+          push();
+          angleMode(DEGREES);
+          imageMode(CENTER);
+          translate(bullet.x, bullet.y);
+          rotate(bullet.angle);
+          image(bulletImage, 0, 0, (20 * bulletSize[i]), (20 * bulletSize[i]));
+          pop();
+        }
 
         if (!sSpit1.isPlaying() && !sSpit2.isPlaying()) {
           sHit = round(random(1, 2));
@@ -1146,34 +1204,44 @@ function detectKeyboardInput(){
         playerBulletShot = true;
       }
     }
-    // Calculate ant movement vectors for followAnt behavior
-    for (let i = 1; i <= enemyCount; i++) {
-      antMoveX[i] = antX[i] - antPrevX[i];
-      antMoveY[i] = antY[i] - antPrevY[i];
-    }
-    // Handle followAnt + followTarget ants (follow nearest ant's movement vector)
-    for (let i = 1; i <= enemyCount; i++) {
-      if (followTarget[i] === true && followAnt[i] === true) {
-        let nearest = getNearestAnt(i);
-        if (nearest !== -1) {
-          let dx = antMoveX[nearest];
-          let dy = antMoveY[nearest];
-          let length = sqrt(dx*dx + dy*dy);
+  }
+  
+  // Calculate ant movement vectors for followAnt behavior
+  for (let i = 1; i <= enemyCount; i++) {
+    antMoveX[i] = antX[i] - antPrevX[i];
+    antMoveY[i] = antY[i] - antPrevY[i];
+  }
+  
+  // Handle followAnt + followTarget ants (follow nearest ant's movement vector)
+  for (let i = 1; i <= enemyCount; i++) {
+    if (followTarget[i] === true && followAnt[i] === true) {
+      let nearest = getNearestAnt(i);
+      if (nearest !== -1) {
+        let dx = antMoveX[nearest];
+        let dy = antMoveY[nearest];
+        let length = sqrt(dx*dx + dy*dy);
 
-          if (length > 0) {
-            dx /= length;
-            dy /= length;
+        if (length > 0) {
+          dx /= length;
+          dy /= length;
 
-            antX[i] += dx * antSpeed[i];
-            antY[i] += dy * antSpeed[i];
+          let oldX = antX[i];
+          let oldY = antY[i];
 
-            antX[i] = constrain(antX[i], sideBuffer, windowWidth - sideBuffer);
-            antY[i] = constrain(antY[i], scoreBarHeight + 15, windowHeight - expBarHeight - expBarBuffer);
-          }
+          antX[i] += dx * antSpeed[i];
+          antY[i] += dy * antSpeed[i];
+
+          antX[i] = constrain(antX[i], sideBuffer, windowWidth - sideBuffer);
+          antY[i] = constrain(antY[i], scoreBarHeight + 15, windowHeight - expBarHeight - expBarBuffer);
+          
+          // Update movement vector immediately so later ants in the loop can see this ant's movement
+          antMoveX[i] = antX[i] - antPrevX[i];
+          antMoveY[i] = antY[i] - antPrevY[i];
         }
       }
     }
   }
+  
   // Update previous ant positions for next frame
   for (let i = 1; i <= enemyCount; i++) {
     antPrevX[i] = antX[i];
@@ -1256,13 +1324,15 @@ function beetleShoot() {
     }
 
     // draw bullet
-    push();
-    angleMode(DEGREES);
-    imageMode(CENTER);
-    translate(b.x, b.y);
-    rotate(b.rotation);
-    image(bulletImage, 0, 0, 20, 20);
-    pop();
+    if (!(tigerBeetleActive && tigerBeetleMoving)) {
+      push();
+      angleMode(DEGREES);
+      imageMode(CENTER);
+      translate(b.x, b.y);
+      rotate(b.rotation);
+      image(bulletImage, 0, 0, 20, 20);
+      pop();
+    }
 
     // bullet collisions
     for (let j = 1; j < enemyCount + 1; j++) {
@@ -1441,15 +1511,17 @@ function drawEnemyExplosions() {
     }
   
 
-    // draw explosion
-    push();
-    noStroke();
-    fill(0, 255, 0, alpha * 0.6);
-    ellipse(e.x, e.y, currentRadius * 1.2);
+    // draw explosion (skip if Tiger Beetle is moving)
+    if (!(tigerBeetleActive && tigerBeetleMoving)) {
+      push();
+      noStroke();
+      fill(0, 255, 0, alpha * 0.6);
+      ellipse(e.x, e.y, currentRadius * 1.2);
 
-    fill(0, 200, 0, alpha);
-    ellipse(e.x, e.y, currentRadius * 1);
-    pop();
+      fill(0, 200, 0, alpha);
+      ellipse(e.x, e.y, currentRadius * 1);
+      pop();
+    }
 
     if (e.life >= e.maxLife) {
       enemyExplosions.splice(i, 1);
@@ -1565,6 +1637,11 @@ function autonomousAntMovement(){
 
 
 function drawDeathEffects() {
+  // Skip rendering if Tiger Beetle is active and moving
+  if (tigerBeetleActive && tigerBeetleMoving) {
+    return;
+  }
+  
   // Draw particle-like bursts
   for (let i = deathAnimations.length - 1; i >= 0; i--) {
     let d = deathAnimations[i];
@@ -1979,12 +2056,12 @@ if (timeCount < 0) {
       upgradeKeyDebounce = 0;
       
       // Get upgrade levels and max levels
-      let upgradeLevels = [upgrade1Level, upgrade2Level, upgrade3Level, upgrade4Level, upgrade5Level, upgrade6Level, upgrade7Level, upgrade8Level, upgrade9Level];
-      let upgradeMaxLevels = [4, 5, 5, 9, 16, 5, 5, 5, 1];  // Walking Speed, Dash Speed, Dash Cooldown, Add Shield, Add Bullets, Shield Regen, Bullet Reload, Bullet Speed, Free-Angle Aiming
+      let upgradeLevels = [upgrade1Level, upgrade2Level, upgrade3Level, upgrade4Level, upgrade5Level, upgrade6Level, upgrade7Level, upgrade8Level, upgrade9Level, upgrade10Level];
+      let upgradeMaxLevels = [4, 5, 5, 9, 16, 5, 5, 5, 1, 1];  // Walking Speed, Dash Speed, Dash Cooldown, Add Shield, Add Bullets, Shield Regen, Bullet Reload, Bullet Speed, Free-Angle Aiming, Tiger Beetle
       
       // Filter out maxed upgrades and locked upgrades (prerequisites not met)
       let availableUpgrades = [];
-      for (let i = 0; i < 9; i++) {
+      for (let i = 0; i < 10; i++) {
         // Check if upgrade is not maxed
         if (upgradeLevels[i] < upgradeMaxLevels[i]) {
           // Check prerequisites
@@ -1992,6 +2069,7 @@ if (timeCount < 0) {
           if (i === 6 && upgrade5Level === 0) continue;  // Bullet Reload requires Add Bullets
           if (i === 7 && upgrade5Level === 0) continue;  // Bullet Speed requires Add Bullets
           if (i === 8 && (upgrade5Level === 0 || upgrade7Level === 0 || upgrade8Level === 0)) continue;  // Free-Angle Aiming requires Add Bullets, Bullet Reload, and Bullet Speed
+          if (i === 9 && upgrade1Level < 4) continue;  // Tiger Beetle requires Walking Speed maxed
           availableUpgrades.push(i);
         }
       }
@@ -2259,14 +2337,14 @@ if (timeCount < 0) {
 }
 
 function drawUpgradeScreen() {
-  // Define all 9 upgrade options with their max levels
-  let upgradeMaxLevels = [7, 5, 5, 9, 8, 5, 5, 5, 1];
+  // Define all 10 upgrade options with their max levels
+  let upgradeMaxLevels = [4, 5, 5, 9, 8, 5, 5, 5, 1, 1];
   let allUpgrades = [
     {
       title: 'Walking Speed',
       description: 'Increase your movement speed.',
       level: upgrade1Level,
-      maxLevel: 7
+      maxLevel: 4
     },
     {
       title: 'Dash Speed',
@@ -2314,6 +2392,12 @@ function drawUpgradeScreen() {
       title: 'Free-Angle Aiming',
       description: 'Aim with mouse or right stick. Requires all bullet upgrades.',
       level: upgrade9Level,
+      maxLevel: 1
+    },
+    {
+      title: 'Tiger Beetle',
+      description: 'Transform into a tiger beetle for maximum speed!',
+      level: upgrade10Level,
       maxLevel: 1
     }
   ];
@@ -2451,7 +2535,7 @@ function drawUpgradeScreen() {
 function applyUpgrade(upgradeIndex) {
   // Get the actual upgrade ID from the displayed upgrades
   let actualUpgradeId = displayedUpgrades[upgradeIndex];
-  let upgradeMaxLevels = [4, 5, 5, 9, 16, 5, 5, 5, 1];
+  let upgradeMaxLevels = [4, 5, 5, 9, 16, 5, 5, 5, 1, 1];
   
   // Increment the selected upgrade's level (capped at respective max)
   if (actualUpgradeId === 0 && upgrade1Level < upgradeMaxLevels[0]) {
@@ -2472,6 +2556,8 @@ function applyUpgrade(upgradeIndex) {
     upgrade8Level++;
   } else if (actualUpgradeId === 8 && upgrade9Level < upgradeMaxLevels[8]) {
     upgrade9Level++;
+  } else if (actualUpgradeId === 9 && upgrade10Level < upgradeMaxLevels[9]) {
+    upgrade10Level++;
   }
   
   // Level up the EXP system
@@ -2484,10 +2570,10 @@ function applyUpgrade(upgradeIndex) {
   if (expProgress >= expRequired) {
     upgradeAvailable = true;
     // Keep upgrade menu active and regenerate upgrade options
-    let upgradeLevels = [upgrade1Level, upgrade2Level, upgrade3Level, upgrade4Level, upgrade5Level, upgrade6Level, upgrade7Level, upgrade8Level, upgrade9Level];
-    let upgradeMaxLevels = [4, 5, 5, 9, 16, 5, 5, 5, 1];
+    let upgradeLevels = [upgrade1Level, upgrade2Level, upgrade3Level, upgrade4Level, upgrade5Level, upgrade6Level, upgrade7Level, upgrade8Level, upgrade9Level, upgrade10Level];
+    let upgradeMaxLevels = [4, 5, 5, 9, 16, 5, 5, 5, 1, 1];
     let availableUpgrades = [];
-    for (let i = 0; i < 9; i++) {
+    for (let i = 0; i < 10; i++) {
       // Check if upgrade is not maxed
       if (upgradeLevels[i] < upgradeMaxLevels[i]) {
         // Check prerequisites
@@ -2495,6 +2581,7 @@ function applyUpgrade(upgradeIndex) {
         if (i === 6 && upgrade5Level === 0) continue;  // Bullet Reload requires Add Bullets
         if (i === 7 && upgrade5Level === 0) continue;  // Bullet Speed requires Add Bullets
         if (i === 8 && (upgrade5Level === 0 || upgrade7Level === 0 || upgrade8Level === 0)) continue;  // Free-Angle Aiming requires Add Bullets, Bullet Reload, and Bullet Speed
+        if (i === 9 && upgrade1Level < 4) continue;  // Tiger Beetle requires Walking Speed maxed
         availableUpgrades.push(i);
       }
     }
@@ -2517,9 +2604,9 @@ function applyUpgrade(upgradeIndex) {
     upgradeMenuActive = false;
   }
   
-  // TODO: Add actual upgrade effects based on actualUpgradeId (0-8)
-  let levels = [upgrade1Level, upgrade2Level, upgrade3Level, upgrade4Level, upgrade5Level, upgrade6Level, upgrade7Level, upgrade8Level, upgrade9Level];
-  let upgradeNames = ['Walking Speed', 'Dash Speed', 'Dash Cooldown', 'Add Shield', 'Add Bullets', 'Shield Regeneration', 'Bullet Reload', 'Bullet Speed', 'Free-Angle Aiming'];
+  // TODO: Add actual upgrade effects based on actualUpgradeId (0-9)
+  let levels = [upgrade1Level, upgrade2Level, upgrade3Level, upgrade4Level, upgrade5Level, upgrade6Level, upgrade7Level, upgrade8Level, upgrade9Level, upgrade10Level];
+  let upgradeNames = ['Walking Speed', 'Dash Speed', 'Dash Cooldown', 'Add Shield', 'Add Bullets', 'Shield Regeneration', 'Bullet Reload', 'Bullet Speed', 'Free-Angle Aiming', 'Tiger Beetle'];
   console.log(`${upgradeNames[actualUpgradeId]} selected! Level: ${levels[actualUpgradeId]}`);
   
   // Update upgrade booleans
@@ -2527,23 +2614,25 @@ function applyUpgrade(upgradeIndex) {
 }
 
 function updateUpgradeBooleans() {
-  // Walking Speed (7 levels)
-  if (upgrade1Level === 1) {
+  // Walking Speed (4 levels) + Tiger Beetle
+  if (upgrade10Level === 1) {
+    movementSpeed = 7; // Tiger Beetle overrides all
+    tigerBeetleActive = true;
+  } else if (upgrade1Level === 1) {
     movementSpeed = 3.5;
+    tigerBeetleActive = false;
   } else if (upgrade1Level === 2) {
     movementSpeed = 4;
+    tigerBeetleActive = false;
   } else if (upgrade1Level === 3) {
     movementSpeed = 4.5;
+    tigerBeetleActive = false;
   } else if (upgrade1Level === 4) {
     movementSpeed = 5;
-  } else if (upgrade1Level === 5) {
-    movementSpeed = 5.5;
-  } else if (upgrade1Level === 6) {
-    movementSpeed = 6;
-  } else if (upgrade1Level === 7) {
-    movementSpeed = 7;
+    tigerBeetleActive = false;
   } else {
     movementSpeed = 3;
+    tigerBeetleActive = false;
   }
   
   // Dash Speed (5 levels)
@@ -4695,6 +4784,7 @@ function savePlayerState(playerIndex) {
   p.upgrade7 = upgrade7Level;
   p.upgrade8 = upgrade8Level;
   p.upgrade9 = upgrade9Level;
+  p.upgrade10 = upgrade10Level;
   
   // Save experience
   p.expLevel = expLevel;
@@ -4727,6 +4817,7 @@ function loadPlayerState(playerIndex) {
   upgrade7Level = p.upgrade7;
   upgrade8Level = p.upgrade8;
   upgrade9Level = p.upgrade9;
+  upgrade10Level = p.upgrade10 || 0;  // Default to 0 if not saved yet
   
   // Load experience
   expLevel = p.expLevel;
