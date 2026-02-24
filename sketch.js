@@ -131,6 +131,8 @@ let speedTime = 0.5;
 let dashCoolDown;
 let dash = false;
 let dashReady = true;
+let dashPrevPressed = false; // Track previous dash button state for toggle
+let dashButtonTouched = false; // Track if dash button is currently touched
 let shield = 0;
 let shot = 0;
 let shotBreak = 0;
@@ -272,6 +274,8 @@ let tigerBeetleActive = false;
 let playerPrevX = 0;
 let playerPrevY = 0;
 let tigerBeetleMoving = false;
+let flashingEntities = []; // array of {type, index, owner, fade}
+let flashTimer = 0; // frames until next flash selection
 
 let beetle;
 let ant;
@@ -316,12 +320,16 @@ function preload(){
 function setup() {
   
   createCanvas(windowWidth, windowHeight);
+  console.log('Window Width:', windowWidth);
+  console.log('Window Height:', windowHeight);
   //enemyCount = windowWidth/150 + windowHeight/150;
   //Beetle
   playerX = width / 2;
   playerY = height / 2;
   playerPrevX = playerX;
   playerPrevY = playerY;
+  flashingEntities = [];
+  flashTimer = 0;
   playerBulletX = playerX;
   playerBulletY = playerY;
   playerBulletRotationValue = playerRotationValue;
@@ -371,8 +379,8 @@ function setup() {
       explodeOnTermination[i] = false;
       triggerExplodeViaProximity[i] = true; // proximity-based explosion
     }
-    standingPointX[i] = windowWidth / 2;
-    standingPointY[i] = windowHeight / 2;
+    standingPointX[i] = width / 2;
+    standingPointY[i] = height / 2;
     distanceFromAnchor[i] = 200;
     angleFromSpawn[i] = PI;
     if (Math.round(autonomy[i]) === 0){
@@ -467,12 +475,67 @@ function draw() {
   }
 
   if (start == true){
-      // Check if Tiger Beetle is moving (for visual effects)
+      // Check if Tiger Beetle is dashing (for visual effects)
       if (tigerBeetleActive) {
-        let playerMoved = (playerX !== playerPrevX || playerY !== playerPrevY);
-        tigerBeetleMoving = playerMoved;
-        playerPrevX = playerX;
-        playerPrevY = playerY;
+        tigerBeetleMoving = dash;
+        
+        // Handle flash effect when dashing
+        if (tigerBeetleMoving) {
+          flashTimer--;
+          if (flashTimer <= 0) {
+            // Select new entity to flash
+            flashTimer = 3; // Flash selection every 3 frames
+            
+            // Randomly choose between ant or bullet
+            let choice = random();
+            if (choice < 0.5 && enemyCount > 0) {
+              // Flash an ant
+              flashingEntities.push({
+                type: 'ant',
+                index: floor(random(1, enemyCount + 1)),
+                owner: -1,
+                fade: 255
+              });
+            } else {
+              // Flash a bullet - find all bullets
+              let allBullets = [];
+              for (let i = 1; i <= enemyCount; i++) {
+                for (let b = 0; b < enemyBullets[i].length; b++) {
+                  allBullets.push({owner: i, index: b});
+                }
+              }
+              if (allBullets.length > 0) {
+                let bulletChoice = allBullets[floor(random(allBullets.length))];
+                flashingEntities.push({
+                  type: 'bullet',
+                  index: bulletChoice.index,
+                  owner: bulletChoice.owner,
+                  fade: 255
+                });
+              } else {
+                // No bullets, flash an ant instead
+                flashingEntities.push({
+                  type: 'ant',
+                  index: floor(random(1, enemyCount + 1)),
+                  owner: -1,
+                  fade: 255
+                });
+              }
+            }
+          }
+          
+          // Fade out all flashing entities
+          for (let i = flashingEntities.length - 1; i >= 0; i--) {
+            flashingEntities[i].fade -= 8.5; // Fade over 30 frames (255/30)
+            if (flashingEntities[i].fade <= 0) {
+              flashingEntities.splice(i, 1); // Remove faded entities
+            }
+          }
+        } else {
+          // Not dashing, reset flash
+          flashingEntities = [];
+          flashTimer = 0;
+        }
       } else {
         tigerBeetleMoving = false;
       }
@@ -483,8 +546,13 @@ function draw() {
       }
       healthBegin = health;
       shieldBegin = shield;
+      
+      // UI elements (not scaled)
       drawBackground();
       drawScoreboard();
+      
+      // Begin gameplay scaling based on level
+      beginGameplayScaling();
       autonomousAntMovement();
       drawEnemy();
       drawBeetle();
@@ -496,9 +564,30 @@ function draw() {
       detectKeyboardInput();
       // Beetle Moves
       beetleShoot();
-      beetleDash();    
-      enemyStrike();
+      beetleDash();
       drawDeathEffects();
+      endGameplayScaling();
+      
+      // Draw damage flash effects AFTER gameplay (not scaled)
+      if (healthBegin > health){
+        noStroke();
+        rectMode(CORNER);
+        fill(250, 0, 0, 75);
+        rect(0, 0, windowWidth, windowHeight);
+      }
+      if (shieldBegin > shield){
+        noStroke();
+        rectMode(CORNER);
+        fill( 0, 0, 255, 75);
+        rect(0, 0, windowWidth, windowHeight);
+      }
+      
+      // Shield regeneration (outside scaling)
+      let maxShields = shieldQuantity > 0 ? shieldQuantity : 0;
+      if (shield < maxShields){
+        shield = shield + (1 / shieldRegenerationRate);
+      }
+      
       endGame();
       if (frameCount % 1000 === 0 && end === false) {  // roughly every 5 seconds at 60fps
         printLiveAntRankings();
@@ -569,18 +658,22 @@ function resetRunState() {
   playerPrevX = playerX;
   playerPrevY = playerY;
   tigerBeetleMoving = false;
+  flashingEntities = [];
+  flashTimer = 0;
   shield = shieldQuantity > 0 ? shieldQuantity : 0;
   shot = bulletQuantity > 0 ? bulletQuantity : 0;
   shotBreak = 0;
   dash = false;
   dashReady = true;
   dashCoolDown = 0;
+  dashPrevPressed = false;
+  dashButtonTouched = false;
   playerBullets = [];
   playerBulletShot = false;
   deathAnimations = [];
   floatingTexts = [];
-  antX[enemyIndex] = windowWidth * 0.75;
-  antY[enemyIndex] = windowHeight * 0.5;
+  antX[enemyIndex] = getGameplayWidth() * 0.75;
+  antY[enemyIndex] = getGameplayHeight() * 0.5;
   
   // Reset EXP system
   expLevel = 1;
@@ -628,43 +721,110 @@ function returnToMainMenu() {
   }
 }
 
-function drawBackground() {
-  // Check if Tiger Beetle is active and player is moving
-  if (tigerBeetleActive && tigerBeetleMoving) {
-    // Draw blurry black and white stripes
-    push();
-    noStroke();
-    let stripeWidth = 40;
-    let offset = (frameCount * 3) % (stripeWidth * 2); // Moving stripes
-    
-    for (let x = -stripeWidth * 2 - offset; x < windowWidth + stripeWidth * 2; x += stripeWidth * 2) {
-      // Alternate between black and white with blur effect
-      fill(0);
-      rect(x, 0, stripeWidth, windowHeight);
-      fill(255);
-      rect(x + stripeWidth, 0, stripeWidth, windowHeight);
-    }
-    
-    // Add blur effect by overlaying semi-transparent layers
-    fill(128, 60);
-    rect(0, 0, windowWidth, windowHeight);
-    fill(128, 40);
-    rect(0, 0, windowWidth, windowHeight);
-    pop();
+// Menu scaling helpers - makes menus act like 1280x652 while filling screen
+const MENU_REFERENCE_WIDTH = 1280;
+const MENU_REFERENCE_HEIGHT = 652;
+
+function beginMenuScaling() {
+  push();
+  let scaleX = windowWidth / MENU_REFERENCE_WIDTH;
+  let scaleY = windowHeight / MENU_REFERENCE_HEIGHT;
+  scale(scaleX, scaleY);
+}
+
+function endMenuScaling() {
+  pop();
+}
+
+// Get scaled menu dimensions (use these instead of windowWidth/windowHeight in menus)
+function getMenuWidth() {
+  return MENU_REFERENCE_WIDTH;
+}
+
+function getMenuHeight() {
+  return MENU_REFERENCE_HEIGHT;
+}
+
+// Get scaled mouse coordinates for menu interactions
+function getMenuMouseX() {
+  let scaleX = windowWidth / MENU_REFERENCE_WIDTH;
+  return mouseX / scaleX;
+}
+
+function getMenuMouseY() {
+  let scaleY = windowHeight / MENU_REFERENCE_HEIGHT;
+  return mouseY / scaleY;
+}
+
+// Gameplay scaling helpers - reference size changes based on level
+function getGameplayReferenceWidth() {
+  if (level <= 3) {
+    return 853;
+  } else if (level <= 7) {
+    return 1024;
   } else {
-    // Normal background
-    imageMode(CORNER);
-    tx = 0;
-    ty = 0;
-    image(bg, tx * windowWidth / 2, ty * windowHeight / 2, windowWidth / 2, windowHeight / 2);
-    ty = ty + 1;
-    image(bg, tx * windowWidth / 2, ty * windowHeight / 2, windowWidth / 2, windowHeight / 2);
-    ty = 0;
-    tx = tx + 1;
-    image(bg, tx * windowWidth / 2, ty * windowHeight / 2, windowWidth / 2, windowHeight / 2);
-    ty = ty + 1;
-    image(bg, tx * windowWidth / 2, ty * windowHeight / 2, windowWidth / 2, windowHeight / 2);
+    return 1280;
   }
+}
+
+function getGameplayReferenceHeight() {
+  if (level <= 3) {
+    return 435;
+  } else if (level <= 7) {
+    return 522;
+  } else {
+    return 652;
+  }
+}
+
+function beginGameplayScaling() {
+  push();
+  let refWidth = getGameplayReferenceWidth();
+  let refHeight = getGameplayReferenceHeight();
+  let scaleX = windowWidth / refWidth;
+  let scaleY = windowHeight / refHeight;
+  scale(scaleX, scaleY);
+}
+
+function endGameplayScaling() {
+  pop();
+}
+
+// Get scaled gameplay dimensions
+function getGameplayWidth() {
+  return getGameplayReferenceWidth();
+}
+
+function getGameplayHeight() {
+  return getGameplayReferenceHeight();
+}
+
+// Get scaled mouse coordinates for gameplay interactions
+function getGameplayMouseX() {
+  let refWidth = getGameplayReferenceWidth();
+  let scaleX = windowWidth / refWidth;
+  return mouseX / scaleX;
+}
+
+function getGameplayMouseY() {
+  let refHeight = getGameplayReferenceHeight();
+  let scaleY = windowHeight / refHeight;
+  return mouseY / scaleY;
+}
+
+function drawBackground() {
+  // Normal background (no stripes anymore)
+  imageMode(CORNER);
+  tx = 0;
+  ty = 0;
+  image(bg, tx * windowWidth / 2, ty * windowHeight / 2, windowWidth / 2, windowHeight / 2);
+  ty = ty + 1;
+  image(bg, tx * windowWidth / 2, ty * windowHeight / 2, windowWidth / 2, windowHeight / 2);
+  ty = 0;
+  tx = tx + 1;
+  image(bg, tx * windowWidth / 2, ty * windowHeight / 2, windowWidth / 2, windowHeight / 2);
+  ty = ty + 1;
+  image(bg, tx * windowWidth / 2, ty * windowHeight / 2, windowWidth / 2, windowHeight / 2);
 }
 
 function drawScoreboard() {
@@ -693,8 +853,8 @@ function drawScoreboard() {
     currentRunScore = totalScore + score;
   }
   
-  // Only update high score in single player mode during gameplay
-  if (!multiplayerMode && currentRunScore > highScore) {
+  // Only update high score in single player mode during gameplay (and not when game is over)
+  if (!multiplayerMode && !end && currentRunScore > highScore) {
     highScore = currentRunScore;
     storeItem('newHighScore', highScore);
   }
@@ -839,22 +999,37 @@ function drawStrikes(){
 }
 
 function drawEnemy(){
-  // Skip rendering if Tiger Beetle is active and moving
-  if (tigerBeetleActive && tigerBeetleMoving) {
-    return;
-  }
-  
   //enemy one
   for (let i = 1; i < enemyCount + 1; i++) {
-
-    push();
-      angleMode(DEGREES)
-      imageMode(CENTER);
-      translate(antX[i], antY[i]);
-      let a = atan2(playerY - antY[i], playerX - antX[i]);
-      rotate(a);
-      image(ant, 0, 0, 60, 60);
-    pop();
+    // Check if this ant should be visible
+    let shouldDraw = true;
+    let fadeAmount = 255;
+    if (tigerBeetleActive && tigerBeetleMoving) {
+      // Check if this ant is in the flashing entities list
+      shouldDraw = false;
+      for (let f = 0; f < flashingEntities.length; f++) {
+        if (flashingEntities[f].type === 'ant' && flashingEntities[f].index === i) {
+          shouldDraw = true;
+          fadeAmount = flashingEntities[f].fade;
+          break;
+        }
+      }
+    }
+    
+    if (shouldDraw) {
+      push();
+        // Apply fade if Tiger Beetle is active
+        if (tigerBeetleActive && tigerBeetleMoving) {
+          tint(255, fadeAmount);
+        }
+        angleMode(DEGREES)
+        imageMode(CENTER);
+        translate(antX[i], antY[i]);
+        let a = atan2(playerY - antY[i], playerX - antX[i]);
+        rotate(a);
+        image(ant, 0, 0, 60, 60);
+      pop();
+    }
 
 
   }
@@ -941,8 +1116,8 @@ function enemyInteraction1(){
         addScore(100 + comboPoints);
         health = health + 1;
         addDeathEffect(antX[i], antY[i], 100 + comboPoints);
-        antX[i] = random(0, windowWidth);
-        antY[i] = random(scoreBarHeight + ANT_SPAWN_BUFFER, windowHeight - expBarHeight - expBarBuffer - ANT_SPAWN_BUFFER);
+        antX[i] = random(0, getGameplayWidth());
+        antY[i] = random(scoreBarHeight + ANT_SPAWN_BUFFER, getGameplayHeight() - expBarHeight - expBarBuffer - ANT_SPAWN_BUFFER);
         spawnX[i] = antX[i] + cos(angleFromSpawn[i]);
         spawnY[i] = antY[i] + sin(angleFromSpawn[i]);
         antLives[i]++;
@@ -1019,9 +1194,27 @@ function enemyShoot1() {
           continue;
         }
 
-        // draw bullet normally (skip if Tiger Beetle is moving)
-        if (!(tigerBeetleActive && tigerBeetleMoving)) {
+        // draw bullet (check if should be visible with Tiger Beetle flash)
+        let shouldDrawBullet = true;
+        let bulletFadeAmount = 255;
+        if (tigerBeetleActive && tigerBeetleMoving) {
+          // Check if this bullet is in the flashing entities list
+          shouldDrawBullet = false;
+          for (let f = 0; f < flashingEntities.length; f++) {
+            if (flashingEntities[f].type === 'bullet' && flashingEntities[f].owner === i && flashingEntities[f].index === b) {
+              shouldDrawBullet = true;
+              bulletFadeAmount = flashingEntities[f].fade;
+              break;
+            }
+          }
+        }
+        
+        if (shouldDrawBullet) {
           push();
+          // Apply fade if Tiger Beetle is active
+          if (tigerBeetleActive && tigerBeetleMoving) {
+            tint(255, bulletFadeAmount);
+          }
           angleMode(DEGREES);
           imageMode(CENTER);
           translate(bullet.x, bullet.y);
@@ -1040,8 +1233,8 @@ function enemyShoot1() {
         }
 
         if (
-          bullet.x < 0 || bullet.x > windowWidth ||
-          bullet.y < scoreBarHeight || bullet.y > windowHeight - expBarHeight
+          bullet.x < 0 || bullet.x > getGameplayWidth() ||
+          bullet.y < scoreBarHeight || bullet.y > getGameplayHeight() - expBarHeight
         ) {
           enemyBullets[i].splice(b, 1);
         } else if (
@@ -1094,6 +1287,9 @@ function handlePlayerHit(i){
 function detectKeyboardInput(){
   if (touches.length > 0) {
     handleMobileInput(mouseX, mouseY);
+  } else {
+    // Reset touch tracking when no touches
+    dashButtonTouched = false;
   }
   
   // Update free aiming if enabled
@@ -1140,12 +1336,12 @@ function detectKeyboardInput(){
       //right
       if (isRightPressed() || gamepadXAxis > 0) {
         let currentMoveSpeed = (isGamepadMoving && gamepadXAxis > 0) ? moveSpeedX : playerSpeed;
-        if (playerX < windowWidth - sideBuffer - (currentMoveSpeed - 0.1)){
+        if (playerX < getGameplayWidth() - sideBuffer - (currentMoveSpeed - 0.1)){
           playerX += currentMoveSpeed;
         }
         if (followTarget[i] === true){
           if (followBeetle[i] === true){
-            if (antX[i] < windowWidth - sideBuffer - ((antSpeed[i]) -.01)){
+            if (antX[i] < getGameplayWidth() - sideBuffer - ((antSpeed[i]) -.01)){
               antX[i] += (antSpeed[i]);
             }
           }
@@ -1178,12 +1374,12 @@ function detectKeyboardInput(){
       //down
       if (isDownPressed() || gamepadYAxis > 0) {
         let currentMoveSpeed = (isGamepadMoving && gamepadYAxis > 0) ? moveSpeedY : playerSpeed;
-        if (playerY < windowHeight - expBarHeight - expBarBuffer - (currentMoveSpeed - 0.1)){
+        if (playerY < getGameplayHeight() - expBarHeight - expBarBuffer - (currentMoveSpeed - 0.1)){
           playerY += currentMoveSpeed;
         }
         if (followTarget[i] === true){
           if (followBeetle[i] === true){
-            if (antY[i] < windowHeight - expBarHeight - expBarBuffer - ((antSpeed[i]) -.01)){
+            if (antY[i] < getGameplayHeight() - expBarHeight - expBarBuffer - ((antSpeed[i]) -.01)){
               antY[i] += (antSpeed[i]);
             }
           }
@@ -1194,9 +1390,17 @@ function detectKeyboardInput(){
         }
       }
 
-      if (isDashPressed() && dashReady){
-        dash = true;
+      let dashPressed = isDashPressed();
+      if (dashPressed && !dashPrevPressed && dashReady){
+        if (tigerBeetleActive) {
+          // Toggle dash on/off with Tiger Beetle
+          dash = !dash;
+        } else {
+          // Normal burst dash
+          dash = true;
+        }
       }
+      dashPrevPressed = dashPressed;
 
       if (isShootPressed() && shot >= 1 && shotBreak <= 0){
         shot = shot - 1;
@@ -1231,8 +1435,8 @@ function detectKeyboardInput(){
           antX[i] += dx * antSpeed[i];
           antY[i] += dy * antSpeed[i];
 
-          antX[i] = constrain(antX[i], sideBuffer, windowWidth - sideBuffer);
-          antY[i] = constrain(antY[i], scoreBarHeight + 15, windowHeight - expBarHeight - expBarBuffer);
+          antX[i] = constrain(antX[i], sideBuffer, getGameplayWidth() - sideBuffer);
+          antY[i] = constrain(antY[i], scoreBarHeight + 15, getGameplayHeight() - expBarHeight - expBarBuffer);
           
           // Update movement vector immediately so later ants in the loop can see this ant's movement
           antMoveX[i] = antX[i] - antPrevX[i];
@@ -1270,6 +1474,7 @@ function drawMobileControls() {
 }
 
 function handleMobileInput(x, y) {
+  let dashButtonCurrentlyTouched = false;
   for (let key in buttons) {
     let b = buttons[key];
     if (x >= b.x && x <= b.x + b.w && y >= b.y && y <= b.y + b.h) {
@@ -1277,7 +1482,16 @@ function handleMobileInput(x, y) {
       if (key === "down") playerY += playerSpeed;
       if (key === "left") playerX -= playerSpeed;
       if (key === "right") playerX += playerSpeed;
-      if (key === "dash" && dashReady) dash = true;
+      if (key === "dash") {
+        dashButtonCurrentlyTouched = true;
+        if (!dashButtonTouched && dashReady) {
+          if (tigerBeetleActive) {
+            dash = !dash; // Toggle with Tiger Beetle
+          } else {
+            dash = true; // Normal burst
+          }
+        }
+      }
       if (key === "shoot" && shot >= 1 && shotBreak <= 0) {
         shot -= 1;
         shotBreak = 0.1;
@@ -1285,6 +1499,7 @@ function handleMobileInput(x, y) {
       }
     }
   }
+  dashButtonTouched = dashButtonCurrentlyTouched;
 }
 
 function beetleShoot() {
@@ -1350,8 +1565,8 @@ function beetleShoot() {
         addScore(100 + comboPoints);
         health++;
         addDeathEffect(antX[j], antY[j], 100 + comboPoints);
-        antX[j] = random(0, windowWidth);
-        antY[j] = random(scoreBarHeight + ANT_SPAWN_BUFFER, windowHeight - expBarHeight - expBarBuffer - ANT_SPAWN_BUFFER);
+        antX[j] = random(0, getGameplayWidth());
+        antY[j] = random(scoreBarHeight + ANT_SPAWN_BUFFER, getGameplayHeight() - expBarHeight - expBarBuffer - ANT_SPAWN_BUFFER);
         spawnX[j] = antX[j] + cos(angleFromSpawn[j]);
         spawnY[j] = antY[j] + sin(angleFromSpawn[j]);
         playerBullets.splice(i, 1);
@@ -1362,9 +1577,9 @@ function beetleShoot() {
     // remove bullet if off-screen or hitting EXP bar
     if (
       b.x < 0 ||
-      b.x > windowWidth ||
+      b.x > getGameplayWidth() ||
       b.y < scoreBarHeight ||
-      b.y > windowHeight - expBarHeight
+      b.y > getGameplayHeight() - expBarHeight
     ) {
       playerBullets.splice(i, 1);
     }
@@ -1376,16 +1591,22 @@ function beetleDash(){
   //handle dash
   if (dash == true && dashReady == true) {
     playerSpeed = movementSpeed / enemyCount * dashSpeedStat;
-    speedTime = speedTime - (1 / 100);
-    if (speedTime <= 0){
-      dash = false;
-      dashCoolDown = dashCooldownStat;
-      dashReady = false;
+    
+    // Tiger Beetle: dash is a toggle, no time limit
+    if (tigerBeetleActive) {
+      // No speedTime countdown, stays on until toggled off
+    } else {
+      // Normal dash: time-limited burst
+      speedTime = speedTime - (1 / 100);
+      if (speedTime <= 0){
+        dash = false;
+        dashCoolDown = dashCooldownStat;
+        dashReady = false;
 
-      if(!sFast.isPlaying()) {
-        sFast.play();
+        if(!sFast.isPlaying()) {
+          sFast.play();
+        }
       }
-      
     }
   } else {
     dashCoolDown = dashCoolDown - (1 / 100);
@@ -1399,25 +1620,8 @@ function beetleDash(){
 }
 
 function enemyStrike() {
-
-  //Flash screen when hit by enemy shot
-  if (healthBegin > health){
-    noStroke();
-    rectMode(CORNER);
-    fill(250, 0, 0, 75);
-    rect(0, 0, windowWidth, windowHeight);
-  }
-
-  if (shieldBegin > shield){
-    noStroke();
-    rectMode(CORNER);
-    fill( 0, 0, 255, 75);
-    rect(0, 0, windowWidth, windowHeight);
-  }
-  let maxShields = shieldQuantity > 0 ? shieldQuantity : 0;
-  if (shield < maxShields){
-    shield = shield + (1 / shieldRegenerationRate);
-  }
+  // Flash effects moved to main draw loop
+  // Shield regeneration moved to main draw loop
 }
 
 function calculateBonus(){
@@ -1572,8 +1776,8 @@ function autonomousAntMovement(){
         } else if (standingPointY[i] < antY[i] - antSpeed[i]) {
           antY[i] -= antSpeed[i];
         }
-        antX[i] = constrain(antX[i], sideBuffer, windowWidth - sideBuffer);
-        antY[i] = constrain(antY[i], scoreBarHeight + 15, windowHeight - expBarHeight - expBarBuffer);
+        antX[i] = constrain(antX[i], sideBuffer, getGameplayWidth() - sideBuffer);
+        antY[i] = constrain(antY[i], scoreBarHeight + 15, getGameplayHeight() - expBarHeight - expBarBuffer);
       }
     }
   }
@@ -1630,8 +1834,8 @@ function autonomousAntMovement(){
       }
     }
     // --- Keep on screen ---
-    antX[i] = constrain(antX[i], sideBuffer, windowWidth - sideBuffer);
-    antY[i] = constrain(antY[i], scoreBarHeight + 15, windowHeight - expBarHeight - expBarBuffer);
+    antX[i] = constrain(antX[i], sideBuffer, getGameplayWidth() - sideBuffer);
+    antY[i] = constrain(antY[i], scoreBarHeight + 15, getGameplayHeight() - expBarHeight - expBarBuffer);
   }
 }
 
@@ -1716,15 +1920,13 @@ function endGame(){
     }
     
     // Single player mode
-    fill(40, 0, 0);
-    rectMode(CORNER);
-    rect(0, 0, windowWidth, windowHeight);
     if(levelEnd == 0){
       intermissionMenu = false;
       intermissionMenuCooldown = 0;
       gameOverMenu = false;
       gameOverMenuCooldown = 0;
       totalScore = totalScore + score;
+      score = 0;  // Reset score to prevent double-counting in drawScoreboard
       levelEnd = 1;
     }
     highScore = getItem('newHighScore');
@@ -1737,51 +1939,55 @@ function endGame(){
     }
     end = true;
 
-    push();
+    beginMenuScaling();
+      // Background
+      fill(40, 0, 0);
+      rectMode(CORNER);
+      rect(0, 0, getMenuWidth(), getMenuHeight());
       rectMode(CENTER);
       fill(0, 0, 0, 180);
-      rect(windowWidth / 2, windowHeight / 2, windowWidth * 0.65, windowHeight * 0.6, 40);
+      rect(getMenuWidth() / 2, getMenuHeight() / 2, getMenuWidth() * 0.65, getMenuHeight() * 0.6, 40);
 
       textAlign(CENTER, CENTER);
       fill(255, 170, 170);
       textSize(64);
-      text('You Lost', windowWidth / 2, windowHeight * 0.32);
+      text('You Lost', getMenuWidth() / 2, getMenuHeight() * 0.32);
 
       textSize(26);
       fill(255);
-      text(`Round Reached`, windowWidth / 2 - windowWidth * 0.18, windowHeight * 0.40);
-      text(`High Score`, windowWidth / 2 + windowWidth * 0.18, windowHeight * 0.40);
+      text(`Round Reached`, getMenuWidth() / 2 - getMenuWidth() * 0.18, getMenuHeight() * 0.40);
+      text(`High Score`, getMenuWidth() / 2 + getMenuWidth() * 0.18, getMenuHeight() * 0.40);
 
       textSize(48);
       fill(255, 220, 120);
-      text(level, windowWidth / 2 - windowWidth * 0.18, windowHeight * 0.46);
-      text(highScore, windowWidth / 2 + windowWidth * 0.18, windowHeight * 0.46);
+      text(level, getMenuWidth() / 2 - getMenuWidth() * 0.18, getMenuHeight() * 0.46);
+      text(highScore, getMenuWidth() / 2 + getMenuWidth() * 0.18, getMenuHeight() * 0.46);
 
       textSize(24);
       fill(180, 220, 255);
-      text(`Final Health`, windowWidth / 2 - windowWidth * 0.20, windowHeight * 0.56);
-      text(`Total Score`, windowWidth / 2 + windowWidth * 0.20, windowHeight * 0.56);
+      text(`Final Health`, getMenuWidth() / 2 - getMenuWidth() * 0.20, getMenuHeight() * 0.56);
+      text(`Total Score`, getMenuWidth() / 2 + getMenuWidth() * 0.20, getMenuHeight() * 0.56);
 
       textSize(42);
       fill(255, 90, 90);
-      text(Math.max(0, health).toFixed(2), windowWidth / 2 - windowWidth * 0.20, windowHeight * 0.61);
+      text(Math.max(0, health).toFixed(2), getMenuWidth() / 2 - getMenuWidth() * 0.20, getMenuHeight() * 0.61);
 
       fill(240, 164, 0);
-      text(totalScore, windowWidth / 2 + windowWidth * 0.20, windowHeight * 0.61);
+      text(totalScore, getMenuWidth() / 2 + getMenuWidth() * 0.20, getMenuHeight() * 0.61);
 
       if (!gameOverMenu) {
         push();
           rectMode(CORNER);
           fill(0, 0, 0, 160);
-          rect(windowWidth / 2 - windowWidth * 0.275, windowHeight * 0.68, windowWidth * 0.55, windowHeight * 0.12, 18);
+          rect(getMenuWidth() / 2 - getMenuWidth() * 0.275, getMenuHeight() * 0.68, getMenuWidth() * 0.55, getMenuHeight() * 0.12, 18);
 
           let fadeAlpha = map(sin(frameCount * 1), -1, 1, 30, 70);
           textAlign(CENTER, CENTER);
           fill(255, fadeAlpha);
           textSize(26);
-          text('Press Enter to Restart', windowWidth / 2, windowHeight * 0.70);
+          text('Press Enter to Restart', getMenuWidth() / 2, getMenuHeight() * 0.70);
           textSize(20);
-          text('Press Esc for Options', windowWidth / 2, windowHeight * 0.74);
+          text('Press Esc for Options', getMenuWidth() / 2, getMenuHeight() * 0.74);
         pop();
 
         if (gameOverMenuCooldown === 0 && isBackPressed()) {
@@ -1798,7 +2004,7 @@ function endGame(){
           // Dark background like AntDex
           rectMode(CORNER);
           fill(20);
-          rect(0, 0, windowWidth, windowHeight);
+          rect(0, 0, getMenuWidth(), getMenuHeight());
         pop();
 
         // Menu navigation with arrow keys, WASD, and gamepad
@@ -1816,11 +2022,11 @@ function endGame(){
         textAlign(CENTER);
         fill(255);
         textSize(60);
-        text('Game Over Menu', windowWidth / 2, windowHeight * 0.40);
+        text('Game Over Menu', getMenuWidth() / 2, getMenuHeight() * 0.40);
         
         // Menu option 0: Start Screen - Card style
-        let option0Y = windowHeight * 0.53;
-        let option0X = windowWidth / 2;
+        let option0Y = getMenuHeight() * 0.53;
+        let option0X = getMenuWidth() / 2;
         let option0W = 320;
         let option0H = 70;
         push();
@@ -1848,8 +2054,8 @@ function endGame(){
         pop();
         
         // Menu option 1: Antdex - Card style
-        let option1Y = windowHeight * 0.65;
-        let option1X = windowWidth / 2;
+        let option1Y = getMenuHeight() * 0.65;
+        let option1X = getMenuWidth() / 2;
         let option1W = 320;
         let option1H = 70;
         push();
@@ -1881,12 +2087,12 @@ function endGame(){
         fill(200, fadeAlpha);
         textSize(18);
         textAlign(CENTER);
-        text('W/S or ↑/↓ or Left Stick  Navigate  |  Enter or A  Confirm  |  Esc or B  Back', windowWidth / 2, windowHeight * 0.78);
+        text('W/S or ↑/↓ or Left Stick  Navigate  |  Enter or A  Confirm  |  Esc or B  Back', getMenuWidth() / 2, getMenuHeight() * 0.78);
 
         // Mouse click detection
         if (mouseIsPressed) {
-          let mx = mouseX;
-          let my = mouseY;
+          let mx = getMenuMouseX();
+          let my = getMenuMouseY();
           
           // Check option 0 (Start Screen)
           if (mx > option0X - option0W/2 && mx < option0X + option0W/2 &&
@@ -1931,7 +2137,7 @@ function endGame(){
           gameOverMenuCooldown = 20;
         }
       }
-    pop();
+    endMenuScaling();
 
     if(!endmusic.isPlaying()) {
       gamemusic.stop();
@@ -1945,13 +2151,11 @@ function endGame(){
   }
 
 if (timeCount < 0) {
-    fill(10, 20, 10);
-    rectMode(CORNER);
-    rect(0, 0, windowWidth, windowHeight);
     if(levelEnd == 0){
       // Only update global totalScore in single player mode
       if (!multiplayerMode) {
         totalScore = totalScore + score;
+        score = 0;  // Reset score to prevent double-counting in drawScoreboard
       }
       levelEnd = 1;
     }
@@ -1990,30 +2194,34 @@ if (timeCount < 0) {
       displayTotal = totalScore;
     }
 
-    push();
+    beginMenuScaling();
+      // Background
+      fill(10, 20, 10);
+      rectMode(CORNER);
+      rect(0, 0, getMenuWidth(), getMenuHeight());
       rectMode(CENTER);
       fill(0, 0, 0, 170);
-      rect(windowWidth / 2, windowHeight / 2, windowWidth * 0.65, windowHeight * 0.6, 40);
+      rect(getMenuWidth() / 2, getMenuHeight() / 2, getMenuWidth() * 0.65, getMenuHeight() * 0.6, 40);
 
       textAlign(CENTER, CENTER);
       fill(204, 255, 204);
       textSize(56);
-      text(`Round ${intermissionRound} Cleared`, windowWidth / 2, windowHeight * 0.30);
+      text(`Round ${intermissionRound} Cleared`, getMenuWidth() / 2, getMenuHeight() * 0.30);
 
       textSize(28);
       fill(255);
-      text(`Score`, windowWidth / 2 - windowWidth * 0.15, windowHeight * 0.40);
-      text(`Total`, windowWidth / 2 + windowWidth * 0.15, windowHeight * 0.40);
+      text(`Score`, getMenuWidth() / 2 - getMenuWidth() * 0.15, getMenuHeight() * 0.40);
+      text(`Total`, getMenuWidth() / 2 + getMenuWidth() * 0.15, getMenuHeight() * 0.40);
 
       textSize(46);
       fill(240, 164, 0);
-      text(displayScore, windowWidth / 2 - windowWidth * 0.15, windowHeight * 0.46);
-      text(displayTotal, windowWidth / 2 + windowWidth * 0.15, windowHeight * 0.46);
+      text(displayScore, getMenuWidth() / 2 - getMenuWidth() * 0.15, getMenuHeight() * 0.46);
+      text(displayTotal, getMenuWidth() / 2 + getMenuWidth() * 0.15, getMenuHeight() * 0.46);
 
       textSize(24);
       fill(160, 220, 255);
-      text(`Final Health`, windowWidth / 2 - windowWidth * 0.20, windowHeight * 0.56);
-      text(`High Score`, windowWidth / 2 + windowWidth * 0.20, windowHeight * 0.56);
+      text(`Final Health`, getMenuWidth() / 2 - getMenuWidth() * 0.20, getMenuHeight() * 0.56);
+      text(`High Score`, getMenuWidth() / 2 + getMenuWidth() * 0.20, getMenuHeight() * 0.56);
 
       textSize(40);
       if (health >= 10) {
@@ -2021,17 +2229,17 @@ if (timeCount < 0) {
       } else {
         fill(255, 90, 90);
       }
-      text(intermissionHealth.toFixed(2), windowWidth / 2 - windowWidth * 0.20, windowHeight * 0.61);
+      text(intermissionHealth.toFixed(2), getMenuWidth() / 2 - getMenuWidth() * 0.20, getMenuHeight() * 0.61);
 
       fill(255, 210, 120);
-      text(highScore, windowWidth / 2 + windowWidth * 0.20, windowHeight * 0.61);
+      text(highScore, getMenuWidth() / 2 + getMenuWidth() * 0.20, getMenuHeight() * 0.61);
 
       if (intermissionHealth < 10) {
         const pulsePhase = sin(frameCount * 10);
         const pulseAlpha = map(pulsePhase, -1, 1, 140, 255);
         const pulseScale = map(pulsePhase, -1, 1, 0.92, 1.22);
         push();
-          translate(windowWidth / 2 + windowWidth * 0.25, windowHeight / 2 - windowHeight * 0.2);
+          translate(getMenuWidth() / 2 + getMenuWidth() * 0.25, getMenuHeight() / 2 - getMenuHeight() * 0.2);
           angleMode(DEGREES);
           rotate(45);
           scale(pulseScale);
@@ -2042,7 +2250,6 @@ if (timeCount < 0) {
         pop();
         angleMode(DEGREES);
       }
-    pop();
 
     if(!endmusic.isPlaying()) {
       gamemusic.stop();
@@ -2069,7 +2276,7 @@ if (timeCount < 0) {
           if (i === 6 && upgrade5Level === 0) continue;  // Bullet Reload requires Add Bullets
           if (i === 7 && upgrade5Level === 0) continue;  // Bullet Speed requires Add Bullets
           if (i === 8 && (upgrade5Level === 0 || upgrade7Level === 0 || upgrade8Level === 0)) continue;  // Free-Angle Aiming requires Add Bullets, Bullet Reload, and Bullet Speed
-          if (i === 9 && upgrade1Level < 4) continue;  // Tiger Beetle requires Walking Speed maxed
+          if (i === 9 && upgrade3Level < 5) continue;  // Tiger Beetle requires Dash Cooldown maxed
           availableUpgrades.push(i);
         }
       }
@@ -2090,11 +2297,7 @@ if (timeCount < 0) {
 
     // Show upgrade screen if active (as its own separate screen)
     if (upgradeMenuActive) {
-      // Draw a fresh background - matching AntDex background
-      fill(20);
-      rectMode(CORNER);
-      rect(0, 0, windowWidth, windowHeight);
-      
+      endMenuScaling();  // End intermission scaling before upgrade screen
       drawUpgradeScreen();
       
       // Handle case where all upgrades are maxed
@@ -2153,15 +2356,15 @@ if (timeCount < 0) {
       push();
         rectMode(CORNER);
         fill(0, 0, 0, 160);
-        rect(windowWidth / 2 - windowWidth * 0.275, windowHeight * 0.64, windowWidth * 0.55, windowHeight * 0.12, 18);
+        rect(getMenuWidth() / 2 - getMenuWidth() * 0.275, getMenuHeight() * 0.64, getMenuWidth() * 0.55, getMenuHeight() * 0.12, 18);
 
         let fadeAlpha = map(sin(frameCount * 1), -1, 1, 30, 70);
         textAlign(CENTER);
         fill(255, fadeAlpha);
         textSize(28);
-        text('Press Esc for Menu', windowWidth / 2, windowHeight * 0.675);
+        text('Press Esc for Menu', getMenuWidth() / 2, getMenuHeight() * 0.675);
         textSize(20);
-        text('Press Enter to continue', windowWidth / 2, windowHeight * 0.72);
+        text('Press Enter to continue', getMenuWidth() / 2, getMenuHeight() * 0.72);
       pop();
 
       if (intermissionMenuCooldown === 0 && isBackPressed()) {
@@ -2196,12 +2399,10 @@ if (timeCount < 0) {
         nextRound();
       }
     } else {
-      push();
-        // Dark background like AntDex
-        rectMode(CORNER);
-        fill(20);
-        rect(0, 0, windowWidth, windowHeight);
-      pop();
+      // Dark background like AntDex
+      rectMode(CORNER);
+      fill(20);
+      rect(0, 0, getMenuWidth(), getMenuHeight());
 
       // Menu navigation with arrow keys, WASD, and gamepad
       if (menuNavigationCooldown === 0) {
@@ -2218,11 +2419,11 @@ if (timeCount < 0) {
       textAlign(CENTER);
       fill(255);
       textSize(60);
-      text('Intermission Menu', windowWidth / 2, windowHeight * 0.30);
+      text('Intermission Menu', getMenuWidth() / 2, getMenuHeight() * 0.30);
       
       // Menu option 0: Next Round - Card style
-      let option0Y = windowHeight * 0.45;
-      let option0X = windowWidth / 2;
+      let option0Y = getMenuHeight() * 0.45;
+      let option0X = getMenuWidth() / 2;
       let option0W = 320;
       let option0H = 70;
       push();
@@ -2250,8 +2451,8 @@ if (timeCount < 0) {
       pop();
       
       // Menu option 1: Antdex - Card style
-      let option1Y = windowHeight * 0.57;
-      let option1X = windowWidth / 2;
+      let option1Y = getMenuHeight() * 0.57;
+      let option1X = getMenuWidth() / 2;
       let option1W = 320;
       let option1H = 70;
       push();
@@ -2283,36 +2484,36 @@ if (timeCount < 0) {
       fill(200, fadeAlpha);
       textSize(18);
       textAlign(CENTER);
-      text('W/S or ↑/↓ or Left Stick  Navigate  |  Enter or A  Confirm  |  Esc or B  Back', windowWidth / 2, windowHeight * 0.75);
+        text('W/S or ↑/↓ or Left Stick  Navigate  |  Enter or A  Confirm  |  Esc or B  Back', getMenuWidth() / 2, getMenuHeight() * 0.75);
 
-      // Mouse click detection
-      if (mouseIsPressed) {
-        let mx = mouseX;
-        let my = mouseY;
-        
-        // Check option 0 (Next Round)
-        if (mx > option0X - option0W/2 && mx < option0X + option0W/2 &&
-            my > option0Y - option0H/2 && my < option0Y + option0H/2) {
-          if (menuNavigationCooldown === 0) {
-            intermissionMenu = false;
-            intermissionMenuCooldown = 20;
-            nextRound();
-            menuNavigationCooldown = 20;
-          }
-        } 
-        // Check option 1 (Antdex)
-        else if (mx > option1X - option1W/2 && mx < option1X + option1W/2 &&
-                 my > option1Y - option1H/2 && my < option1Y + option1H/2) {
-          if (menuNavigationCooldown === 0) {
-            intermissionMenu = false;
-            intermissionMenuCooldown = 20;
-            antdexReturnState = 'intermission';
-            antdex = true;
-            antdexOpenCooldown = 20;
-            menuNavigationCooldown = 20;
+        // Mouse click detection
+        if (mouseIsPressed) {
+          let mx = getMenuMouseX();
+          let my = getMenuMouseY();
+          
+          // Check option 0 (Next Round)
+          if (mx > option0X - option0W/2 && mx < option0X + option0W/2 &&
+              my > option0Y - option0H/2 && my < option0Y + option0H/2) {
+            if (menuNavigationCooldown === 0) {
+              intermissionMenu = false;
+              intermissionMenuCooldown = 20;
+              nextRound();
+              menuNavigationCooldown = 20;
+            }
+          } 
+          // Check option 1 (Antdex)
+          else if (mx > option1X - option1W/2 && mx < option1X + option1W/2 &&
+                   my > option1Y - option1H/2 && my < option1Y + option1H/2) {
+            if (menuNavigationCooldown === 0) {
+              intermissionMenu = false;
+              intermissionMenuCooldown = 20;
+              antdexReturnState = 'intermission';
+              antdex = true;
+              antdexOpenCooldown = 20;
+              menuNavigationCooldown = 20;
+            }
           }
         }
-      }
 
       // Enter key to select
       if (isConfirmPressed() && menuNavigationCooldown === 0) {
@@ -2333,6 +2534,8 @@ if (timeCount < 0) {
         intermissionMenuCooldown = 20;
       }
     }
+    
+    endMenuScaling();
   }
 }
 
@@ -2396,7 +2599,7 @@ function drawUpgradeScreen() {
     },
     {
       title: 'Tiger Beetle',
-      description: 'Transform into a tiger beetle for maximum speed!',
+      description: 'Transform into a tiger beetle! Dash becomes a toggle instead of a burst. While dashing, threats become invisible but flash briefly.',
       level: upgrade10Level,
       maxLevel: 1
     }
@@ -2406,7 +2609,12 @@ function drawUpgradeScreen() {
   let upgrades = displayedUpgrades.map(index => allUpgrades[index]);
   let numOptions = displayedUpgrades.length;
 
-  push();
+  beginMenuScaling();
+    // Background - matching AntDex background
+    fill(20);
+    rectMode(CORNER);
+    rect(0, 0, getMenuWidth(), getMenuHeight());
+    
     // Pulsing title at top
     let pulseSize = map(sin(frameCount * 0.08), -1, 1, 48, 56);
     fill(255);
@@ -2417,28 +2625,28 @@ function drawUpgradeScreen() {
     
     // Check if all upgrades are maxed
     if (numOptions === 0) {
-      text('ALL STATS MAXED OUT!', windowWidth / 2, windowHeight * 0.08);
+      text('ALL STATS MAXED OUT!', getMenuWidth() / 2, getMenuHeight() * 0.08);
       
       // Show message
       fill(255);
       noStroke();
       textSize(32);
-      text('You have reached maximum level on all upgrades!', windowWidth / 2, windowHeight * 0.35);
+      text('You have reached maximum level on all upgrades!', getMenuWidth() / 2, getMenuHeight() * 0.35);
       
       let fadeAlpha = map(sin(frameCount * 1), -1, 1, 30, 70);
       fill(180, fadeAlpha);
       textSize(24);
-      text('Press Enter to continue', windowWidth / 2, windowHeight * 0.65);
+      text('Press Enter to continue', getMenuWidth() / 2, getMenuHeight() * 0.65);
     } else {
-      text('LEVEL UP! Choose an Upgrade', windowWidth / 2, windowHeight * 0.08);
+      text('LEVEL UP! Choose an Upgrade', getMenuWidth() / 2, getMenuHeight() * 0.08);
 
       // Draw side-by-side cards
-      let cardWidth = windowWidth * 0.25;
-      let cardHeight = windowHeight * 0.48;
-      let cardY = windowHeight * 0.50;
-      let spacing = windowWidth * 0.05;
+      let cardWidth = getMenuWidth() * 0.25;
+      let cardHeight = getMenuHeight() * 0.48;
+      let cardY = getMenuHeight() * 0.50;
+      let spacing = getMenuWidth() * 0.05;
       let totalWidth = (cardWidth * numOptions) + (spacing * (numOptions - 1));
-      let startX = (windowWidth - totalWidth) / 2 + cardWidth / 2;
+      let startX = (getMenuWidth() - totalWidth) / 2 + cardWidth / 2;
 
       for (let i = 0; i < numOptions; i++) {
       let cardX = startX + i * (cardWidth + spacing);
@@ -2510,10 +2718,10 @@ function drawUpgradeScreen() {
       textSize(48);
       textAlign(CENTER, CENTER);
       if (selectedUpgrade > 0) {
-        text('◄', windowWidth * 0.1, cardY);
+        text('◄', getMenuWidth() * 0.1, cardY);
       }
       if (selectedUpgrade < numOptions - 1) {
-        text('►', windowWidth * 0.9, cardY);
+        text('►', getMenuWidth() * 0.9, cardY);
       }
 
       // Instructions with fade effect
@@ -2527,9 +2735,9 @@ function drawUpgradeScreen() {
         if (i < numOptions - 1) navText += ' ';
       }
       navText += '  Quick Select  |  Enter  Confirm';
-      text(navText, windowWidth / 2, windowHeight * 0.85);
+      text(navText, getMenuWidth() / 2, getMenuHeight() * 0.85);
     }
-  pop();
+  endMenuScaling();
 }
 
 function applyUpgrade(upgradeIndex) {
@@ -2581,7 +2789,7 @@ function applyUpgrade(upgradeIndex) {
         if (i === 6 && upgrade5Level === 0) continue;  // Bullet Reload requires Add Bullets
         if (i === 7 && upgrade5Level === 0) continue;  // Bullet Speed requires Add Bullets
         if (i === 8 && (upgrade5Level === 0 || upgrade7Level === 0 || upgrade8Level === 0)) continue;  // Free-Angle Aiming requires Add Bullets, Bullet Reload, and Bullet Speed
-        if (i === 9 && upgrade1Level < 4) continue;  // Tiger Beetle requires Walking Speed maxed
+        if (i === 9 && upgrade3Level < 5) continue;  // Tiger Beetle requires Dash Cooldown maxed
         availableUpgrades.push(i);
       }
     }
@@ -2614,26 +2822,21 @@ function applyUpgrade(upgradeIndex) {
 }
 
 function updateUpgradeBooleans() {
-  // Walking Speed (4 levels) + Tiger Beetle
-  if (upgrade10Level === 1) {
-    movementSpeed = 7; // Tiger Beetle overrides all
-    tigerBeetleActive = true;
-  } else if (upgrade1Level === 1) {
+  // Walking Speed (4 levels)
+  if (upgrade1Level === 1) {
     movementSpeed = 3.5;
-    tigerBeetleActive = false;
   } else if (upgrade1Level === 2) {
     movementSpeed = 4;
-    tigerBeetleActive = false;
   } else if (upgrade1Level === 3) {
     movementSpeed = 4.5;
-    tigerBeetleActive = false;
   } else if (upgrade1Level === 4) {
     movementSpeed = 5;
-    tigerBeetleActive = false;
   } else {
     movementSpeed = 3;
-    tigerBeetleActive = false;
   }
+  
+  // Tiger Beetle (toggle dash ability)
+  tigerBeetleActive = (upgrade10Level === 1);
   
   // Dash Speed (5 levels)
   if (upgrade2Level === 1) {
@@ -2897,8 +3100,8 @@ function nextRound(){
   }
   
   for (let i = 1; i <= enemyCount; i++) {
-    antX[i] = random(0, windowWidth);
-    antY[i] = random(scoreBarHeight + ANT_SPAWN_BUFFER, windowHeight - expBarHeight - expBarBuffer - ANT_SPAWN_BUFFER);
+    antX[i] = random(0, getGameplayWidth());
+    antY[i] = random(scoreBarHeight + ANT_SPAWN_BUFFER, getGameplayHeight() - expBarHeight - expBarBuffer - ANT_SPAWN_BUFFER);
   }
 
   playerRotationValue = 0;
@@ -2948,8 +3151,8 @@ function nextRound(){
       antSpeed[i]      = constrain(antSpeed[parent.id]      + random(-0.3, 0.3), 0.9, 3.5);
       shotOffsetX[i]   = constrain(shotOffsetX[parent.id]   + random(-50, 50), -500, 500);
       shotOffsetY[i]   = constrain(shotOffsetY[parent.id]   + random(-50, 50), -500, 500);
-      standingPointX[i]   = constrain(standingPointX[parent.id]   + random(-100, 100), 0, windowWidth);
-      standingPointY[i]   = constrain(standingPointY[parent.id]   + random(-100, 100), scoreBarHeight, windowHeight);
+      standingPointX[i]   = constrain(standingPointX[parent.id]   + random(-100, 100), 0, getGameplayWidth());
+      standingPointY[i]   = constrain(standingPointY[parent.id]   + random(-100, 100), scoreBarHeight, getGameplayHeight());
       followValue[i]    = constrain(followValue[parent.id]    + random(-movementMutationRate, movementMutationRate), -0.5, 3.49);
       autonomy[i]    = constrain(autonomy[parent.id]    + random(-movementMutationRate, movementMutationRate), -0.5, 1.5);
       distanceFromAnchor[i]    = constrain(distanceFromAnchor[parent.id]    + random(-100, 100), 0.1, 1000);
@@ -3022,12 +3225,12 @@ function nextRound(){
         : random(-500, 500);
       
       standingPointX[i] = winner 
-        ? constrain(standingPointX[winner.id] + random(-100, 100), 0, windowWidth)
-        : random(0, windowWidth);
+        ? constrain(standingPointX[winner.id] + random(-100, 100), 0, getGameplayWidth())
+        : random(0, getGameplayWidth());
 
       standingPointY[i] = winner 
-        ? constrain(standingPointY[winner.id] + random(-100, 100), scoreBarHeight, windowHeight - expBarHeight - expBarBuffer)
-        : random(scoreBarHeight, windowHeight - expBarHeight - expBarBuffer);
+        ? constrain(standingPointY[winner.id] + random(-100, 100), scoreBarHeight, getGameplayHeight() - expBarHeight - expBarBuffer)
+        : random(scoreBarHeight, getGameplayHeight() - expBarHeight - expBarBuffer);
       
       followValue[i] = winner 
         ? constrain(followValue[winner.id] + random(-movementMutationRate, movementMutationRate), -0.5, 3.49)
@@ -3150,18 +3353,18 @@ function nextRound(){
 
 function drawStartScreen(){
 
-  push();
+  beginMenuScaling();
     // Player selection screen for multiplayer
     if (playerSelectScreen) {
       // Dark background
       fill(20);
-      rect(0, 0, windowWidth, windowHeight);
+      rect(0, 0, getMenuWidth(), getMenuHeight());
       
       // Title
       fill(255);
       textAlign(CENTER);
       textSize(60);
-      text("Select Number of Players", windowWidth / 2, windowHeight * 0.25);
+      text("Select Number of Players", getMenuWidth() / 2, getMenuHeight() * 0.25);
       
       // Navigation
       if (menuNavigationCooldown === 0) {
@@ -3176,11 +3379,11 @@ function drawStartScreen(){
       
       // Player count options (2-6 players)
       let optionSpacing = 100;
-      let startX = windowWidth / 2 - (4 * optionSpacing) / 2;
+      let startX = getMenuWidth() / 2 - (4 * optionSpacing) / 2;
       
       for (let i = 0; i < 5; i++) {
         let optionX = startX + i * optionSpacing;
-        let optionY = windowHeight * 0.45;
+        let optionY = getMenuHeight() * 0.45;
         let optionSize = 80;
         
         push();
@@ -3212,7 +3415,7 @@ function drawStartScreen(){
       fill(200, fadeAlpha);
       textSize(18);
       textAlign(CENTER);
-      text('A/D or ←/→ or Left Stick  Navigate  |  Enter or A  Start  |  Esc or B  Back', windowWidth / 2, windowHeight * 0.65);
+      text('A/D or ←/→ or Left Stick  Navigate  |  Enter or A  Start  |  Esc or B  Back', getMenuWidth() / 2, getMenuHeight() * 0.65);
       
       // Confirm selection
       if (isConfirmPressed() && menuNavigationCooldown === 0) {
@@ -3239,7 +3442,7 @@ function drawStartScreen(){
     
     if (startMenu === false){
       imageMode(CENTER);
-      image(splashScreen, windowWidth / 2, windowHeight / 2, windowHeight * 1.4, windowHeight);
+      image(splashScreen, getMenuWidth() / 2, getMenuHeight() / 2, getMenuHeight() * 1.4, getMenuHeight());
       if(!titlemusic.isPlaying()) {
         titlemusic.play();
       }
@@ -3250,14 +3453,14 @@ function drawStartScreen(){
     }
     if (startMenu === true){
       imageMode(CENTER);
-      image(splashScreen, windowWidth / 2, windowHeight / 2, windowHeight * 1.4, windowHeight);
+      image(splashScreen, getMenuWidth() / 2, getMenuHeight() / 2, getMenuHeight() * 1.4, getMenuHeight());
       if(!titlemusic.isPlaying()) {
         titlemusic.play();
       }
       // Dark background like AntDex
       imageMode(CORNER);
       fill(20);
-      rect(0, 0, windowWidth, windowHeight);
+      rect(0, 0, getMenuWidth(), getMenuHeight());
       
       // Menu navigation with arrow keys, WASD, and gamepad
       if (menuNavigationCooldown === 0) {
@@ -3274,11 +3477,11 @@ function drawStartScreen(){
       fill(255);
       textAlign(CENTER);
       textSize(70);
-      text("Main Menu", windowWidth / 2, windowHeight * 0.20);
+      text("Main Menu", getMenuWidth() / 2, getMenuHeight() * 0.20);
       
       // Menu option 0: Single Player - Card style
-      let option0Y = windowHeight * 0.35;
-      let option0X = windowWidth / 2;
+      let option0Y = getMenuHeight() * 0.35;
+      let option0X = getMenuWidth() / 2;
       let option0W = 340;
       let option0H = 70;
       push();
@@ -3306,8 +3509,8 @@ function drawStartScreen(){
       pop();
       
       // Menu option 1: Multiplayer - Card style
-      let option1Y = windowHeight * 0.47;
-      let option1X = windowWidth / 2;
+      let option1Y = getMenuHeight() * 0.47;
+      let option1X = getMenuWidth() / 2;
       let option1W = 340;
       let option1H = 80;
       push();
@@ -3335,8 +3538,8 @@ function drawStartScreen(){
       pop();
       
       // Menu option 2: Antdex - Card style
-      let option2Y = windowHeight * 0.59;
-      let option2X = windowWidth / 2;
+      let option2Y = getMenuHeight() * 0.59;
+      let option2X = getMenuWidth() / 2;
       let option2W = 340;
       let option2H = 70;
       push();
@@ -3368,12 +3571,12 @@ function drawStartScreen(){
       fill(200, fadeAlpha);
       textSize(18);
       textAlign(CENTER);
-      text('W/S or ↑/↓ or Left Stick  Navigate  |  Enter or A  Confirm', windowWidth / 2, windowHeight * 0.72);
+      text('W/S or ↑/↓ or Left Stick  Navigate  |  Enter or A  Confirm', getMenuWidth() / 2, getMenuHeight() * 0.72);
 
       // Mouse click detection
       if (mouseIsPressed) {
-        let mx = mouseX;
-        let my = mouseY;
+        let mx = getMenuMouseX();
+        let my = getMenuMouseY();
         
         // Check option 0 (Single Player)
         if (mx > option0X - option0W/2 && mx < option0X + option0W/2 &&
@@ -3429,11 +3632,13 @@ function drawStartScreen(){
 
     }
   
-  pop();
+  endMenuScaling();
 }
 
 function antdexScreen() {
   if (!antdex) return;
+
+  beginMenuScaling();
 
   if (dexTabSwitchCooldown === 0) {
     if (isLeftPressed()) {
@@ -3469,19 +3674,19 @@ function antdexScreen() {
 
   imageMode(CORNER);
   fill(20);
-  rect(0, 0, windowWidth, windowHeight);
+  rect(0, 0, getMenuWidth(), getMenuHeight());
 
   fill(255);
   textAlign(CENTER);
   textSize(70);
-  text("Antdex", windowWidth / 2, 90);
+  text("Antdex", getMenuWidth() / 2, 90);
 
   const tabWidth = 220;
   const tabHeight = 44;
   const tabSpacing = 24;
   const tabY = 150;
-  const normalTabX = windowWidth / 2 - tabWidth - tabSpacing / 2;
-  const exoticTabX = windowWidth / 2 + tabSpacing / 2;
+  const normalTabX = getMenuWidth() / 2 - tabWidth - tabSpacing / 2;
+  const exoticTabX = getMenuWidth() / 2 + tabSpacing / 2;
 
   dexTabRegions.normal = { x: normalTabX, y: tabY - tabHeight / 2, w: tabWidth, h: tabHeight };
   dexTabRegions.exotic = { x: exoticTabX, y: tabY - tabHeight / 2, w: tabWidth, h: tabHeight };
@@ -3507,7 +3712,7 @@ function antdexScreen() {
   let fadeAlpha = map(sin(frameCount * 0.05), -1, 1, 30, 70);
   textSize(18);
   fill(200, fadeAlpha);
-  text("← or A or click for Normal • → or D or click for Exotic", windowWidth / 2, tabY + 50);
+  text("← or A or click for Normal • → or D or click for Exotic", getMenuWidth() / 2, tabY + 50);
 
   const barWidth = 360;
   const barHeight = 18;
@@ -3519,9 +3724,9 @@ function antdexScreen() {
 
   if (dexCategory === 'normal') {
     fill(255);
-    text(`Normal Discoveries: ${normalDiscovered} / ${normalEntries.length}`, windowWidth / 2, barY - 38);
+    text(`Normal Discoveries: ${normalDiscovered} / ${normalEntries.length}`, getMenuWidth() / 2, barY - 38);
     fill(60);
-    rect(windowWidth / 2, barY, barWidth, barHeight, 8);
+    rect(getMenuWidth() / 2, barY, barWidth, barHeight, 8);
 
     let normalColorStart;
     let normalColorEnd;
@@ -3557,7 +3762,7 @@ function antdexScreen() {
     fill(normalFillColor);
     noStroke();
     const normalWidth = barWidth * constrain(progressDisplayNormal, 0, 1);
-    rect(windowWidth / 2 - barWidth / 2 + normalWidth / 2, barY, normalWidth, barHeight, 8);
+    rect(getMenuWidth() / 2 - barWidth / 2 + normalWidth / 2, barY, normalWidth, barHeight, 8);
     pop();
 
     if (progressDisplayNormal > 0.999) {
@@ -3565,14 +3770,14 @@ function antdexScreen() {
       noFill();
       stroke(255, 215, 0, normalGlow);
       strokeWeight(10);
-      rect(windowWidth / 2, barY, barWidth + 9, barHeight + 6, 10);
+      rect(getMenuWidth() / 2, barY, barWidth + 9, barHeight + 6, 10);
       noStroke();
     }
   } else {
     fill(255);
-    text(`Exotic Discoveries: ${exoticDiscovered} / ${exoticEntries.length}`, windowWidth / 2, barY - 38);
+    text(`Exotic Discoveries: ${exoticDiscovered} / ${exoticEntries.length}`, getMenuWidth() / 2, barY - 38);
     fill(45, 35, 70);
-    rect(windowWidth / 2, barY, barWidth, barHeight, 8);
+    rect(getMenuWidth() / 2, barY, barWidth, barHeight, 8);
 
     let exoticColorStart;
     let exoticColorEnd;
@@ -3608,7 +3813,7 @@ function antdexScreen() {
     fill(exoticFillColor);
     noStroke();
     const exoticWidth = barWidth * constrain(progressDisplayExotic, 0, 1);
-    rect(windowWidth / 2 - barWidth / 2 + exoticWidth / 2, barY, exoticWidth, barHeight, 8);
+    rect(getMenuWidth() / 2 - barWidth / 2 + exoticWidth / 2, barY, exoticWidth, barHeight, 8);
     pop();
 
     if (progressDisplayExotic > 0.999) {
@@ -3616,7 +3821,7 @@ function antdexScreen() {
       noFill();
       stroke(255, 80, 200, exoticGlow);
       strokeWeight(10);
-      rect(windowWidth / 2, barY, barWidth + 10, barHeight + 9, 12);
+      rect(getMenuWidth() / 2, barY, barWidth + 10, barHeight + 9, 12);
       noStroke();
     }
   }
@@ -3628,7 +3833,7 @@ function antdexScreen() {
 
   const rowHeight = 220;
   const listTop = barY + 80;
-  const viewHeight = windowHeight - listTop - 80;
+  const viewHeight = getMenuHeight() - listTop - 80;
   const totalRows = Math.ceil(visibleEntries.length / 2);
   const contentHeight = totalRows * rowHeight;
   const maxOffset = max(0, contentHeight - viewHeight);
@@ -3637,9 +3842,9 @@ function antdexScreen() {
   dexTargetScroll = constrain(dexTargetScroll, minScroll, 0);
   dexScrollY = lerp(dexScrollY, dexTargetScroll, 0.2);
 
-  const colWidth = windowWidth / 2.3;
-  const leftColX = windowWidth / 2 - colWidth - 30;
-  const rightColX = windowWidth / 2 + 30;
+  const colWidth = getMenuWidth() / 2.3;
+  const leftColX = getMenuWidth() / 2 - colWidth - 30;
+  const rightColX = getMenuWidth() / 2 + 30;
   const baseY = listTop + dexScrollY;
 
   textAlign(LEFT);
@@ -3649,7 +3854,7 @@ function antdexScreen() {
     fill(200);
     textAlign(CENTER);
     textSize(24);
-    text("No entries unlocked in this tab yet.", windowWidth / 2, listTop + 40);
+    text("No entries unlocked in this tab yet.", getMenuWidth() / 2, listTop + 40);
   }
 
   for (let i = 0; i < visibleEntries.length; i++) {
@@ -3659,7 +3864,7 @@ function antdexScreen() {
     const x = col === 0 ? leftColX : rightColX;
     const y = baseY + row * rowHeight;
 
-    if (y > listTop - 180 && y < windowHeight + 180) {
+    if (y > listTop - 180 && y < getMenuHeight() + 180) {
       let cardFillColor;
       let primaryTextColor;
       let secondaryTextColor;
@@ -3713,14 +3918,14 @@ function antdexScreen() {
     const scrollProgress = scrollableRange === 0 ? 0 : (-dexTargetScroll) / scrollableRange;
     const barY = listTop + scrollProgress * (viewHeight - barH);
     fill(100, 100, 100, 150);
-    rect(windowWidth - 30, barY, 10, barH, 5);
+    rect(getMenuWidth() - 30, barY, 10, barH, 5);
   }
 
   fadeAlpha = map(sin(frameCount * 0.05), -1, 1, 30, 70);
   fill(255, fadeAlpha);
   textAlign(CENTER);
   textSize(24);
-  text("Esc or B  Back", windowWidth / 2, windowHeight - 40);
+  text("Esc or B  Back", getMenuWidth() / 2, getMenuHeight() - 40);
 
   if (isBackPressed()) {
     antdex = false;
@@ -3737,6 +3942,8 @@ function antdexScreen() {
     antdexOpenCooldown = 20;
     antdexReturnState = 'menu';
   }
+  
+  endMenuScaling();
 }
 
 
@@ -3767,18 +3974,18 @@ function pointInRect(px, py, rect) {
 function mousePressed() {
   // Handle upgrade menu clicks
   if (upgradeMenuActive) {
-    let cardWidth = windowWidth * 0.25;
-    let cardHeight = windowHeight * 0.48;
-    let cardY = windowHeight * 0.50;
-    let spacing = windowWidth * 0.05;
+    let cardWidth = getMenuWidth() * 0.25;
+    let cardHeight = getMenuHeight() * 0.48;
+    let cardY = getMenuHeight() * 0.50;
+    let spacing = getMenuWidth() * 0.05;
     let totalWidth = (cardWidth * 3) + (spacing * 2);
-    let startX = (windowWidth - totalWidth) / 2 + cardWidth / 2;
+    let startX = (getMenuWidth() - totalWidth) / 2 + cardWidth / 2;
     
     for (let i = 0; i < 3; i++) {
       let cardX = startX + i * (cardWidth + spacing);
       // Check if click is within card bounds
-      if (mouseX > cardX - cardWidth/2 && mouseX < cardX + cardWidth/2 &&
-          mouseY > cardY - cardHeight/2 && mouseY < cardY + cardHeight/2) {
+      if (getMenuMouseX() > cardX - cardWidth/2 && getMenuMouseX() < cardX + cardWidth/2 &&
+          getMenuMouseY() > cardY - cardHeight/2 && getMenuMouseY() < cardY + cardHeight/2) {
         applyUpgrade(i);
         return;
       }
@@ -3790,10 +3997,10 @@ function mousePressed() {
   const normalTab = dexTabRegions.normal;
   const exoticTab = dexTabRegions.exotic;
 
-  if (pointInRect(mouseX, mouseY, normalTab)) {
+  if (pointInRect(getMenuMouseX(), getMenuMouseY(), normalTab)) {
     setDexCategory('normal');
     dexTabSwitchCooldown = 10;
-  } else if (pointInRect(mouseX, mouseY, exoticTab)) {
+  } else if (pointInRect(getMenuMouseX(), getMenuMouseY(), exoticTab)) {
     setDexCategory('exotic');
     dexTabSwitchCooldown = 10;
   }
@@ -4197,7 +4404,7 @@ function updateAntDexEntries() {
         mostOffTargetAntsDiscovered = true;
         triggerDiscoveryPopup();
       }
-      if (!middleStationedAntsDiscovered && findLocation[i] === true && followTarget[i] === true && (standingPointX[i] === windowWidth / 2 || standingPointY === windowHeight / 2)) {
+      if (!middleStationedAntsDiscovered && findLocation[i] === true && followTarget[i] === true && (standingPointX[i] === getGameplayWidth() / 2 || standingPointY === getGameplayHeight() / 2)) {
         middleStationedAntsDiscovered = true;
         triggerDiscoveryPopup();
       }
@@ -4705,10 +4912,10 @@ function updateFreeAim() {
     playerRotationValue = aimAngle;  // Already in degrees from atan2
   }
   // For mouse aiming, use the same system as ants: atan2(mouseY - playerY, mouseX - playerX)
-  else if (mouseIsPressed || (mouseX !== pmouseX || mouseY !== pmouseY)) {
+  else if (mouseIsPressed || (getGameplayMouseX() !== pmouseX || getGameplayMouseY() !== pmouseY)) {
     // Calculate angle from player to mouse like ants do
     // Since angleMode is DEGREES globally, atan2 returns degrees
-    aimAngle = atan2(mouseY - playerY, mouseX - playerX);
+    aimAngle = atan2(getGameplayMouseY() - playerY, getGameplayMouseX() - playerX);
     playerRotationValue = aimAngle;  // Already in degrees from atan2
     isAiming = true;
     lastAimInputTime = frameCount;
@@ -4852,12 +5059,12 @@ function initializeMultiplayer() {
   // Player 3-6: Gamepad
   
   const playerStartPositions = [
-    {x: windowWidth * 0.25, y: windowHeight * 0.5},
-    {x: windowWidth * 0.75, y: windowHeight * 0.5},
-    {x: windowWidth * 0.5, y: windowHeight * 0.3},
-    {x: windowWidth * 0.5, y: windowHeight * 0.7},
-    {x: windowWidth * 0.3, y: windowHeight * 0.7},
-    {x: windowWidth * 0.7, y: windowHeight * 0.3}
+    {x: getGameplayWidth() * 0.25, y: getGameplayHeight() * 0.5},
+    {x: getGameplayWidth() * 0.75, y: getGameplayHeight() * 0.5},
+    {x: getGameplayWidth() * 0.5, y: getGameplayHeight() * 0.3},
+    {x: getGameplayWidth() * 0.5, y: getGameplayHeight() * 0.7},
+    {x: getGameplayWidth() * 0.3, y: getGameplayHeight() * 0.7},
+    {x: getGameplayWidth() * 0.7, y: getGameplayHeight() * 0.3}
   ];
   
   for (let i = 0; i < numPlayers; i++) {
@@ -4964,8 +5171,8 @@ function advanceToNextPlayer() {
   
   // Reset all enemies to starting positions
   for (let i = 1; i <= enemyCount; i++) {
-    antX[i] = random(0, windowWidth);
-    antY[i] = random(scoreBarHeight + ANT_SPAWN_BUFFER, windowHeight - expBarHeight - expBarBuffer - ANT_SPAWN_BUFFER);
+    antX[i] = random(0, getGameplayWidth());
+    antY[i] = random(scoreBarHeight + ANT_SPAWN_BUFFER, getGameplayHeight() - expBarHeight - expBarBuffer - ANT_SPAWN_BUFFER);
     strikeX[i] = 0;
     strikeY[i] = 0;
     strikeTime1[i] = 0;
@@ -5048,20 +5255,21 @@ function advanceToNextAlivePlayer() {
 }
 
 function drawMultiplayerScoreboard() {
-  push();
+  beginMenuScaling();
+    rectMode(CORNER);
     fill(20);
-    rect(0, 0, windowWidth, windowHeight);
+    rect(0, 0, getMenuWidth(), getMenuHeight());
     
     fill(255);
     textAlign(CENTER);
     textSize(50);
-    text("Round " + level + " Complete", windowWidth / 2, 80);
+    text("Round " + level + " Complete", getMenuWidth() / 2, 80);
     
     // Sort players by total score
     let sortedPlayers = [...players].sort((a, b) => b.totalScore - a.totalScore);
     
     textSize(30);
-    text("Scoreboard - Ranked by Total Score", windowWidth / 2, 150);
+    text("Scoreboard - Ranked by Total Score", getMenuWidth() / 2, 150);
     
     let startY = 220;
     let rowHeight = 80;
@@ -5074,7 +5282,7 @@ function drawMultiplayerScoreboard() {
       fill(255, 215, 0); // Gold color
       textAlign(CENTER);
       textSize(32);
-      text("#" + (i + 1), windowWidth * 0.15, y + 5);
+      text("#" + (i + 1), getMenuWidth() * 0.15, y + 5);
       
       // Player color box
       push();
@@ -5083,7 +5291,7 @@ function drawMultiplayerScoreboard() {
         if (!p.alive) {
           fill(100); // Gray out dead players
         }
-        rect(windowWidth * 0.25, y, 40, 40, 8);
+        rect(getMenuWidth() * 0.25, y, 40, 40, 8);
       pop();
       
       // Player number and status
@@ -5091,19 +5299,19 @@ function drawMultiplayerScoreboard() {
       textAlign(LEFT);
       textSize(24);
       let status = p.alive ? "" : " (OUT)";
-      text("Player " + (p.id + 1) + status, windowWidth * 0.3, y - 10);
+      text("Player " + (p.id + 1) + status, getMenuWidth() * 0.3, y - 10);
       
       // Stats - smaller text for details
       textSize(18);
       fill(200, 200, 255);
-      text("Total: " + p.totalScore, windowWidth * 0.3, y + 12);
-      text("Round: " + p.roundScore, windowWidth * 0.3, y + 30);
+      text("Total: " + p.totalScore, getMenuWidth() * 0.3, y + 12);
+      text("Round: " + p.roundScore, getMenuWidth() * 0.3, y + 30);
       
       // EXP Level on the right
       textAlign(RIGHT);
       fill(255, 255, 100);
       textSize(22);
-      text("EXP Lv. " + p.expLevel, windowWidth * 0.8, y + 5);
+      text("EXP Lv. " + p.expLevel, getMenuWidth() * 0.8, y + 5);
     }
     
     // Instructions
@@ -5114,7 +5322,7 @@ function drawMultiplayerScoreboard() {
     
     let alivePlayers = players.filter(p => p.alive);
     if (alivePlayers.length > 1) {
-      text('Enter or A  Continue to Next Round', windowWidth / 2, windowHeight - 60);
+      text('Enter or A  Continue to Next Round', getMenuWidth() / 2, getMenuHeight() - 60);
       
       if (isConfirmPressed() && menuNavigationCooldown === 0) {
         nextRound();
@@ -5129,15 +5337,15 @@ function drawMultiplayerScoreboard() {
           fill(players[multiplayerWinner].color[0], 
                players[multiplayerWinner].color[1], 
                players[multiplayerWinner].color[2]);
-          text("Player " + (multiplayerWinner + 1) + " Wins!", windowWidth / 2, windowHeight - 150);
+          text("Player " + (multiplayerWinner + 1) + " Wins!", getMenuWidth() / 2, getMenuHeight() - 150);
         pop();
       } else {
-        text("Draw!", windowWidth / 2, windowHeight - 150);
+        text("Draw!", getMenuWidth() / 2, getMenuHeight() - 150);
       }
       
       fill(200, fadeAlpha);
       textSize(18);
-      text('Enter or A  Return to Main Menu', windowWidth / 2, windowHeight - 60);
+      text('Enter or A  Return to Main Menu', getMenuWidth() / 2, getMenuHeight() - 60);
       
       if (isConfirmPressed() && menuNavigationCooldown === 0) {
         // Update high score with winner's score before returning to menu
@@ -5155,13 +5363,14 @@ function drawMultiplayerScoreboard() {
         menuNavigationCooldown = 20;
       }
     }
-  pop();
+  endMenuScaling();
 }
 
 function drawPlayerTurnScreen() {
-  push();
+  beginMenuScaling();
+    rectMode(CORNER);
     fill(20);
-    rect(0, 0, windowWidth, windowHeight);
+    rect(0, 0, getMenuWidth(), getMenuHeight());
     
     let currentPlayer = players[currentPlayerIndex];
     
@@ -5169,30 +5378,30 @@ function drawPlayerTurnScreen() {
     push();
       rectMode(CENTER);
       fill(currentPlayer.color[0], currentPlayer.color[1], currentPlayer.color[2]);
-      rect(windowWidth / 2, windowHeight * 0.35, 150, 150, 20);
+      rect(getMenuWidth() / 2, getMenuHeight() * 0.35, 150, 150, 20);
     pop();
     
     // Title
     fill(255);
     textAlign(CENTER);
     textSize(60);
-    text("Player " + (currentPlayerIndex + 1) + "'s Turn", windowWidth / 2, windowHeight * 0.55);
+    text("Player " + (currentPlayerIndex + 1) + "'s Turn", getMenuWidth() / 2, getMenuHeight() * 0.55);
     
     textSize(30);
-    text("Round " + level, windowWidth / 2, windowHeight * 0.63);
+    text("Round " + level, getMenuWidth() / 2, getMenuHeight() * 0.63);
     
     // Instructions
     let fadeAlpha = map(sin(frameCount * 0.05), -1, 1, 30, 70);
     fill(200, fadeAlpha);
     textSize(24);
-    text('Press Enter or A to Begin', windowWidth / 2, windowHeight * 0.75);
+    text('Press Enter or A to Begin', getMenuWidth() / 2, getMenuHeight() * 0.75);
     
     if (isConfirmPressed() && menuNavigationCooldown === 0) {
       showPlayerTurnScreen = false;
       loadPlayerState(currentPlayerIndex);
       menuNavigationCooldown = 20;
     }
-  pop();
+  endMenuScaling();
 }
 
 
