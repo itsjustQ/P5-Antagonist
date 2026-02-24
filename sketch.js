@@ -17,6 +17,84 @@ let gameOverMenuSelection = 0;
 let intermissionMenuSelection = 0;
 let menuNavigationCooldown = 0;
 
+// Developer tools variables
+let devTools = false;
+let devToolsReturnState = 'menu';
+let devToolsKeyCooldown = 0;
+let devToolsSelectedUpgrade = 0;
+let devToolsNavigationCooldown = 0;
+let devToolsTab = 'single'; // 'single', 'multi', or 'ants'
+let devToolsPlayerTab = 0; // which player in multiplayer mode (0-5)
+let devToolsAntTab = 0; // which ant in ants mode (0=1st, 1=2nd, 2=3rd)
+let devToolsTabSwitchCooldown = 0;
+let devToolsAntStatIndex = 0; // which stat is selected in ants tab
+let devToolsAntScrollOffset = 0; // scroll position for ant stats
+let devToolsUseCustomAnts = false; // whether to use custom ant stats in nextRound()
+
+// Custom ant genetic stats for dev tools (3 ants: 1st, 2nd, 3rd place)
+let customAntStats = [
+  // 1st place ant (index 0)
+  {
+    bulletSpeed: 180,
+    bulletCooldown: 120,
+    antSpeed: 1.95,
+    shotOffsetX: 0,
+    shotOffsetY: 0,
+    standingPointX: 640,
+    standingPointY: 326,
+    followValue: 0,
+    autonomy: 0,
+    distanceFromAnchor: 200,
+    explosionBehavior: 0,
+    explosionProximity: 200,
+    angleFromSpawn: Math.PI,
+    bulletSize: 1,
+    explosionRadiusMultiplier: 1,
+    explosionResidueMultiplier: 1,
+    bulletExplodeAfter: 800
+  },
+  // 2nd place ant (index 1)
+  {
+    bulletSpeed: 180,
+    bulletCooldown: 120,
+    antSpeed: 1.95,
+    shotOffsetX: 0,
+    shotOffsetY: 0,
+    standingPointX: 640,
+    standingPointY: 326,
+    followValue: 0,
+    autonomy: 0,
+    distanceFromAnchor: 200,
+    explosionBehavior: 0,
+    explosionProximity: 200,
+    angleFromSpawn: Math.PI,
+    bulletSize: 1,
+    explosionRadiusMultiplier: 1,
+    explosionResidueMultiplier: 1,
+    bulletExplodeAfter: 800
+  },
+  // 3rd place ant (index 2)
+  {
+    bulletSpeed: 180,
+    bulletCooldown: 120,
+    antSpeed: 1.95,
+    shotOffsetX: 0,
+    shotOffsetY: 0,
+    standingPointX: 640,
+    standingPointY: 326,
+    followValue: 0,
+    autonomy: 0,
+    distanceFromAnchor: 200,
+    explosionBehavior: 0,
+    explosionProximity: 200,
+    angleFromSpawn: Math.PI,
+    bulletSize: 1,
+    explosionRadiusMultiplier: 1,
+    explosionResidueMultiplier: 1,
+    bulletExplodeAfter: 800
+  }
+];
+
 // Multiplayer variables
 let multiplayerMode = false;
 let playerSelectScreen = false;
@@ -339,8 +417,8 @@ function setup() {
 
   for (let i = 1; i < enemyCount + 1; i++) {
     //enemy one
-      antX[i] = random(0, windowWidth);
-      antY[i] = random(scoreBarHeight + ANT_SPAWN_BUFFER, windowHeight - expBarHeight - expBarBuffer - ANT_SPAWN_BUFFER);
+      antX[i] = random(0, getGameplayWidth());
+      antY[i] = random(scoreBarHeight + ANT_SPAWN_BUFFER, getGameplayHeight() - expBarHeight - expBarBuffer - ANT_SPAWN_BUFFER);
       spawnX[i] = antX[i] + cos(angleFromSpawn[i]);
       spawnY[i] = antY[i] + sin(angleFromSpawn[i]);
     //console.log(antX[i]);
@@ -414,6 +492,11 @@ function setup() {
     antPoints[i] = 0;
     antLives[i] = 1;
   }
+  
+  // Apply custom ant stats if enabled in dev tools
+  if (devToolsUseCustomAnts) {
+    applyCustomAntsToInitialPopulation();
+  }
 
   buttons.up = {x: 80, y: windowHeight - 140, w: 60, h: 60};
   buttons.down = {x: 80, y: windowHeight - 60, w: 60, h: 60};
@@ -454,6 +537,43 @@ function draw() {
   }
   if (upgradeKeyDebounce > 0) {
     upgradeKeyDebounce--;
+  }
+  if (devToolsKeyCooldown > 0) {
+    devToolsKeyCooldown--;
+  }
+  if (devToolsNavigationCooldown > 0) {
+    devToolsNavigationCooldown--;
+  }
+  if (devToolsTabSwitchCooldown > 0) {
+    devToolsTabSwitchCooldown--;
+  }
+
+  // Check for dev tools key combination (Shift + / + \)
+  if (keyIsDown(16) && keyIsDown(191) && keyIsDown(220) && devToolsKeyCooldown === 0) {
+    if (!devTools) {
+      // Save current state before entering dev tools
+      if (start) {
+        devToolsReturnState = 'game';
+      } else if (startMenu) {
+        devToolsReturnState = 'menu';
+      } else if (intermissionMenu) {
+        devToolsReturnState = 'intermission';
+      } else if (gameOverMenu) {
+        devToolsReturnState = 'gameover';
+      } else {
+        devToolsReturnState = 'menu';
+      }
+      devTools = true;
+    } else {
+      devTools = false;
+    }
+    devToolsKeyCooldown = 30;
+  }
+
+  // Show developer tools
+  if (devTools) {
+    drawDevTools();
+    return;
   }
 
   // Show multiplayer scoreboard
@@ -699,6 +819,12 @@ function resetRunState() {
 
 function restartGame() {
   resetRunState();
+  
+  // Apply custom ant stats if enabled in dev tools
+  if (devToolsUseCustomAnts) {
+    applyCustomAntsToInitialPopulation();
+  }
+  
   start = true;
   startMenu = false;
   endmusic.stop();
@@ -706,6 +832,110 @@ function restartGame() {
   if (!gamemusic.isPlaying()) {
     gamemusic.play();
   }
+}
+
+function applyCustomAntsToInitialPopulation() {
+  console.log("Applying custom ant stats to initial population");
+  console.log("Enemy count:", enemyCount);
+  
+  // Use first place ant stats for all initial ants (level 1 has only 1 ant)
+  let s = customAntStats[0];
+  console.log("Custom ant stats:", s);
+  
+  for (let i = 1; i <= enemyCount; i++) {
+    console.log(`Setting ant ${i} to custom stats`);
+    bulletSpeed[i] = s.bulletSpeed;
+    bulletCooldown[i] = Math.floor(s.bulletCooldown);
+    antSpeed[i] = s.antSpeed;
+    shotOffsetX[i] = s.shotOffsetX;
+    shotOffsetY[i] = s.shotOffsetY;
+    standingPointX[i] = s.standingPointX;
+    standingPointY[i] = s.standingPointY;
+    followValue[i] = s.followValue;
+    autonomy[i] = s.autonomy;
+    distanceFromAnchor[i] = s.distanceFromAnchor;
+    explosionBehavior[i] = s.explosionBehavior;
+    explosionProximity[i] = s.explosionProximity;
+    angleFromSpawn[i] = s.angleFromSpawn;
+    bulletSize[i] = s.bulletSize;
+    explosionRadiusMultiplier[i] = s.explosionRadiusMultiplier;
+    explosionResidueMultiplier[i] = s.explosionResidueMultiplier;
+    bulletExplodeAfter[i] = s.bulletExplodeAfter;
+    
+    // Set derived boolean values
+    if (Math.round(autonomy[i]) === 0){
+      followTarget[i] = true;
+      keepDistance[i] = false;
+    } else if (Math.round(autonomy[i]) === 1){
+      followTarget[i] = false;
+      keepDistance[i] = true;
+    }
+    if (Math.round(explosionBehavior[i]) === 0){
+      explodeOnTermination[i] = false;
+      triggerExplodeViaProximity[i] = false;
+    } else if (Math.round(explosionBehavior[i]) === 1){
+      explodeOnTermination[i] = true;
+      triggerExplodeViaProximity[i] = false;
+    } else if (Math.round(explosionBehavior[i]) === 2){
+      explodeOnTermination[i] = false;
+      triggerExplodeViaProximity[i] = true;
+    }
+    if (Math.round(followValue[i]) === 0){
+      followAnt[i] = false;
+      followBeetle[i] = true;
+      findLocation[i] = false;
+      standStill[i] = false;
+    } else if (Math.round(followValue[i]) === 1) {
+      followAnt[i] = true;
+      followBeetle[i] = false;
+      findLocation[i] = false;
+      standStill[i] = false;
+    } else if (Math.round(followValue[i]) === 2) {
+      followAnt[i] = false;
+      followBeetle[i] = false;
+      findLocation[i] = true;
+      standStill[i] = false;
+    } else if (Math.round(followValue[i]) === 3) {
+      followAnt[i] = false;
+      followBeetle[i] = false;
+      findLocation[i] = false;
+      standStill[i] = true;
+    }
+    
+    console.log(`Ant ${i} final stats: speed=${bulletSpeed[i]}, cooldown=${bulletCooldown[i]}, antSpeed=${antSpeed[i]}`);
+  }
+  
+  console.log("Custom ant stats applied successfully to all ants");
+}
+
+function syncActualWinnersToCustomStats(topAnts) {
+  // Update customAntStats to reflect the actual top 3 performing ants
+  // This allows users to see what the winners looked like in dev tools
+  for (let i = 0; i < Math.min(3, topAnts.length); i++) {
+    let antId = topAnts[i].id;
+    if (antId >= 1 && antId <= enemyCount) {
+      customAntStats[i] = {
+        bulletSpeed: bulletSpeed[antId],
+        bulletCooldown: bulletCooldown[antId],
+        antSpeed: antSpeed[antId],
+        shotOffsetX: shotOffsetX[antId],
+        shotOffsetY: shotOffsetY[antId],
+        standingPointX: standingPointX[antId],
+        standingPointY: standingPointY[antId],
+        followValue: followValue[antId],
+        autonomy: autonomy[antId],
+        distanceFromAnchor: distanceFromAnchor[antId],
+        explosionBehavior: explosionBehavior[antId],
+        explosionProximity: explosionProximity[antId],
+        angleFromSpawn: angleFromSpawn[antId],
+        bulletSize: bulletSize[antId],
+        explosionRadiusMultiplier: explosionRadiusMultiplier[antId],
+        explosionResidueMultiplier: explosionResidueMultiplier[antId],
+        bulletExplodeAfter: bulletExplodeAfter[antId]
+      };
+    }
+  }
+  console.log("Synced actual winners to custom ant stats for viewing");
 }
 
 function returnToMainMenu() {
@@ -3079,8 +3309,24 @@ function nextRound(){
   intermissionMenu = false;
   intermissionMenuCooldown = 0;
   let winner = getWinningAnt();
-  let topAnts = getTopAnts();  // top 3
-  console.log("Top ants this round:", topAnts);
+  let topAnts;
+  
+  // Use custom ant stats if dev tools has them enabled
+  if (devToolsUseCustomAnts) {
+    console.log("Using custom ant stats from dev tools");
+    topAnts = [
+      { id: -1, custom: true, stats: customAntStats[0] },
+      { id: -2, custom: true, stats: customAntStats[1] },
+      { id: -3, custom: true, stats: customAntStats[2] }
+    ];
+  } else {
+    topAnts = getTopAnts();  // Get top 3 from actual performance
+    console.log("Top ants this round:", topAnts);
+    
+    // Update customAntStats to reflect actual winners (for viewing in dev tools)
+    syncActualWinnersToCustomStats(topAnts);
+  }
+  
   level++;
   if (level <= 16){
     enemyCount++;
@@ -3145,24 +3391,48 @@ function nextRound(){
 
     let parent = antGroups[i-1]; // pick which "winner" this ant is based on
     if (parent) {
-      console.log(`Ant ${i} inherits from parent Ant ${parent.id}`);
-      bulletSpeed[i]   = constrain(bulletSpeed[parent.id]   + random(-50, 50), 60, 300);
-      bulletCooldown[i]= constrain(floor(bulletCooldown[parent.id] + random(-5, 5)), 79, 200);
-      antSpeed[i]      = constrain(antSpeed[parent.id]      + random(-0.3, 0.3), 0.9, 3.5);
-      shotOffsetX[i]   = constrain(shotOffsetX[parent.id]   + random(-50, 50), -500, 500);
-      shotOffsetY[i]   = constrain(shotOffsetY[parent.id]   + random(-50, 50), -500, 500);
-      standingPointX[i]   = constrain(standingPointX[parent.id]   + random(-100, 100), 0, getGameplayWidth());
-      standingPointY[i]   = constrain(standingPointY[parent.id]   + random(-100, 100), scoreBarHeight, getGameplayHeight());
-      followValue[i]    = constrain(followValue[parent.id]    + random(-movementMutationRate, movementMutationRate), -0.5, 3.49);
-      autonomy[i]    = constrain(autonomy[parent.id]    + random(-movementMutationRate, movementMutationRate), -0.5, 1.5);
-      distanceFromAnchor[i]    = constrain(distanceFromAnchor[parent.id]    + random(-100, 100), 0.1, 1000);
-      explosionBehavior[i]    = constrain(explosionBehavior[parent.id]    + random(-movementMutationRate, movementMutationRate), -0.5, 2.5);
-      explosionProximity[i]    = constrain(explosionProximity[parent.id]    + random(-100, 100), 0.1, 1000);
-      angleFromSpawn[i]    = constrain(angleFromSpawn[parent.id]    + random((-PI / 3), (PI / 3)), 0, TWO_PI);
-      bulletSize[i]    = constrain(bulletSize[parent.id]    + random(-(movementMutationRate / 2), (movementMutationRate / 2)), 1, 3);
-      explosionRadiusMultiplier[i] = constrain(explosionRadiusMultiplier[parent.id] + random(-0.2, 0.2), 0.5, 3);
-      explosionResidueMultiplier[i] = constrain(explosionResidueMultiplier[parent.id] + random(-0.2, 0.2), 0.5, 3);
-      bulletExplodeAfter[i] = constrain(bulletExplodeAfter[parent.id] + random(-50, 50), 100, 800);
+      // Check if this is a custom ant from dev tools
+      if (parent.custom && parent.stats) {
+        console.log(`Ant ${i} inherits from custom ant template #${Math.abs(parent.id)}`);
+        let s = parent.stats;
+        bulletSpeed[i]   = constrain(s.bulletSpeed   + random(-50, 50), 60, 300);
+        bulletCooldown[i]= constrain(floor(s.bulletCooldown + random(-5, 5)), 79, 200);
+        antSpeed[i]      = constrain(s.antSpeed      + random(-0.3, 0.3), 0.9, 3.5);
+        shotOffsetX[i]   = constrain(s.shotOffsetX   + random(-50, 50), -500, 500);
+        shotOffsetY[i]   = constrain(s.shotOffsetY   + random(-50, 50), -500, 500);
+        standingPointX[i]   = constrain(s.standingPointX   + random(-100, 100), 0, getGameplayWidth());
+        standingPointY[i]   = constrain(s.standingPointY   + random(-100, 100), scoreBarHeight, getGameplayHeight());
+        followValue[i]    = constrain(s.followValue    + random(-movementMutationRate, movementMutationRate), -0.5, 3.49);
+        autonomy[i]    = constrain(s.autonomy    + random(-movementMutationRate, movementMutationRate), -0.5, 1.5);
+        distanceFromAnchor[i]    = constrain(s.distanceFromAnchor    + random(-100, 100), 0.1, 1000);
+        explosionBehavior[i]    = constrain(s.explosionBehavior    + random(-movementMutationRate, movementMutationRate), -0.5, 2.5);
+        explosionProximity[i]    = constrain(s.explosionProximity    + random(-100, 100), 0.1, 1000);
+        angleFromSpawn[i]    = constrain(s.angleFromSpawn    + random((-PI / 3), (PI / 3)), 0, TWO_PI);
+        bulletSize[i]    = constrain(s.bulletSize    + random(-(movementMutationRate / 2), (movementMutationRate / 2)), 1, 3);
+        explosionRadiusMultiplier[i] = constrain(s.explosionRadiusMultiplier + random(-0.2, 0.2), 0.5, 3);
+        explosionResidueMultiplier[i] = constrain(s.explosionResidueMultiplier + random(-0.2, 0.2), 0.5, 3);
+        bulletExplodeAfter[i] = constrain(s.bulletExplodeAfter + random(-50, 50), 100, 800);
+      } else {
+        // Regular ant from game performance
+        console.log(`Ant ${i} inherits from parent Ant ${parent.id}`);
+        bulletSpeed[i]   = constrain(bulletSpeed[parent.id]   + random(-50, 50), 60, 300);
+        bulletCooldown[i]= constrain(floor(bulletCooldown[parent.id] + random(-5, 5)), 79, 200);
+        antSpeed[i]      = constrain(antSpeed[parent.id]      + random(-0.3, 0.3), 0.9, 3.5);
+        shotOffsetX[i]   = constrain(shotOffsetX[parent.id]   + random(-50, 50), -500, 500);
+        shotOffsetY[i]   = constrain(shotOffsetY[parent.id]   + random(-50, 50), -500, 500);
+        standingPointX[i]   = constrain(standingPointX[parent.id]   + random(-100, 100), 0, getGameplayWidth());
+        standingPointY[i]   = constrain(standingPointY[parent.id]   + random(-100, 100), scoreBarHeight, getGameplayHeight());
+        followValue[i]    = constrain(followValue[parent.id]    + random(-movementMutationRate, movementMutationRate), -0.5, 3.49);
+        autonomy[i]    = constrain(autonomy[parent.id]    + random(-movementMutationRate, movementMutationRate), -0.5, 1.5);
+        distanceFromAnchor[i]    = constrain(distanceFromAnchor[parent.id]    + random(-100, 100), 0.1, 1000);
+        explosionBehavior[i]    = constrain(explosionBehavior[parent.id]    + random(-movementMutationRate, movementMutationRate), -0.5, 2.5);
+        explosionProximity[i]    = constrain(explosionProximity[parent.id]    + random(-100, 100), 0.1, 1000);
+        angleFromSpawn[i]    = constrain(angleFromSpawn[parent.id]    + random((-PI / 3), (PI / 3)), 0, TWO_PI);
+        bulletSize[i]    = constrain(bulletSize[parent.id]    + random(-(movementMutationRate / 2), (movementMutationRate / 2)), 1, 3);
+        explosionRadiusMultiplier[i] = constrain(explosionRadiusMultiplier[parent.id] + random(-0.2, 0.2), 0.5, 3);
+        explosionResidueMultiplier[i] = constrain(explosionResidueMultiplier[parent.id] + random(-0.2, 0.2), 0.5, 3);
+        bulletExplodeAfter[i] = constrain(bulletExplodeAfter[parent.id] + random(-50, 50), 100, 800);
+      }
 
       if (Math.round(autonomy[i]) === 0){
         followTarget[i] = true;
@@ -3423,6 +3693,10 @@ function drawStartScreen(){
         multiplayerMode = true;
         playerSelectScreen = false;
         initializeMultiplayer();
+        // Apply custom ant stats if enabled
+        if (devToolsUseCustomAnts) {
+          applyCustomAntsToInitialPopulation();
+        }
         start = true;
         titlemusic.stop();
         gamemusic.play();
@@ -3584,6 +3858,10 @@ function drawStartScreen(){
           if (menuNavigationCooldown === 0) {
             multiplayerMode = false;
             numPlayers = 1;
+            // Apply custom ant stats if enabled
+            if (devToolsUseCustomAnts) {
+              applyCustomAntsToInitialPopulation();
+            }
             start = true;
             titlemusic.stop();
             gamemusic.play();
@@ -3616,6 +3894,10 @@ function drawStartScreen(){
         if (startMenuSelection === 0) {
           multiplayerMode = false;
           numPlayers = 1;
+          // Apply custom ant stats if enabled
+          if (devToolsUseCustomAnts) {
+            applyCustomAntsToInitialPopulation();
+          }
           start = true;
           titlemusic.stop();
           gamemusic.play();
@@ -5239,8 +5521,8 @@ function advanceToNextAlivePlayer() {
   
   // Reset all enemies to starting positions AND lives for this player's turn
   for (let i = 1; i <= enemyCount; i++) {
-    antX[i] = random(0, windowWidth);
-    antY[i] = random(scoreBarHeight + ANT_SPAWN_BUFFER, windowHeight - expBarHeight - expBarBuffer - ANT_SPAWN_BUFFER);
+    antX[i] = random(0, getGameplayWidth());
+    antY[i] = random(scoreBarHeight + ANT_SPAWN_BUFFER, getGameplayHeight() - expBarHeight - expBarBuffer - ANT_SPAWN_BUFFER);
     strikeX[i] = 0;
     strikeY[i] = 0;
     strikeTime1[i] = 0;
@@ -5402,6 +5684,967 @@ function drawPlayerTurnScreen() {
       menuNavigationCooldown = 20;
     }
   endMenuScaling();
+}
+
+// Draw Ants Tab in Developer Tools
+function drawAntsTab(fadeAlpha) {
+  // Define all ant genetic stats with their ranges
+  let antStatDefinitions = [
+    { name: 'Bullet Speed', key: 'bulletSpeed', min: 60, max: 300, step: 1 },
+    { name: 'Bullet Cooldown', key: 'bulletCooldown', min: 79, max: 200, step: 1, integer: true },
+    { name: 'Ant Speed', key: 'antSpeed', min: 0.9, max: 3.5, step: 0.01 },
+    { name: 'Shot Offset X', key: 'shotOffsetX', min: -500, max: 500, step: 1 },
+    { name: 'Shot Offset Y', key: 'shotOffsetY', min: -500, max: 500, step: 1 },
+    { name: 'Standing Point X', key: 'standingPointX', min: 0, max: 1280, step: 1 },
+    { name: 'Standing Point Y', key: 'standingPointY', min: 0, max: 652, step: 1 },
+    { name: 'Follow Value', key: 'followValue', min: -0.5, max: 3.49, step: 0.01, 
+      help: '0=Beetle, 1=Ant, 2=Location, 3=Still' },
+    { name: 'Autonomy', key: 'autonomy', min: -0.5, max: 1.5, step: 0.01,
+      help: '0=FollowTarget, 1=KeepDistance' },
+    { name: 'Distance From Anchor', key: 'distanceFromAnchor', min: 0.1, max: 1000, step: 1 },
+    { name: 'Explosion Behavior', key: 'explosionBehavior', min: -0.5, max: 2.5, step: 0.01,
+      help: '0=None, 1=OnTerminate, 2=Proximity' },
+    { name: 'Explosion Proximity', key: 'explosionProximity', min: 0.1, max: 1000, step: 1 },
+    { name: 'Angle From Spawn', key: 'angleFromSpawn', min: 0, max: 6.28, step: 0.01,
+      help: 'Radians (0-2π)' },
+    { name: 'Bullet Size', key: 'bulletSize', min: 1, max: 3, step: 0.01 },
+    { name: 'Explosion Radius Mult', key: 'explosionRadiusMultiplier', min: 0.5, max: 3, step: 0.01 },
+    { name: 'Explosion Residue Mult', key: 'explosionResidueMultiplier', min: 0.5, max: 3, step: 0.01 },
+    { name: 'Bullet Explode After', key: 'bulletExplodeAfter', min: 100, max: 800, step: 1 }
+  ];
+  
+  // Ant sub-tabs (1st, 2nd, 3rd place)
+  let subTabY = 220;
+  let subTabWidth = 100;
+  let subTabHeight = 28;
+  let subTabSpacing = 8;
+  let totalSubTabWidth = 3 * subTabWidth + 2 * subTabSpacing;
+  let subTabStartX = (getMenuWidth() - totalSubTabWidth) / 2;
+  
+  rectMode(CORNER);
+  textAlign(CENTER, CENTER);
+  textSize(15);
+  
+  let antLabels = ['1st Place', '2nd Place', '3rd Place'];
+  for (let i = 0; i < 3; i++) {
+    let subTabX = subTabStartX + i * (subTabWidth + subTabSpacing);
+    
+    if (devToolsAntTab === i) {
+      fill(235);
+      stroke(255);
+    } else {
+      fill(60);
+      stroke(90);
+    }
+    strokeWeight(2);
+    rect(subTabX, subTabY, subTabWidth, subTabHeight, 6);
+    
+    noStroke();
+    fill(devToolsAntTab === i ? 10 : 180);
+    text(antLabels[i], subTabX + subTabWidth / 2, subTabY + subTabHeight / 2);
+  }
+  
+  // Sub-tab selection instruction
+  textSize(12);
+  fill(200, fadeAlpha / 2);
+  text('1-3 to select ant rank', getMenuWidth() / 2, subTabY + subTabHeight + 12);
+  
+  // Custom ants toggle button
+  let toggleY = subTabY + subTabHeight + 35;
+  let toggleWidth = 350;
+  let toggleHeight = 25;
+  let toggleX = (getMenuWidth() - toggleWidth) / 2;
+  
+  rectMode(CORNER);
+  if (devToolsUseCustomAnts) {
+    fill(100, 255, 100);
+    stroke(150, 255, 150);
+  } else {
+    fill(60);
+    stroke(90);
+  }
+  strokeWeight(2);
+  rect(toggleX, toggleY, toggleWidth, toggleHeight, 8);
+  
+  noStroke();
+  textAlign(CENTER, CENTER);
+  textSize(14);
+  fill(devToolsUseCustomAnts ? 10 : 180);
+  text(devToolsUseCustomAnts ? '✓ Custom Ants ENABLED' : 'Custom Ants DISABLED', 
+       toggleX + toggleWidth / 2, toggleY + toggleHeight / 2);
+  
+  textSize(10);
+  fill(200, fadeAlpha);
+  text('Press T to toggle', toggleX + toggleWidth / 2, toggleY + toggleHeight + 10);
+  
+  // Status message showing what the stats represent
+  textSize(11);
+  if (devToolsUseCustomAnts) {
+    fill(255, 215, 0);
+    text('Showing: Custom user-edited stats', toggleX + toggleWidth / 2, toggleY + toggleHeight + 23);
+  } else {
+    fill(100, 200, 255);
+    text('Showing: Most recent winning ants (read-only)', toggleX + toggleWidth / 2, toggleY + toggleHeight + 23);
+  }
+  
+  // Draw stat sliders
+  let startY = toggleY + 58;
+  let sliderHeight = 22;
+  let sliderSpacing = 24;
+  let sliderWidth = getMenuWidth() * 0.7;
+  let sliderX = (getMenuWidth() - sliderWidth) / 2;
+  
+  let currentAnt = customAntStats[devToolsAntTab];
+  
+  // Calculate visible range (show 10 stats at a time)
+  let visibleStats = 10;
+  let maxScroll = Math.max(0, antStatDefinitions.length - visibleStats);
+  devToolsAntScrollOffset = constrain(devToolsAntScrollOffset, 0, maxScroll);
+  
+  for (let i = 0; i < visibleStats && (i + devToolsAntScrollOffset) < antStatDefinitions.length; i++) {
+    let statIndex = i + devToolsAntScrollOffset;
+    let stat = antStatDefinitions[statIndex];
+    let value = currentAnt[stat.key];
+    let y = startY + i * sliderSpacing;
+    
+    // Stat name
+    textAlign(LEFT, CENTER);
+    textSize(12);
+    let isSelected = devToolsAntStatIndex === statIndex;
+    fill(isSelected ? 255 : 200);
+    text(stat.name + ':', sliderX, y);
+    
+    // Value display
+    textAlign(RIGHT, CENTER);
+    let displayValue = stat.integer ? Math.floor(value) : value.toFixed(2);
+    text(displayValue, sliderX + sliderWidth, y);
+    
+    // Slider bar background
+    let barX = sliderX + 200;
+    let barWidth = sliderWidth - 280;
+    let barHeight = 8;
+    let barY = y - barHeight / 2;
+    
+    rectMode(CORNER);
+    noStroke();
+    fill(40);
+    rect(barX, barY, barWidth, barHeight, 4);
+    
+    // Slider filled portion
+    let fillRatio = (value - stat.min) / (stat.max - stat.min);
+    if (!devToolsUseCustomAnts) {
+      // Read-only mode - showing actual winners with cyan/gray
+      if (isSelected) {
+        fill(100, 200, 255); // Light cyan for selected
+      } else {
+        fill(80, 120, 150); // Darker cyan for unselected
+      }
+    } else if (isSelected) {
+      // Custom mode selected stat - yellow
+      fill(255, 215, 0);
+    } else {
+      // Custom mode unselected stat - blue
+      fill(100, 150, 255);
+    }
+    rect(barX, barY, barWidth * fillRatio, barHeight, 4);
+    
+    // Help text for special stats
+    if (stat.help && isSelected) {
+      textAlign(CENTER, CENTER);
+      textSize(10);
+      fill(180);
+      text(stat.help, getMenuWidth() / 2, y + 12);
+    }
+  }
+  
+  // Scroll indicator if needed
+  if (antStatDefinitions.length > visibleStats) {
+    textAlign(CENTER, CENTER);
+    textSize(11);
+    fill(150);
+    text('↑↓ Scroll (' + (devToolsAntScrollOffset + 1) + '-' + 
+         Math.min(devToolsAntScrollOffset + visibleStats, antStatDefinitions.length) + 
+         ' of ' + antStatDefinitions.length + ')', 
+         getMenuWidth() / 2, startY + visibleStats * sliderSpacing + 5);
+  }
+  
+  // Handle ant sub-tab switching
+  if (devToolsTabSwitchCooldown === 0) {
+    if (keyIsDown(49)) {  // 1
+      devToolsAntTab = 0;
+      devToolsTabSwitchCooldown = 10;
+    } else if (keyIsDown(50)) {  // 2
+      devToolsAntTab = 1;
+      devToolsTabSwitchCooldown = 10;
+    } else if (keyIsDown(51)) {  // 3
+      devToolsAntTab = 2;
+      devToolsTabSwitchCooldown = 10;
+    }
+  }
+  
+  // Handle toggle custom ants
+  if (devToolsNavigationCooldown === 0 && keyIsDown(84)) {  // T key
+    devToolsUseCustomAnts = !devToolsUseCustomAnts;
+    
+    // If enabling custom ants and game is running, apply immediately to current ants
+    if (devToolsUseCustomAnts && start && !end) {
+      console.log("Custom ants enabled - applying to current ants immediately");
+      applyCustomAntsToInitialPopulation();
+    }
+    
+    devToolsNavigationCooldown = 15;
+  }
+  
+  // Handle stat navigation and adjustment
+  if (devToolsNavigationCooldown === 0) {
+    let changed = false;
+    
+    if (keyIsDown(87) || keyIsDown(38)) {  // W or Up - scroll/select up
+      if (devToolsAntStatIndex > 0) {
+        devToolsAntStatIndex--;
+        // Auto-scroll if needed
+        if (devToolsAntStatIndex < devToolsAntScrollOffset) {
+          devToolsAntScrollOffset = devToolsAntStatIndex;
+        }
+      }
+      changed = true;
+    } else if (keyIsDown(83) || keyIsDown(40)) {  // S or Down - scroll/select down
+      if (devToolsAntStatIndex < antStatDefinitions.length - 1) {
+        devToolsAntStatIndex++;
+        // Auto-scroll if needed
+        if (devToolsAntStatIndex >= devToolsAntScrollOffset + visibleStats) {
+          devToolsAntScrollOffset = devToolsAntStatIndex - visibleStats + 1;
+        }
+      }
+      changed = true;
+    } else if ((keyIsDown(65) || keyIsDown(37)) && devToolsUseCustomAnts) {  // A or Left - decrease value (only if custom mode enabled)
+      let stat = antStatDefinitions[devToolsAntStatIndex];
+      currentAnt[stat.key] = constrain(currentAnt[stat.key] - stat.step * 5, stat.min, stat.max);
+      if (stat.integer) currentAnt[stat.key] = Math.floor(currentAnt[stat.key]);
+      changed = true;
+    } else if ((keyIsDown(68) || keyIsDown(39)) && devToolsUseCustomAnts) {  // D or Right - increase value (only if custom mode enabled)
+      let stat = antStatDefinitions[devToolsAntStatIndex];
+      currentAnt[stat.key] = constrain(currentAnt[stat.key] + stat.step * 5, stat.min, stat.max);
+      if (stat.integer) currentAnt[stat.key] = Math.floor(currentAnt[stat.key]);
+      changed = true;
+    }
+    
+    if (changed) {
+      devToolsNavigationCooldown = 5;
+    }
+  }
+}
+
+// Developer Tools Screen
+function drawDevTools() {
+  try {
+    beginMenuScaling();
+    
+    // Background - matching AntDex/Upgrade screen style
+    fill(20);
+    rectMode(CORNER);
+    rect(0, 0, getMenuWidth(), getMenuHeight());
+    
+    // Title
+    textAlign(CENTER, CENTER);
+    fill(255);
+    stroke(0);
+    strokeWeight(4);
+    textSize(56);
+    text('Developer Tools', getMenuWidth() / 2, 70);
+    
+    // Exit instructions with fade effect
+    let fadeAlpha = map(sin(frameCount * 0.05), -1, 1, 30, 70);
+    noStroke();
+    textSize(16);
+    fill(200, fadeAlpha);
+    text('Shift + / + \\ to exit', getMenuWidth() / 2, 130);
+    
+    // Tab system (3 tabs)
+    let tabWidth = 180;
+    let tabHeight = 36;
+    let tabY = 155;
+    let tabSpacing = 8;
+    let totalTabWidth = 3 * tabWidth + 2 * tabSpacing;
+    let singleTabX = (getMenuWidth() - totalTabWidth) / 2;
+    let multiTabX = singleTabX + tabWidth + tabSpacing;
+    let antsTabX = multiTabX + tabWidth + tabSpacing;
+    
+    rectMode(CORNER);
+    
+    // Single Player tab
+    if (devToolsTab === 'single') {
+      fill(235);
+      stroke(255);
+    } else {
+      fill(60);
+      stroke(90);
+    }
+    strokeWeight(2);
+    rect(singleTabX, tabY, tabWidth, tabHeight, 8, 8, 0, 0);
+    
+    noStroke();
+    textAlign(CENTER, CENTER);
+    textSize(16);
+    fill(devToolsTab === 'single' ? 10 : 180);
+    text('Single Player', singleTabX + tabWidth / 2, tabY + tabHeight / 2);
+    
+    // Multiplayer tab
+    if (devToolsTab === 'multi') {
+      fill(235);
+      stroke(255);
+    } else {
+      fill(60);
+      stroke(90);
+    }
+    strokeWeight(2);
+    rect(multiTabX, tabY, tabWidth, tabHeight, 8, 8, 0, 0);
+    
+    noStroke();
+    textAlign(CENTER, CENTER);
+    textSize(16);
+    fill(devToolsTab === 'multi' ? 10 : 180);
+    text('Multiplayer', multiTabX + tabWidth / 2, tabY + tabHeight / 2);
+    
+    // Ants tab
+    if (devToolsTab === 'ants') {
+      fill(235);
+      stroke(255);
+    } else {
+      fill(60);
+      stroke(90);
+    }
+    strokeWeight(2);
+    rect(antsTabX, tabY, tabWidth, tabHeight, 8, 8, 0, 0);
+    
+    noStroke();
+    textAlign(CENTER, CENTER);
+    textSize(16);
+    fill(devToolsTab === 'ants' ? 10 : 180);
+    text('Ants', antsTabX + tabWidth / 2, tabY + tabHeight / 2);
+    
+    // Tab switching instruction
+    textSize(13);
+    fill(200, fadeAlpha);
+    text('Q/E/R to switch tabs', getMenuWidth() / 2, tabY + tabHeight + 12);
+    
+    // Handle tab switching (works from any tab)
+    if (devToolsTabSwitchCooldown === 0) {
+      if (keyIsDown(81)) {  // Q - switch to single player
+        devToolsTab = 'single';
+        devToolsTabSwitchCooldown = 10;
+      } else if (keyIsDown(69)) {  // E - switch to multiplayer
+        devToolsTab = 'multi';
+        devToolsTabSwitchCooldown = 10;
+      } else if (keyIsDown(82)) {  // R - switch to ants
+        devToolsTab = 'ants';
+        devToolsTabSwitchCooldown = 10;
+      }
+    }
+    
+    // Get current upgrade levels based on tab FIRST
+    let currentUpgrades;
+    if (devToolsTab === 'single') {
+      currentUpgrades = {
+        upgrade1: upgrade1Level,
+        upgrade2: upgrade2Level,
+        upgrade3: upgrade3Level,
+        upgrade4: upgrade4Level,
+        upgrade5: upgrade5Level,
+        upgrade6: upgrade6Level,
+        upgrade7: upgrade7Level,
+        upgrade8: upgrade8Level,
+        upgrade9: upgrade9Level,
+        upgrade10: upgrade10Level
+      };
+    } else if (devToolsTab === 'multi') {
+      // Multiplayer mode - get upgrades from selected player
+      if (players[devToolsPlayerTab]) {
+        currentUpgrades = {
+          upgrade1: players[devToolsPlayerTab].upgrade1 || 0,
+          upgrade2: players[devToolsPlayerTab].upgrade2 || 0,
+          upgrade3: players[devToolsPlayerTab].upgrade3 || 0,
+          upgrade4: players[devToolsPlayerTab].upgrade4 || 0,
+          upgrade5: players[devToolsPlayerTab].upgrade5 || 0,
+          upgrade6: players[devToolsPlayerTab].upgrade6 || 0,
+          upgrade7: players[devToolsPlayerTab].upgrade7 || 0,
+          upgrade8: players[devToolsPlayerTab].upgrade8 || 0,
+          upgrade9: players[devToolsPlayerTab].upgrade9 || 0,
+          upgrade10: players[devToolsPlayerTab].upgrade10 || 0
+        };
+      } else {
+        // Player doesn't exist, show zeros
+        currentUpgrades = {
+          upgrade1: 0, upgrade2: 0, upgrade3: 0, upgrade4: 0, upgrade5: 0,
+          upgrade6: 0, upgrade7: 0, upgrade8: 0, upgrade9: 0, upgrade10: 0
+        };
+      }
+    }
+    
+    // RENDER CONTENT BASED ON TAB
+    if (devToolsTab === 'single' || devToolsTab === 'multi') {
+      // Define all upgrades
+      let allUpgrades = [
+        { name: 'Walking Speed', level: currentUpgrades.upgrade1, maxLevel: 4, id: 0 },
+        { name: 'Dash Speed', level: currentUpgrades.upgrade2, maxLevel: 5, id: 1 },
+        { name: 'Dash Cooldown', level: currentUpgrades.upgrade3, maxLevel: 5, id: 2 },
+        { name: 'Add Shield', level: currentUpgrades.upgrade4, maxLevel: 9, id: 3 },
+        { name: 'Add Bullets', level: currentUpgrades.upgrade5, maxLevel: 8, id: 4 },
+        { name: 'Shield Regeneration', level: currentUpgrades.upgrade6, maxLevel: 5, id: 5 },
+        { name: 'Bullet Reload', level: currentUpgrades.upgrade7, maxLevel: 5, id: 6 },
+        { name: 'Bullet Speed', level: currentUpgrades.upgrade8, maxLevel: 5, id: 7 },
+        { name: 'Free-Angle Aiming', level: currentUpgrades.upgrade9, maxLevel: 1, id: 8 },
+        { name: 'Tiger Beetle', level: currentUpgrades.upgrade10, maxLevel: 1, id: 9 }
+      ];
+    
+    // Handle player sub-tab switching in multiplayer mode
+    if (devToolsTab === 'multi' && devToolsTabSwitchCooldown === 0) {
+      if (keyIsDown(49)) {  // 1
+        devToolsPlayerTab = 0;
+        devToolsTabSwitchCooldown = 10;
+      } else if (keyIsDown(50)) {  // 2
+        devToolsPlayerTab = 1;
+        devToolsTabSwitchCooldown = 10;
+      } else if (keyIsDown(51)) {  // 3
+        devToolsPlayerTab = 2;
+        devToolsTabSwitchCooldown = 10;
+      } else if (keyIsDown(52)) {  // 4
+        devToolsPlayerTab = 3;
+        devToolsTabSwitchCooldown = 10;
+      } else if (keyIsDown(53)) {  // 5
+        devToolsPlayerTab = 4;
+        devToolsTabSwitchCooldown = 10;
+      } else if (keyIsDown(54)) {  // 6
+        devToolsPlayerTab = 5;
+        devToolsTabSwitchCooldown = 10;
+      }
+    }
+    
+    // Handle navigation (only for upgrade tabs, not ants tab)
+    if ((devToolsTab === 'single' || devToolsTab === 'multi') && devToolsNavigationCooldown === 0) {
+      if (keyIsDown(87) || keyIsDown(38)) {  // W or Up
+        devToolsSelectedUpgrade -= 2;
+        if (devToolsSelectedUpgrade < 0) devToolsSelectedUpgrade += 10;
+        devToolsNavigationCooldown = 10;
+      } else if (keyIsDown(83) || keyIsDown(40)) {  // S or Down
+        devToolsSelectedUpgrade += 2;
+        if (devToolsSelectedUpgrade > 9) devToolsSelectedUpgrade -= 10;
+        devToolsNavigationCooldown = 10;
+      } else if (keyIsDown(65) || keyIsDown(37)) {  // A or Left
+        devToolsSelectedUpgrade--;
+        if (devToolsSelectedUpgrade < 0) devToolsSelectedUpgrade = 9;
+        devToolsNavigationCooldown = 10;
+      } else if (keyIsDown(68) || keyIsDown(39)) {  // D or Right
+        devToolsSelectedUpgrade++;
+        if (devToolsSelectedUpgrade > 9) devToolsSelectedUpgrade = 0;
+        devToolsNavigationCooldown = 10;
+      } else if (keyIsDown(13)) {  // Enter
+        toggleDevUpgrade(devToolsSelectedUpgrade);
+        devToolsNavigationCooldown = 10;
+      }
+    }
+    
+    // Player sub-tabs for multiplayer
+    if (devToolsTab === 'multi') {
+      let subTabY = 220;
+      let subTabWidth = 55;
+      let subTabHeight = 28;
+      let subTabSpacing = 4;
+      let totalSubTabWidth = 6 * subTabWidth + 5 * subTabSpacing;
+      let subTabStartX = (getMenuWidth() - totalSubTabWidth) / 2;
+      
+      rectMode(CORNER);
+      textAlign(CENTER, CENTER);
+      textSize(15);
+      
+      for (let i = 0; i < 6; i++) {
+        let subTabX = subTabStartX + i * (subTabWidth + subTabSpacing);
+        
+        if (devToolsPlayerTab === i) {
+          fill(235);
+          stroke(255);
+        } else {
+          fill(60);
+          stroke(90);
+        }
+        strokeWeight(2);
+        rect(subTabX, subTabY, subTabWidth, subTabHeight, 6);
+        
+        noStroke();
+        fill(devToolsPlayerTab === i ? 10 : 180);
+        text('P' + (i + 1), subTabX + subTabWidth / 2, subTabY + subTabHeight / 2);
+      }
+      
+      // Player selection instruction
+      textSize(12);
+      fill(200, fadeAlpha / 2);
+      text('1-6 to select player', getMenuWidth() / 2, subTabY + subTabHeight + 12);
+    }
+    
+    // Draw upgrades in 2 columns
+    let cardWidth = getMenuWidth() * 0.38;
+    let cardHeight = 58;
+    let leftColX = getMenuWidth() * 0.15;
+    let rightColX = getMenuWidth() * 0.55;
+    let startY = devToolsTab === 'multi' ? 260 : 230;
+    let spacing = 61;
+    
+    rectMode(CORNER);
+    noStroke();
+    
+    for (let i = 0; i < 10; i++) {
+      let upgrade = allUpgrades[i];
+      let col = i % 2;
+      let row = floor(i / 2);
+      let x = col === 0 ? leftColX : rightColX;
+      let y = startY + row * spacing;
+      
+      // Card background
+      noStroke();
+      if (devToolsSelectedUpgrade === i) {
+        fill(235); // Selected - white
+      } else {
+        fill(60); // Unselected - dark grey
+      }
+      rect(x, y, cardWidth, cardHeight, 12);
+      
+      // Upgrade name
+      noStroke();
+      textAlign(LEFT, TOP);
+      textSize(15);
+      if (devToolsSelectedUpgrade === i) {
+        fill(10); // Dark text on white
+      } else {
+        fill(255); // White text on dark
+      }
+      text(upgrade.name, x + 12, y + 7);
+      
+      // Level indicator
+      textSize(12);
+      if (devToolsSelectedUpgrade === i) {
+        fill(40);
+      } else {
+        fill(180);
+      }
+      text('Level ' + upgrade.level + ' / ' + upgrade.maxLevel, x + 12, y + 27);
+      
+      // Yellow progress bar - individual bars side by side
+      let totalBarWidth = cardWidth - 24;
+      let barHeight = 7;
+      let barX = x + 12;
+      let barY = y + cardHeight - 12;
+      
+      // Calculate individual bar dimensions with gaps
+      let gapSize = 3;
+      let totalGaps = (upgrade.maxLevel - 1) * gapSize;
+      let singleBarWidth = (totalBarWidth - totalGaps) / upgrade.maxLevel;
+      
+      // Draw individual bars
+      for (let s = 0; s < upgrade.maxLevel; s++) {
+        let individualBarX = barX + s * (singleBarWidth + gapSize);
+        
+        if (s < upgrade.level) {
+          // Active bar - yellow
+          noStroke();
+          fill(255, 215, 0);
+        } else {
+          // Inactive bar - dark grey
+          noStroke();
+          fill(40);
+        }
+        
+        rect(individualBarX, barY, singleBarWidth, barHeight, 4);
+      }
+    }
+    
+    } else if (devToolsTab === 'ants') {
+      // ANTS TAB - Genetic stats editor
+      drawAntsTab(fadeAlpha);
+    }
+    
+    // Instructions at bottom
+    textAlign(CENTER, CENTER);
+    textSize(14);
+    fill(200, fadeAlpha);
+    noStroke();
+    if (devToolsTab === 'multi') {
+      text('Q/E/R Tabs  |  1-6 Player  |  WASD/Arrows Nav  |  Enter Toggle  |  Shift+/+\\\\ Exit', getMenuWidth() / 2, getMenuHeight() - 25);
+    } else if (devToolsTab === 'ants') {
+      if (devToolsUseCustomAnts) {
+        text('Q/E/R Tabs  |  1-3 Ant Rank  |  W/S Select  |  A/D Adjust  |  T Toggle  |  Shift+/+\\\\ Exit', getMenuWidth() / 2, getMenuHeight() - 25);
+      } else {
+        text('Q/E/R Tabs  |  1-3 Ant Rank  |  W/S Navigate  |  T Enable Editing  |  Shift+/+\\\\ Exit', getMenuWidth() / 2, getMenuHeight() - 25);
+      }
+    } else {
+      text('Q/E/R Tabs  |  WASD/Arrows Navigate  |  Enter Toggle  |  Shift+/+\\\\ Exit', getMenuWidth() / 2, getMenuHeight() - 25);
+    }
+    
+    endMenuScaling();
+  } catch (error) {
+    // Fallback minimal display if there's an error
+    background(20);
+    fill(255);
+    textAlign(CENTER, CENTER);
+    textSize(32);
+    text('DEV TOOLS ERROR', width / 2, height / 2 - 50);
+    textSize(20);
+    text('Press Shift + / + \\ to exit', width / 2, height / 2 + 50);
+  }
+}
+
+// Toggle upgrade level in dev tools
+function toggleDevUpgrade(upgradeId) {
+  // Get current level based on tab
+  let currentLevel = 0;
+  let maxLevels = [4, 5, 5, 9, 8, 5, 5, 5, 1, 1];
+  
+  if (devToolsTab === 'single') {
+    let upgradeLevels = [upgrade1Level, upgrade2Level, upgrade3Level, upgrade4Level, upgrade5Level, 
+                         upgrade6Level, upgrade7Level, upgrade8Level, upgrade9Level, upgrade10Level];
+    currentLevel = upgradeLevels[upgradeId];
+  } else {
+    // Multiplayer - get from selected player
+    if (players[devToolsPlayerTab]) {
+      let playerUpgrades = [
+        players[devToolsPlayerTab].upgrade1 || 0,
+        players[devToolsPlayerTab].upgrade2 || 0,
+        players[devToolsPlayerTab].upgrade3 || 0,
+        players[devToolsPlayerTab].upgrade4 || 0,
+        players[devToolsPlayerTab].upgrade5 || 0,
+        players[devToolsPlayerTab].upgrade6 || 0,
+        players[devToolsPlayerTab].upgrade7 || 0,
+        players[devToolsPlayerTab].upgrade8 || 0,
+        players[devToolsPlayerTab].upgrade9 || 0,
+        players[devToolsPlayerTab].upgrade10 || 0
+      ];
+      currentLevel = playerUpgrades[upgradeId];
+    }
+  }
+  
+  let maxLevel = maxLevels[upgradeId];
+  
+  if (currentLevel >= maxLevel) {
+    // Already maxed - reset to 0 and deactivate dependents
+    setDevUpgradeLevel(upgradeId, 0);
+    deactivateDevDependentUpgrades(upgradeId);
+  } else {
+    // Increase by 1 and activate prerequisites
+    activateDevPrerequisites(upgradeId, currentLevel + 1);
+    setDevUpgradeLevel(upgradeId, currentLevel + 1);
+  }
+}
+
+// Activate all prerequisites for an upgrade
+function activatePrerequisites(upgradeId, targetLevel) {
+  // Upgrade 5 (Shield Regen) requires Upgrade 3 (Add Shield)
+  if (upgradeId === 5 && upgrade4Level === 0) {
+    setUpgradeLevel(3, 1);
+  }
+  
+  // Upgrade 6 (Bullet Reload) requires Upgrade 4 (Add Bullets)
+  if (upgradeId === 6 && upgrade5Level === 0) {
+    setUpgradeLevel(4, 1);
+  }
+  
+  // Upgrade 7 (Bullet Speed) requires Upgrade 4 (Add Bullets)
+  if (upgradeId === 7 && upgrade5Level === 0) {
+    setUpgradeLevel(4, 1);
+  }
+  
+  // Upgrade 8 (Free-Angle Aiming) requires Upgrades 4, 6, 7 (Add Bullets, Bullet Reload, Bullet Speed)
+  if (upgradeId === 8) {
+    if (upgrade5Level === 0) setUpgradeLevel(4, 1);
+    if (upgrade7Level === 0) {
+      if (upgrade5Level === 0) setUpgradeLevel(4, 1);
+      setUpgradeLevel(6, 1);
+    }
+    if (upgrade8Level === 0) {
+      if (upgrade5Level === 0) setUpgradeLevel(4, 1);
+      setUpgradeLevel(7, 1);
+    }
+  }
+  
+  // Upgrade 9 (Tiger Beetle) requires Upgrade 2 (Dash Cooldown) maxed at 5
+  if (upgradeId === 9 && upgrade3Level < 5) {
+    setUpgradeLevel(2, 5);
+  }
+}
+
+// Dev tools version - Activate prerequisites for an upgrade
+function activateDevPrerequisites(upgradeId, targetLevel) {
+  // Get current levels based on tab
+  let getCurrentLevel = (id) => {
+    if (devToolsTab === 'single') {
+      let levels = [upgrade1Level, upgrade2Level, upgrade3Level, upgrade4Level, upgrade5Level, 
+                    upgrade6Level, upgrade7Level, upgrade8Level, upgrade9Level, upgrade10Level];
+      return levels[id];
+    } else if (players[devToolsPlayerTab]) {
+      let playerLevels = [
+        players[devToolsPlayerTab].upgrade1 || 0,
+        players[devToolsPlayerTab].upgrade2 || 0,
+        players[devToolsPlayerTab].upgrade3 || 0,
+        players[devToolsPlayerTab].upgrade4 || 0,
+        players[devToolsPlayerTab].upgrade5 || 0,
+        players[devToolsPlayerTab].upgrade6 || 0,
+        players[devToolsPlayerTab].upgrade7 || 0,
+        players[devToolsPlayerTab].upgrade8 || 0,
+        players[devToolsPlayerTab].upgrade9 || 0,
+        players[devToolsPlayerTab].upgrade10 || 0
+      ];
+      return playerLevels[id];
+    }
+    return 0;
+  };
+  
+  // Upgrade 5 (Shield Regen) requires Upgrade 3 (Add Shield)
+  if (upgradeId === 5 && getCurrentLevel(3) === 0) {
+    setDevUpgradeLevel(3, 1);
+  }
+  
+  // Upgrade 6 (Bullet Reload) requires Upgrade 4 (Add Bullets)
+  if (upgradeId === 6 && getCurrentLevel(4) === 0) {
+    setDevUpgradeLevel(4, 1);
+  }
+  
+  // Upgrade 7 (Bullet Speed) requires Upgrade 4 (Add Bullets)
+  if (upgradeId === 7 && getCurrentLevel(4) === 0) {
+    setDevUpgradeLevel(4, 1);
+  }
+  
+  // Upgrade 8 (Free-Angle Aiming) requires Upgrades 4, 6, 7
+  if (upgradeId === 8) {
+    if (getCurrentLevel(4) === 0) setDevUpgradeLevel(4, 1);
+    if (getCurrentLevel(6) === 0) setDevUpgradeLevel(6, 1);
+    if (getCurrentLevel(7) === 0) setDevUpgradeLevel(7, 1);
+  }
+  
+  // Upgrade 9 (Tiger Beetle) requires Upgrade 2 (Dash Cooldown) maxed at 5
+  if (upgradeId === 9 && getCurrentLevel(2) < 5) {
+    setDevUpgradeLevel(2, 5);
+  }
+}
+
+// Deactivate upgrades that depend on this one
+function deactivateDependentUpgrades(upgradeId) {
+  // If Add Shield (3) is reset, reset Shield Regen (5)
+  if (upgradeId === 3) {
+    setUpgradeLevel(5, 0);
+  }
+  
+  // If Add Bullets (4) is reset, reset Bullet Reload (6), Bullet Speed (7), and Free-Angle Aiming (8)
+  if (upgradeId === 4) {
+    setUpgradeLevel(6, 0);
+    setUpgradeLevel(7, 0);
+    setUpgradeLevel(8, 0);
+  }
+  
+  // If Bullet Reload (6) is reset, reset Free-Angle Aiming (8)
+  if (upgradeId === 6) {
+    setUpgradeLevel(8, 0);
+  }
+  
+  // If Bullet Speed (7) is reset, reset Free-Angle Aiming (8)
+  if (upgradeId === 7) {
+    setUpgradeLevel(8, 0);
+  }
+  
+  // If Dash Cooldown (2) is reset below 5, reset Tiger Beetle (9)
+  if (upgradeId === 2) {
+    setUpgradeLevel(9, 0);
+  }
+}
+
+// Dev tools version - Deactivate dependent upgrades
+function deactivateDevDependentUpgrades(upgradeId) {
+  // If Add Shield (3) is reset, reset Shield Regen (5)
+  if (upgradeId === 3) {
+    setDevUpgradeLevel(5, 0);
+  }
+  
+  // If Add Bullets (4) is reset, reset Bullet Reload (6), Bullet Speed (7), and Free-Angle Aiming (8)
+  if (upgradeId === 4) {
+    setDevUpgradeLevel(6, 0);
+    setDevUpgradeLevel(7, 0);
+    setDevUpgradeLevel(8, 0);
+  }
+  
+  // If Bullet Reload (6) is reset, reset Free-Angle Aiming (8)
+  if (upgradeId === 6) {
+    setDevUpgradeLevel(8, 0);
+  }
+  
+  // If Bullet Speed (7) is reset, reset Free-Angle Aiming (8)
+  if (upgradeId === 7) {
+    setDevUpgradeLevel(8, 0);
+  }
+  
+  // If Dash Cooldown (2) is reset below 5, reset Tiger Beetle (9)
+  if (upgradeId === 2) {
+    setDevUpgradeLevel(9, 0);
+  }
+}
+
+// Set upgrade level
+function setUpgradeLevel(upgradeId, level) {
+  if (upgradeId === 0) upgrade1Level = level;
+  else if (upgradeId === 1) upgrade2Level = level;
+  else if (upgradeId === 2) upgrade3Level = level;
+  else if (upgradeId === 3) upgrade4Level = level;
+  else if (upgradeId === 4) upgrade5Level = level;
+  else if (upgradeId === 5) upgrade6Level = level;
+  else if (upgradeId === 6) upgrade7Level = level;
+  else if (upgradeId === 7) upgrade8Level = level;
+  else if (upgradeId === 8) upgrade9Level = level;
+  else if (upgradeId === 9) upgrade10Level = level;
+  
+  // Apply the changes to game stats
+  updateUpgradeBooleans();
+}
+
+// Dev tools version - Set upgrade level for either single or multiplayer
+function setDevUpgradeLevel(upgradeId, level) {
+  if (devToolsTab === 'single') {
+    // Update global upgrades
+    if (upgradeId === 0) upgrade1Level = level;
+    else if (upgradeId === 1) upgrade2Level = level;
+    else if (upgradeId === 2) upgrade3Level = level;
+    else if (upgradeId === 3) upgrade4Level = level;
+    else if (upgradeId === 4) upgrade5Level = level;
+    else if (upgradeId === 5) upgrade6Level = level;
+    else if (upgradeId === 6) upgrade7Level = level;
+    else if (upgradeId === 7) upgrade8Level = level;
+    else if (upgradeId === 8) upgrade9Level = level;
+    else if (upgradeId === 9) upgrade10Level = level;
+    
+    // Apply the changes to game stats
+    updateUpgradeBooleans();
+  } else {
+    // Update specific player upgrades
+    if (players[devToolsPlayerTab]) {
+      if (upgradeId === 0) players[devToolsPlayerTab].upgrade1 = level;
+      else if (upgradeId === 1) players[devToolsPlayerTab].upgrade2 = level;
+      else if (upgradeId === 2) players[devToolsPlayerTab].upgrade3 = level;
+      else if (upgradeId === 3) players[devToolsPlayerTab].upgrade4 = level;
+      else if (upgradeId === 4) players[devToolsPlayerTab].upgrade5 = level;
+      else if (upgradeId === 5) players[devToolsPlayerTab].upgrade6 = level;
+      else if (upgradeId === 6) players[devToolsPlayerTab].upgrade7 = level;
+      else if (upgradeId === 7) players[devToolsPlayerTab].upgrade8 = level;
+      else if (upgradeId === 8) players[devToolsPlayerTab].upgrade9 = level;
+      else if (upgradeId === 9) players[devToolsPlayerTab].upgrade10 = level;
+      
+      // Update player's stats based on their new upgrade levels
+      updatePlayerStats(devToolsPlayerTab);
+    }
+  }
+}
+
+// Update a specific player's stats based on their upgrade levels
+function updatePlayerStats(playerIndex) {
+  if (!players[playerIndex]) return;
+  
+  let p = players[playerIndex];
+  
+  // Walking Speed (4 levels)
+  if (p.upgrade1 === 1) {
+    p.movementSpeed = 3.5;
+  } else if (p.upgrade1 === 2) {
+    p.movementSpeed = 4;
+  } else if (p.upgrade1 === 3) {
+    p.movementSpeed = 4.5;
+  } else if (p.upgrade1 === 4) {
+    p.movementSpeed = 5;
+  } else {
+    p.movementSpeed = 3;
+  }
+  
+  // Dash Speed (5 levels)
+  if (p.upgrade2 === 1) {
+    p.dashSpeedStat = 3;
+  } else if (p.upgrade2 === 2) {
+    p.dashSpeedStat = 4;
+  } else if (p.upgrade2 === 3) {
+    p.dashSpeedStat = 5;
+  } else if (p.upgrade2 === 4) {
+    p.dashSpeedStat = 6;
+  } else if (p.upgrade2 === 5) {
+    p.dashSpeedStat = 7;
+  } else {
+    p.dashSpeedStat = 2;
+  }
+  
+  // Dash Cooldown (5 levels)
+  if (p.upgrade3 === 1) {
+    p.dashCooldownStat = 2.5;
+  } else if (p.upgrade3 === 2) {
+    p.dashCooldownStat = 2;
+  } else if (p.upgrade3 === 3) {
+    p.dashCooldownStat = 1.5;
+  } else if (p.upgrade3 === 4) {
+    p.dashCooldownStat = 1;
+  } else if (p.upgrade3 === 5) {
+    p.dashCooldownStat = 0.5;
+  } else {
+    p.dashCooldownStat = 3;
+  }
+  
+  // Add Shield (9 levels)
+  if (p.upgrade4 >= 1 && p.upgrade4 <= 9) {
+    p.shieldQuantity = p.upgrade4;
+  } else {
+    p.shieldQuantity = 0;
+  }
+  
+  // Add Bullets (8 levels)
+  if (p.upgrade5 >= 1 && p.upgrade5 <= 8) {
+    p.bulletQuantity = p.upgrade5;
+  } else {
+    p.bulletQuantity = 0;
+  }
+  
+  // Shield Regeneration (5 levels)
+  if (p.upgrade6 === 1) {
+    p.shieldRegenerationRate = 600;
+  } else if (p.upgrade6 === 2) {
+    p.shieldRegenerationRate = 480;
+  } else if (p.upgrade6 === 3) {
+    p.shieldRegenerationRate = 360;
+  } else if (p.upgrade6 === 4) {
+    p.shieldRegenerationRate = 240;
+  } else if (p.upgrade6 === 5) {
+    p.shieldRegenerationRate = 120;
+  } else {
+    p.shieldRegenerationRate = 600;
+  }
+  
+  // Bullet Reload (5 levels)
+  if (p.upgrade7 === 1) {
+    p.bulletReloadRate = 180;
+  } else if (p.upgrade7 === 2) {
+    p.bulletReloadRate = 144;
+  } else if (p.upgrade7 === 3) {
+    p.bulletReloadRate = 108;
+  } else if (p.upgrade7 === 4) {
+    p.bulletReloadRate = 72;
+  } else if (p.upgrade7 === 5) {
+    p.bulletReloadRate = 36;
+  } else {
+    p.bulletReloadRate = 180;
+  }
+  
+  // Bullet Speed (5 levels)
+  if (p.upgrade8 === 1) {
+    p.playerBulletSpeed = 1.25;
+  } else if (p.upgrade8 === 2) {
+    p.playerBulletSpeed = 1.5;
+  } else if (p.upgrade8 === 3) {
+    p.playerBulletSpeed = 1.75;
+  } else if (p.upgrade8 === 4) {
+    p.playerBulletSpeed = 2;
+  } else if (p.upgrade8 === 5) {
+    p.playerBulletSpeed = 2.25;
+  } else {
+    p.playerBulletSpeed = 1;
+  }
 }
 
 
