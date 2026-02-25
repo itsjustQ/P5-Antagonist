@@ -51,7 +51,8 @@ let customAntStats = [
     bulletSize: 1,
     explosionRadiusMultiplier: 1,
     explosionResidueMultiplier: 1,
-    bulletExplodeAfter: 800
+    bulletExplodeAfter: 800,
+    antSize: 1
   },
   // 2nd place ant (index 1)
   {
@@ -71,7 +72,8 @@ let customAntStats = [
     bulletSize: 1,
     explosionRadiusMultiplier: 1,
     explosionResidueMultiplier: 1,
-    bulletExplodeAfter: 800
+    bulletExplodeAfter: 800,
+    antSize: 1
   },
   // 3rd place ant (index 2)
   {
@@ -91,7 +93,8 @@ let customAntStats = [
     bulletSize: 1,
     explosionRadiusMultiplier: 1,
     explosionResidueMultiplier: 1,
-    bulletExplodeAfter: 800
+    bulletExplodeAfter: 800,
+    antSize: 1
   }
 ];
 
@@ -271,6 +274,13 @@ let spawnY = [];
 let angleFromSpawn = [];
 let movementMutationRate = [];
 let bulletSize = [];
+let antSize = [];
+let antHealth = [];
+let antMaxHealth = [];
+let antKnockedBack = [];
+let antKnockbackTimer = [];
+let antKnockbackVelX = [];
+let antKnockbackVelY = [];
 const ANT_SPAWN_BUFFER = 20;
 let antMoveX = [];
 let antMoveY = [];
@@ -439,6 +449,13 @@ function setup() {
     bulletCooldown[i] = 120; // Random cooldown for each enemy
     antSpeed[i] = 1.95;
     bulletSize[i] = 1;
+    antSize[i] = 1;
+    antMaxHealth[i] = antSize[i];
+    antHealth[i] = antMaxHealth[i];
+    antKnockedBack[i] = false;
+    antKnockbackTimer[i] = 0;
+    antKnockbackVelX[i] = 0;
+    antKnockbackVelY[i] = 0;
     bulletSplitCount[i] = 1;          // no split by default
     bulletSpread[i] = 0;              // 0° spread (all bullets same direction)
     bulletExplodeAfter[i] = 800; 
@@ -688,6 +705,8 @@ function draw() {
       // Beetle Moves
       beetleShoot();
       beetleDash();
+      dashCollision(); // Check for dash collisions with ants
+      handleAntKnockback(); // Handle knocked back ants
       drawDeathEffects();
       endGameplayScaling();
       
@@ -935,7 +954,8 @@ function syncActualWinnersToCustomStats(topAnts) {
         bulletSize: bulletSize[antId],
         explosionRadiusMultiplier: explosionRadiusMultiplier[antId],
         explosionResidueMultiplier: explosionResidueMultiplier[antId],
-        bulletExplodeAfter: bulletExplodeAfter[antId]
+        bulletExplodeAfter: bulletExplodeAfter[antId],
+        antSize: antSize[antId]
       };
     }
   }
@@ -1261,7 +1281,8 @@ function drawEnemy(){
         translate(antX[i], antY[i]);
         let a = atan2(playerY - antY[i], playerX - antX[i]);
         rotate(a);
-        image(ant, 0, 0, 60, 60);
+        let antImageSize = 45 + (15 * antSize[i]);
+        image(ant, 0, 0, antImageSize, antImageSize);
       pop();
     }
 
@@ -1341,8 +1362,10 @@ function enemyInteraction1(){
 
   //enemy one interaction
   for (let i = 1; i < enemyCount + 1; i++) {
-    if(playerX > (antX[i] - 27) && playerY > (antY[i] - 27) && playerX < (antX[i] + 27) && playerY < (antY[i] + 27)) {
-      if (end == false){
+    let antHitboxSize = 20.25 + (6.75 * antSize[i]);
+    if(playerX > (antX[i] - antHitboxSize) && playerY > (antY[i] - antHitboxSize) && playerX < (antX[i] + antHitboxSize) && playerY < (antY[i] + antHitboxSize)) {
+      // Only run over ants with health <= 1
+      if (end == false && antHealth[i] <= 1){
         comboTime = 60;
         combo = combo + 1;
         calculateBonus();
@@ -1371,6 +1394,9 @@ function enemyInteraction1(){
         antY[i] = random(scoreBarHeight + ANT_SPAWN_BUFFER, getGameplayHeight() - expBarHeight - expBarBuffer - ANT_SPAWN_BUFFER);
         spawnX[i] = antX[i] + cos(angleFromSpawn[i]);
         spawnY[i] = antY[i] + sin(angleFromSpawn[i]);
+        antHealth[i] = antMaxHealth[i];  // Reset health on respawn
+        antKnockedBack[i] = false;
+        antKnockbackTimer[i] = 0;
         antLives[i]++;
         console.log("Ant", i, "lives:", antLives[i]);
 
@@ -1383,6 +1409,121 @@ function enemyInteraction1(){
           }       
         }
 
+      }
+      // Push ants with health > 1 out of the way when walking (not dashing)
+      else if (end == false && antHealth[i] > 1 && !dash) {
+        // Calculate gentle push direction (away from player)
+        let dx = antX[i] - playerX;
+        let dy = antY[i] - playerY;
+        let distance = dist(playerX, playerY, antX[i], antY[i]);
+        
+        if (distance > 0) {
+          let pushSpeed = playerSpeed * 4 / antSize[i]; // Push inversely proportional to ant size
+          
+          // If already knocked back, add to existing velocity instead of replacing
+          if (antKnockedBack[i]) {
+            // Continue pushing in the new direction
+            antKnockbackVelX[i] = (dx / distance) * pushSpeed;
+            antKnockbackVelY[i] = (dy / distance) * pushSpeed;
+            antKnockbackTimer[i] = max(antKnockbackTimer[i], 10); // Extend timer if needed
+          } else {
+            // Start new knockback
+            antKnockbackVelX[i] = (dx / distance) * pushSpeed;
+            antKnockbackVelY[i] = (dy / distance) * pushSpeed;
+            antKnockedBack[i] = true;
+            antKnockbackTimer[i] = 10; // Short push duration
+          }
+        }
+      }
+    }
+  }
+}
+
+function dashCollision() {
+  // Only check for dash collisions when dashing
+  if (!dash) return;
+  
+  for (let i = 1; i < enemyCount + 1; i++) {
+    // Skip if ant is already knocked back (can only be hit once per dash)
+    if (antKnockedBack[i]) continue;
+    
+    let antHitboxSize = 20.25 + (6.75 * antSize[i]);
+    if(playerX > (antX[i] - antHitboxSize) && playerY > (antY[i] - antHitboxSize) && 
+       playerX < (antX[i] + antHitboxSize) && playerY < (antY[i] + antHitboxSize)) {
+      
+      // Deal 1 damage
+      antHealth[i]--;
+      
+      // Calculate knockback direction (away from player)
+      let dx = antX[i] - playerX;
+      let dy = antY[i] - playerY;
+      let distance = dist(playerX, playerY, antX[i], antY[i]);
+      
+      // Normalize and apply knockback velocity
+      if (distance > 0) {
+        let knockbackSpeed = playerSpeed * 4 / antSize[i]; // Knockback inversely proportional to ant size
+        antKnockbackVelX[i] = (dx / distance) * knockbackSpeed;
+        antKnockbackVelY[i] = (dy / distance) * knockbackSpeed;
+      }
+      
+      // Set knockback state
+      antKnockedBack[i] = true;
+      antKnockbackTimer[i] = 60; // Longer knockback duration for dash
+      
+      // If health depleted, kill the ant
+      if (antHealth[i] <= 0) {
+        antLives[i]++;
+        comboTime = 60;
+        combo++;
+        calculateBonus();
+        streakPoints += comboPoints;
+        addScore(100 + comboPoints);
+        health++;
+        addDeathEffect(antX[i], antY[i], 100 + comboPoints);
+        antX[i] = random(0, getGameplayWidth());
+        antY[i] = random(scoreBarHeight + ANT_SPAWN_BUFFER, getGameplayHeight() - expBarHeight - expBarBuffer - ANT_SPAWN_BUFFER);
+        spawnX[i] = antX[i] + cos(angleFromSpawn[i]);
+        spawnY[i] = antY[i] + sin(angleFromSpawn[i]);
+        antHealth[i] = antMaxHealth[i];
+        antKnockedBack[i] = false;
+        antKnockbackTimer[i] = 0;
+        
+        if(!sGetHit1.isPlaying() || !sGetHit2.isPlaying()) {
+          sHit = round(random(1,2));
+          if(sHit == 1) {
+            sGetHit1.play();
+          } else {
+            sGetHit2.play();
+          }
+        }
+      }
+    }
+  }
+}
+
+function handleAntKnockback() {
+  for (let i = 1; i <= enemyCount; i++) {
+    if (antKnockedBack[i]) {
+      // Apply knockback velocity
+      antX[i] += antKnockbackVelX[i];
+      antY[i] += antKnockbackVelY[i];
+      
+      // Apply friction to slow down
+      antKnockbackVelX[i] *= 0.95;
+      antKnockbackVelY[i] *= 0.95;
+      
+      // Keep ant in bounds
+      antX[i] = constrain(antX[i], sideBuffer, getGameplayWidth() - sideBuffer);
+      antY[i] = constrain(antY[i], scoreBarHeight + 15, getGameplayHeight() - expBarHeight - expBarBuffer);
+      
+      // Decrease timer
+      antKnockbackTimer[i]--;
+      
+      // End knockback when timer expires
+      if (antKnockbackTimer[i] <= 0) {
+        antKnockedBack[i] = false;
+        antKnockbackVelX[i] = 0;
+        antKnockbackVelY[i] = 0;
       }
     }
   }
@@ -1808,18 +1949,29 @@ function beetleShoot() {
         b.y < antY[j] + 25 &&
         b.y > antY[j] - 25
       ) {
-        antLives[j]++;
-        comboTime = 60;
-        combo++;
-        calculateBonus();
-        streakPoints += comboPoints;
-        addScore(100 + comboPoints);
-        health++;
-        addDeathEffect(antX[j], antY[j], 100 + comboPoints);
-        antX[j] = random(0, getGameplayWidth());
-        antY[j] = random(scoreBarHeight + ANT_SPAWN_BUFFER, getGameplayHeight() - expBarHeight - expBarBuffer - ANT_SPAWN_BUFFER);
-        spawnX[j] = antX[j] + cos(angleFromSpawn[j]);
-        spawnY[j] = antY[j] + sin(angleFromSpawn[j]);
+        // Deal 1 damage to ant
+        antHealth[j]--;
+        
+        // Only kill ant if health drops to 0 or below
+        if (antHealth[j] <= 0) {
+          antLives[j]++;
+          comboTime = 60;
+          combo++;
+          calculateBonus();
+          streakPoints += comboPoints;
+          addScore(100 + comboPoints);
+          health++;
+          addDeathEffect(antX[j], antY[j], 100 + comboPoints);
+          antX[j] = random(0, getGameplayWidth());
+          antY[j] = random(scoreBarHeight + ANT_SPAWN_BUFFER, getGameplayHeight() - expBarHeight - expBarBuffer - ANT_SPAWN_BUFFER);
+          spawnX[j] = antX[j] + cos(angleFromSpawn[j]);
+          spawnY[j] = antY[j] + sin(angleFromSpawn[j]);
+          antHealth[j] = antMaxHealth[j];  // Reset health on respawn
+          antKnockedBack[j] = false;
+          antKnockbackTimer[j] = 0;
+        }
+        
+        // Always remove bullet after hitting ant
         playerBullets.splice(i, 1);
         break;
       }
@@ -2014,6 +2166,9 @@ function handleExplosionDamage(size, ownerId) {
 
 function autonomousAntMovement(){
   for (let i = 1; i <= enemyCount; i++) {
+    // Skip knocked back ants - they use knockback movement instead
+    if (antKnockedBack[i]) continue;
+    
     if (findLocation[i] === true){
       if (followTarget[i] === true){
         if (standingPointX[i] > antX[i] + antSpeed[i]) {
@@ -2033,6 +2188,9 @@ function autonomousAntMovement(){
     }
   }
   for (let i = 1; i <= enemyCount; i++) {
+    // Skip knocked back ants
+    if (antKnockedBack[i]) continue;
+    
     if (!keepDistance[i]) continue; // only handle autonomous keep-distance ants
 
     // --- Ensure valid anchors ---
@@ -3379,6 +3537,9 @@ function nextRound(){
       timeCount = 60; 
   }
   
+  // antSize mutation rate: 0 until round 10, then 0.2
+  let antSizeMutationRate = (level >= 10) ? 0.2 : 0;
+  
   for (let i = 1; i <= enemyCount; i++) {
     antX[i] = random(0, getGameplayWidth());
     antY[i] = random(scoreBarHeight + ANT_SPAWN_BUFFER, getGameplayHeight() - expBarHeight - expBarBuffer - ANT_SPAWN_BUFFER);
@@ -3446,6 +3607,11 @@ function nextRound(){
         explosionRadiusMultiplier[i] = constrain(s.explosionRadiusMultiplier + random(-0.2, 0.2), 0.5, 3);
         explosionResidueMultiplier[i] = constrain(s.explosionResidueMultiplier + random(-0.2, 0.2), 0.5, 3);
         bulletExplodeAfter[i] = constrain(s.bulletExplodeAfter + random(-50, 50), 100, 800);
+        antSize[i] = constrain(s.antSize + random(-antSizeMutationRate, antSizeMutationRate), 1, 3);
+        antMaxHealth[i] = antSize[i];
+        antHealth[i] = antMaxHealth[i];
+        antKnockedBack[i] = false;
+        antKnockbackTimer[i] = 0;
       } else {
         // Regular ant from game performance
         console.log(`Ant ${i} inherits from parent Ant ${parent.id}`);
@@ -3466,6 +3632,11 @@ function nextRound(){
         explosionRadiusMultiplier[i] = constrain(explosionRadiusMultiplier[parent.id] + random(-0.2, 0.2), 0.5, 3);
         explosionResidueMultiplier[i] = constrain(explosionResidueMultiplier[parent.id] + random(-0.2, 0.2), 0.5, 3);
         bulletExplodeAfter[i] = constrain(bulletExplodeAfter[parent.id] + random(-50, 50), 100, 800);
+        antSize[i] = constrain(antSize[parent.id] + random(-antSizeMutationRate, antSizeMutationRate), 1, 3);
+        antMaxHealth[i] = antSize[i];
+        antHealth[i] = antMaxHealth[i];
+        antKnockedBack[i] = false;
+        antKnockbackTimer[i] = 0;
       }
 
       if (Math.round(autonomy[i]) === 0){
@@ -3573,6 +3744,17 @@ function nextRound(){
         : random(0.5, 3);
 
       bulletExplodeAfter[i] = constrain(bulletExplodeAfter[winner.id] + random(-50, 50), 100, 800);
+      
+      antSize[i] = winner 
+        ? constrain(antSize[winner.id] + random(-antSizeMutationRate, antSizeMutationRate), 1, 3)
+        : 1;  // Start at 1 if no winner
+      
+      antMaxHealth[i] = antSize[i];
+      antHealth[i] = antMaxHealth[i];
+      antKnockedBack[i] = false;
+      antKnockbackTimer[i] = 0;
+      antKnockbackVelX[i] = 0;
+      antKnockbackVelY[i] = 0;
       
       if (Math.round(autonomy[i]) === 0){
         followTarget[i] = true;
@@ -5495,6 +5677,9 @@ function advanceToNextPlayer() {
   for (let i = 1; i <= enemyCount; i++) {
     antX[i] = random(0, getGameplayWidth());
     antY[i] = random(scoreBarHeight + ANT_SPAWN_BUFFER, getGameplayHeight() - expBarHeight - expBarBuffer - ANT_SPAWN_BUFFER);
+    antHealth[i] = antMaxHealth[i];  // Reset health
+    antKnockedBack[i] = false;
+    antKnockbackTimer[i] = 0;
     strikeX[i] = 0;
     strikeY[i] = 0;
     strikeTime1[i] = 0;
@@ -5563,6 +5748,9 @@ function advanceToNextAlivePlayer() {
   for (let i = 1; i <= enemyCount; i++) {
     antX[i] = random(0, getGameplayWidth());
     antY[i] = random(scoreBarHeight + ANT_SPAWN_BUFFER, getGameplayHeight() - expBarHeight - expBarBuffer - ANT_SPAWN_BUFFER);
+    antHealth[i] = antMaxHealth[i];  // Reset health
+    antKnockedBack[i] = false;
+    antKnockbackTimer[i] = 0;
     strikeX[i] = 0;
     strikeY[i] = 0;
     strikeTime1[i] = 0;
@@ -5750,7 +5938,9 @@ function drawAntsTab(fadeAlpha) {
     { name: 'Bullet Size', key: 'bulletSize', min: 1, max: 3, step: 0.01 },
     { name: 'Explosion Radius Mult', key: 'explosionRadiusMultiplier', min: 0.5, max: 3, step: 0.01 },
     { name: 'Explosion Residue Mult', key: 'explosionResidueMultiplier', min: 0.5, max: 3, step: 0.01 },
-    { name: 'Bullet Explode After', key: 'bulletExplodeAfter', min: 100, max: 800, step: 1 }
+    { name: 'Bullet Explode After', key: 'bulletExplodeAfter', min: 100, max: 800, step: 1 },
+    { name: 'Ant Size', key: 'antSize', min: 1, max: 3, step: 0.01,
+      help: 'Sprite & hitbox size (mutates from round 10+)' }
   ];
   
   // Ant sub-tabs (1st, 2nd, 3rd place)
