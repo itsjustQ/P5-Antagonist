@@ -327,6 +327,7 @@ let upgrade7Level = 0;  // Bullet Reload (max 5, requires Add Bullets)
 let upgrade8Level = 0;  // Bullet Speed (max 5, requires Add Bullets)
 let upgrade9Level = 0;  // Free-Angle Aiming (max 1, requires Add Bullets)
 let upgrade10Level = 0; // Tiger Beetle (max 1, requires Walking Speed maxed)
+let upgrade11Level = 0; // Oogpister Beetle (max 1, requires Bullet Reload 3+)
 let displayedUpgrades = [];  // Array of up to 3 randomly selected upgrade indices (0-9)
 
 // Free aiming variables
@@ -336,6 +337,8 @@ let aimAngle = 0;  // Current aim angle in degrees (atan2 returns degrees when a
 let lastAimInputTime = 0;  // Track when last aiming input was received
 let aimInputTimeout = 30;  // Frames before reverting to movement-based rotation
 let rightStickDeadzone = 0.2;  // Deadzone for right stick aiming
+let prevGameplayMouseX = 0;  // Previous frame's gameplay mouse X position
+let prevGameplayMouseY = 0;  // Previous frame's gameplay mouse Y position
 
 // Actual upgrade stat variables
 let movementSpeed = 3;
@@ -813,6 +816,7 @@ function resetRunState() {
   upgrade8Level = 0;
   upgrade9Level = 0;
   upgrade10Level = 0;
+  upgrade11Level = 0;
   displayedUpgrades = [];
   updateUpgradeBooleans();  // Reset all upgrade booleans to false
 }
@@ -1345,6 +1349,23 @@ function enemyInteraction1(){
         streakPoints = streakPoints + comboPoints;
         addScore(100 + comboPoints);
         health = health + 1;
+        
+        // Oogpister Beetle: 20% chance to instantly reload 1 bullet when eating an ant
+        if (upgrade11Level === 1 && random() < 0.2) {
+          if (shot < bulletQuantity) {
+            shot++;
+            // Visual/audio feedback for instant reload
+            if (!sSpit1.isPlaying() && !sSpit2.isPlaying()) {
+              let spitSound = round(random(1, 2));
+              if (spitSound === 1) {
+                sSpit1.play();
+              } else {
+                sSpit2.play();
+              }
+            }
+          }
+        }
+        
         addDeathEffect(antX[i], antY[i], 100 + comboPoints);
         antX[i] = random(0, getGameplayWidth());
         antY[i] = random(scoreBarHeight + ANT_SPAWN_BUFFER, getGameplayHeight() - expBarHeight - expBarBuffer - ANT_SPAWN_BUFFER);
@@ -2494,11 +2515,11 @@ if (timeCount < 0) {
       
       // Get upgrade levels and max levels
       let upgradeLevels = [upgrade1Level, upgrade2Level, upgrade3Level, upgrade4Level, upgrade5Level, upgrade6Level, upgrade7Level, upgrade8Level, upgrade9Level, upgrade10Level];
-      let upgradeMaxLevels = [4, 5, 5, 9, 16, 5, 5, 5, 1, 1];  // Walking Speed, Dash Speed, Dash Cooldown, Add Shield, Add Bullets, Shield Regen, Bullet Reload, Bullet Speed, Free-Angle Aiming, Tiger Beetle
+      let upgradeMaxLevels = [4, 5, 5, 9, 8, 5, 5, 5, 1, 1, 1];  // Walking Speed, Dash Speed, Dash Cooldown, Add Shield, Add Bullets, Shield Regen, Bullet Reload, Bullet Speed, Free-Angle Aiming, Tiger Beetle, Oogpister Beetle
       
       // Filter out maxed upgrades and locked upgrades (prerequisites not met)
       let availableUpgrades = [];
-      for (let i = 0; i < 10; i++) {
+      for (let i = 0; i < 11; i++) {
         // Check if upgrade is not maxed
         if (upgradeLevels[i] < upgradeMaxLevels[i]) {
           // Check prerequisites
@@ -2507,6 +2528,7 @@ if (timeCount < 0) {
           if (i === 7 && upgrade5Level === 0) continue;  // Bullet Speed requires Add Bullets
           if (i === 8 && (upgrade5Level === 0 || upgrade7Level === 0 || upgrade8Level === 0)) continue;  // Free-Angle Aiming requires Add Bullets, Bullet Reload, and Bullet Speed
           if (i === 9 && upgrade3Level < 5) continue;  // Tiger Beetle requires Dash Cooldown maxed
+          if (i === 10 && upgrade7Level < 3) continue;  // Oogpister Beetle requires Bullet Reload level 3+
           availableUpgrades.push(i);
         }
       }
@@ -2770,8 +2792,8 @@ if (timeCount < 0) {
 }
 
 function drawUpgradeScreen() {
-  // Define all 10 upgrade options with their max levels
-  let upgradeMaxLevels = [4, 5, 5, 9, 8, 5, 5, 5, 1, 1];
+  // Define all 11 upgrade options with their max levels
+  let upgradeMaxLevels = [4, 5, 5, 9, 8, 5, 5, 5, 1, 1, 1];
   let allUpgrades = [
     {
       title: 'Walking Speed',
@@ -2831,6 +2853,12 @@ function drawUpgradeScreen() {
       title: 'Tiger Beetle',
       description: 'Transform into a tiger beetle! Dash becomes a toggle instead of a burst. While dashing, threats become invisible but flash briefly.',
       level: upgrade10Level,
+      maxLevel: 1
+    },
+    {
+      title: 'Oogpister Beetle',
+      description: '20% chance to instantly reload 1 bullet when killing an ant by eating it. Requires Bullet Reload level 3+.',
+      level: upgrade11Level,
       maxLevel: 1
     }
   ];
@@ -2973,7 +3001,7 @@ function drawUpgradeScreen() {
 function applyUpgrade(upgradeIndex) {
   // Get the actual upgrade ID from the displayed upgrades
   let actualUpgradeId = displayedUpgrades[upgradeIndex];
-  let upgradeMaxLevels = [4, 5, 5, 9, 16, 5, 5, 5, 1, 1];
+  let upgradeMaxLevels = [4, 5, 5, 9, 8, 5, 5, 5, 1, 1, 1];
   
   // Increment the selected upgrade's level (capped at respective max)
   if (actualUpgradeId === 0 && upgrade1Level < upgradeMaxLevels[0]) {
@@ -2996,6 +3024,8 @@ function applyUpgrade(upgradeIndex) {
     upgrade9Level++;
   } else if (actualUpgradeId === 9 && upgrade10Level < upgradeMaxLevels[9]) {
     upgrade10Level++;
+  } else if (actualUpgradeId === 10 && upgrade11Level < upgradeMaxLevels[10]) {
+    upgrade11Level++;
   }
   
   // Level up the EXP system
@@ -3008,10 +3038,10 @@ function applyUpgrade(upgradeIndex) {
   if (expProgress >= expRequired) {
     upgradeAvailable = true;
     // Keep upgrade menu active and regenerate upgrade options
-    let upgradeLevels = [upgrade1Level, upgrade2Level, upgrade3Level, upgrade4Level, upgrade5Level, upgrade6Level, upgrade7Level, upgrade8Level, upgrade9Level, upgrade10Level];
-    let upgradeMaxLevels = [4, 5, 5, 9, 16, 5, 5, 5, 1, 1];
+    let upgradeLevels = [upgrade1Level, upgrade2Level, upgrade3Level, upgrade4Level, upgrade5Level, upgrade6Level, upgrade7Level, upgrade8Level, upgrade9Level, upgrade10Level, upgrade11Level];
+    let upgradeMaxLevels = [4, 5, 5, 9, 8, 5, 5, 5, 1, 1, 1];
     let availableUpgrades = [];
-    for (let i = 0; i < 10; i++) {
+    for (let i = 0; i < 11; i++) {
       // Check if upgrade is not maxed
       if (upgradeLevels[i] < upgradeMaxLevels[i]) {
         // Check prerequisites
@@ -3020,6 +3050,7 @@ function applyUpgrade(upgradeIndex) {
         if (i === 7 && upgrade5Level === 0) continue;  // Bullet Speed requires Add Bullets
         if (i === 8 && (upgrade5Level === 0 || upgrade7Level === 0 || upgrade8Level === 0)) continue;  // Free-Angle Aiming requires Add Bullets, Bullet Reload, and Bullet Speed
         if (i === 9 && upgrade3Level < 5) continue;  // Tiger Beetle requires Dash Cooldown maxed
+        if (i === 10 && upgrade7Level < 3) continue;  // Oogpister Beetle requires Bullet Reload level 3+
         availableUpgrades.push(i);
       }
     }
@@ -3044,7 +3075,7 @@ function applyUpgrade(upgradeIndex) {
   
   // TODO: Add actual upgrade effects based on actualUpgradeId (0-9)
   let levels = [upgrade1Level, upgrade2Level, upgrade3Level, upgrade4Level, upgrade5Level, upgrade6Level, upgrade7Level, upgrade8Level, upgrade9Level, upgrade10Level];
-  let upgradeNames = ['Walking Speed', 'Dash Speed', 'Dash Cooldown', 'Add Shield', 'Add Bullets', 'Shield Regeneration', 'Bullet Reload', 'Bullet Speed', 'Free-Angle Aiming', 'Tiger Beetle'];
+  let upgradeNames = ['Walking Speed', 'Dash Speed', 'Dash Cooldown', 'Add Shield', 'Add Bullets', 'Shield Regeneration', 'Bullet Reload', 'Bullet Speed', 'Free-Angle Aiming', 'Tiger Beetle', 'Oogpister Beetle'];
   console.log(`${upgradeNames[actualUpgradeId]} selected! Level: ${levels[actualUpgradeId]}`);
   
   // Update upgrade booleans
@@ -3067,6 +3098,9 @@ function updateUpgradeBooleans() {
   
   // Tiger Beetle (toggle dash ability)
   tigerBeetleActive = (upgrade10Level === 1);
+  
+  // Oogpister Beetle (20% chance for instant bullet reload on eating ant)
+  // No boolean needed - checked inline in enemyInteraction1
   
   // Dash Speed (5 levels)
   if (upgrade2Level === 1) {
@@ -5184,6 +5218,10 @@ function updateFreeAim() {
   let rightStickX = getRightStickX();
   let rightStickY = getRightStickY();
   
+  // Get current gameplay mouse positions
+  let currentGameplayMouseX = getGameplayMouseX();
+  let currentGameplayMouseY = getGameplayMouseY();
+  
   // Check right stick first (controller has priority)
   if (Math.abs(rightStickX) > 0 || Math.abs(rightStickY) > 0) {
     isAiming = true;
@@ -5193,23 +5231,23 @@ function updateFreeAim() {
     aimAngle = atan2(rightStickY, rightStickX);
     playerRotationValue = aimAngle;  // Already in degrees from atan2
   }
-  // For mouse aiming, use the same system as ants: atan2(mouseY - playerY, mouseX - playerX)
-  else if (mouseIsPressed || (getGameplayMouseX() !== pmouseX || getGameplayMouseY() !== pmouseY)) {
+  // For mouse aiming, only update when mouse actually moves
+  else if (currentGameplayMouseX !== prevGameplayMouseX || currentGameplayMouseY !== prevGameplayMouseY) {
     // Calculate angle from player to mouse like ants do
     // Since angleMode is DEGREES globally, atan2 returns degrees
-    aimAngle = atan2(getGameplayMouseY() - playerY, getGameplayMouseX() - playerX);
+    aimAngle = atan2(currentGameplayMouseY - playerY, currentGameplayMouseX - playerX);
     playerRotationValue = aimAngle;  // Already in degrees from atan2
     isAiming = true;
     lastAimInputTime = frameCount;
   }
-  // If no recent aiming input, deactivate aiming mode
+  // If no recent aiming input, deactivate aiming mode to allow movement-based rotation
   else if (frameCount - lastAimInputTime > aimInputTimeout) {
     isAiming = false;
   }
-  // Still aiming but no new input - maintain last angle
-  else if (isAiming) {
-    playerRotationValue = aimAngle;
-  }
+  
+  // Update previous mouse position for next frame
+  prevGameplayMouseX = currentGameplayMouseX;
+  prevGameplayMouseY = currentGameplayMouseY;
 }
 
 // Check if enter/confirm is pressed (keyboard Enter or gamepad A button)
@@ -5381,6 +5419,8 @@ function initializeMultiplayer() {
       upgrade7: 0, // Bullet reload
       upgrade8: 0, // Bullet speed
       upgrade9: 0, // Free-angle aiming
+      upgrade10: 0, // Tiger Beetle
+      upgrade11: 0, // Oogpister Beetle
       // Experience and stats
       expLevel: 1,
       expProgress: 0,
@@ -6055,7 +6095,8 @@ function drawDevTools() {
         upgrade7: upgrade7Level,
         upgrade8: upgrade8Level,
         upgrade9: upgrade9Level,
-        upgrade10: upgrade10Level
+        upgrade10: upgrade10Level,
+        upgrade11: upgrade11Level
       };
     } else if (devToolsTab === 'multi') {
       // Multiplayer mode - get upgrades from selected player
@@ -6070,13 +6111,14 @@ function drawDevTools() {
           upgrade7: players[devToolsPlayerTab].upgrade7 || 0,
           upgrade8: players[devToolsPlayerTab].upgrade8 || 0,
           upgrade9: players[devToolsPlayerTab].upgrade9 || 0,
-          upgrade10: players[devToolsPlayerTab].upgrade10 || 0
+          upgrade10: players[devToolsPlayerTab].upgrade10 || 0,
+          upgrade11: players[devToolsPlayerTab].upgrade11 || 0
         };
       } else {
         // Player doesn't exist, show zeros
         currentUpgrades = {
           upgrade1: 0, upgrade2: 0, upgrade3: 0, upgrade4: 0, upgrade5: 0,
-          upgrade6: 0, upgrade7: 0, upgrade8: 0, upgrade9: 0, upgrade10: 0
+          upgrade6: 0, upgrade7: 0, upgrade8: 0, upgrade9: 0, upgrade10: 0, upgrade11: 0
         };
       }
     }
@@ -6094,7 +6136,8 @@ function drawDevTools() {
         { name: 'Bullet Reload', level: currentUpgrades.upgrade7, maxLevel: 5, id: 6 },
         { name: 'Bullet Speed', level: currentUpgrades.upgrade8, maxLevel: 5, id: 7 },
         { name: 'Free-Angle Aiming', level: currentUpgrades.upgrade9, maxLevel: 1, id: 8 },
-        { name: 'Tiger Beetle', level: currentUpgrades.upgrade10, maxLevel: 1, id: 9 }
+        { name: 'Tiger Beetle', level: currentUpgrades.upgrade10, maxLevel: 1, id: 9 },
+        { name: 'Oogpister Beetle', level: currentUpgrades.upgrade11, maxLevel: 1, id: 10 }
       ];
     
     // Handle player sub-tab switching in multiplayer mode
@@ -6124,19 +6167,21 @@ function drawDevTools() {
     if ((devToolsTab === 'single' || devToolsTab === 'multi') && devToolsNavigationCooldown === 0) {
       if (keyIsDown(87) || keyIsDown(38)) {  // W or Up
         devToolsSelectedUpgrade -= 2;
-        if (devToolsSelectedUpgrade < 0) devToolsSelectedUpgrade += 10;
+        if (devToolsSelectedUpgrade < 0) devToolsSelectedUpgrade += 12;
+        if (devToolsSelectedUpgrade > 10) devToolsSelectedUpgrade = 10;
         devToolsNavigationCooldown = 10;
       } else if (keyIsDown(83) || keyIsDown(40)) {  // S or Down
         devToolsSelectedUpgrade += 2;
-        if (devToolsSelectedUpgrade > 9) devToolsSelectedUpgrade -= 10;
+        if (devToolsSelectedUpgrade > 10) devToolsSelectedUpgrade -= 12;
+        if (devToolsSelectedUpgrade < 0) devToolsSelectedUpgrade = 0;
         devToolsNavigationCooldown = 10;
       } else if (keyIsDown(65) || keyIsDown(37)) {  // A or Left
         devToolsSelectedUpgrade--;
-        if (devToolsSelectedUpgrade < 0) devToolsSelectedUpgrade = 9;
+        if (devToolsSelectedUpgrade < 0) devToolsSelectedUpgrade = 10;
         devToolsNavigationCooldown = 10;
       } else if (keyIsDown(68) || keyIsDown(39)) {  // D or Right
         devToolsSelectedUpgrade++;
-        if (devToolsSelectedUpgrade > 9) devToolsSelectedUpgrade = 0;
+        if (devToolsSelectedUpgrade > 10) devToolsSelectedUpgrade = 0;
         devToolsNavigationCooldown = 10;
       } else if (keyIsDown(13)) {  // Enter
         toggleDevUpgrade(devToolsSelectedUpgrade);
@@ -6192,7 +6237,7 @@ function drawDevTools() {
     rectMode(CORNER);
     noStroke();
     
-    for (let i = 0; i < 10; i++) {
+    for (let i = 0; i < 11; i++) {
       let upgrade = allUpgrades[i];
       let col = i % 2;
       let row = floor(i / 2);
@@ -6296,11 +6341,11 @@ function drawDevTools() {
 function toggleDevUpgrade(upgradeId) {
   // Get current level based on tab
   let currentLevel = 0;
-  let maxLevels = [4, 5, 5, 9, 8, 5, 5, 5, 1, 1];
+  let maxLevels = [4, 5, 5, 9, 8, 5, 5, 5, 1, 1, 1];
   
   if (devToolsTab === 'single') {
     let upgradeLevels = [upgrade1Level, upgrade2Level, upgrade3Level, upgrade4Level, upgrade5Level, 
-                         upgrade6Level, upgrade7Level, upgrade8Level, upgrade9Level, upgrade10Level];
+                         upgrade6Level, upgrade7Level, upgrade8Level, upgrade9Level, upgrade10Level, upgrade11Level];
     currentLevel = upgradeLevels[upgradeId];
   } else {
     // Multiplayer - get from selected player
@@ -6315,7 +6360,8 @@ function toggleDevUpgrade(upgradeId) {
         players[devToolsPlayerTab].upgrade7 || 0,
         players[devToolsPlayerTab].upgrade8 || 0,
         players[devToolsPlayerTab].upgrade9 || 0,
-        players[devToolsPlayerTab].upgrade10 || 0
+        players[devToolsPlayerTab].upgrade10 || 0,
+        players[devToolsPlayerTab].upgrade11 || 0
       ];
       currentLevel = playerUpgrades[upgradeId];
     }
@@ -6368,6 +6414,13 @@ function activatePrerequisites(upgradeId, targetLevel) {
   if (upgradeId === 9 && upgrade3Level < 5) {
     setUpgradeLevel(2, 5);
   }
+  
+  // Upgrade 10 (Oogpister Beetle) requires Upgrade 6 (Bullet Reload) at level 3+
+  // Bullet Reload requires Add Bullets, so activate that too
+  if (upgradeId === 10) {
+    if (upgrade5Level === 0) setUpgradeLevel(4, 1);  // Add Bullets first
+    if (upgrade7Level < 3) setUpgradeLevel(6, 3);    // Then Bullet Reload to level 3
+  }
 }
 
 // Dev tools version - Activate prerequisites for an upgrade
@@ -6376,7 +6429,7 @@ function activateDevPrerequisites(upgradeId, targetLevel) {
   let getCurrentLevel = (id) => {
     if (devToolsTab === 'single') {
       let levels = [upgrade1Level, upgrade2Level, upgrade3Level, upgrade4Level, upgrade5Level, 
-                    upgrade6Level, upgrade7Level, upgrade8Level, upgrade9Level, upgrade10Level];
+                    upgrade6Level, upgrade7Level, upgrade8Level, upgrade9Level, upgrade10Level, upgrade11Level];
       return levels[id];
     } else if (players[devToolsPlayerTab]) {
       let playerLevels = [
@@ -6389,7 +6442,8 @@ function activateDevPrerequisites(upgradeId, targetLevel) {
         players[devToolsPlayerTab].upgrade7 || 0,
         players[devToolsPlayerTab].upgrade8 || 0,
         players[devToolsPlayerTab].upgrade9 || 0,
-        players[devToolsPlayerTab].upgrade10 || 0
+        players[devToolsPlayerTab].upgrade10 || 0,
+        players[devToolsPlayerTab].upgrade11 || 0
       ];
       return playerLevels[id];
     }
@@ -6421,6 +6475,13 @@ function activateDevPrerequisites(upgradeId, targetLevel) {
   // Upgrade 9 (Tiger Beetle) requires Upgrade 2 (Dash Cooldown) maxed at 5
   if (upgradeId === 9 && getCurrentLevel(2) < 5) {
     setDevUpgradeLevel(2, 5);
+  }
+  
+  // Upgrade 10 (Oogpister Beetle) requires Upgrade 6 (Bullet Reload) at level 3+
+  // Bullet Reload requires Add Bullets, so activate that too
+  if (upgradeId === 10) {
+    if (getCurrentLevel(4) === 0) setDevUpgradeLevel(4, 1); // Add Bullets first
+    if (getCurrentLevel(6) < 3) setDevUpgradeLevel(6, 3);   // Then Bullet Reload
   }
 }
 
@@ -6466,11 +6527,13 @@ function deactivateDevDependentUpgrades(upgradeId) {
     setDevUpgradeLevel(6, 0);
     setDevUpgradeLevel(7, 0);
     setDevUpgradeLevel(8, 0);
+    setDevUpgradeLevel(10, 0); // Also reset Oogpister Beetle since it requires Bullet Reload
   }
   
-  // If Bullet Reload (6) is reset, reset Free-Angle Aiming (8)
+  // If Bullet Reload (6) is reset, reset Free-Angle Aiming (8) and Oogpister Beetle (10)
   if (upgradeId === 6) {
     setDevUpgradeLevel(8, 0);
+    setDevUpgradeLevel(10, 0);
   }
   
   // If Bullet Speed (7) is reset, reset Free-Angle Aiming (8)
@@ -6496,6 +6559,7 @@ function setUpgradeLevel(upgradeId, level) {
   else if (upgradeId === 7) upgrade8Level = level;
   else if (upgradeId === 8) upgrade9Level = level;
   else if (upgradeId === 9) upgrade10Level = level;
+  else if (upgradeId === 10) upgrade11Level = level;
   
   // Apply the changes to game stats
   updateUpgradeBooleans();
@@ -6515,6 +6579,7 @@ function setDevUpgradeLevel(upgradeId, level) {
     else if (upgradeId === 7) upgrade8Level = level;
     else if (upgradeId === 8) upgrade9Level = level;
     else if (upgradeId === 9) upgrade10Level = level;
+    else if (upgradeId === 10) upgrade11Level = level;
     
     // Apply the changes to game stats
     updateUpgradeBooleans();
@@ -6531,6 +6596,7 @@ function setDevUpgradeLevel(upgradeId, level) {
       else if (upgradeId === 7) players[devToolsPlayerTab].upgrade8 = level;
       else if (upgradeId === 8) players[devToolsPlayerTab].upgrade9 = level;
       else if (upgradeId === 9) players[devToolsPlayerTab].upgrade10 = level;
+      else if (upgradeId === 10) players[devToolsPlayerTab].upgrade11 = level;
       
       // Update player's stats based on their new upgrade levels
       updatePlayerStats(devToolsPlayerTab);
