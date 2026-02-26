@@ -243,6 +243,7 @@ let floatingTexts = [];
 
 
 let enemyCount = 1;
+let totalAntSlots = 1;  // Total "slots" available for ants (size determines slot usage)
 let enemyIndex;
 
 //enemy one
@@ -824,6 +825,7 @@ function resetRunState() {
   streakPoints = 0;
   level = 1;
   enemyCount = 1;
+  totalAntSlots = 1;
   levelEnd = 0;
   totalScore = 0;
   score = 0;
@@ -3997,7 +3999,7 @@ function nextRound(){
   
   level++;
   if (level <= 16){
-    enemyCount++;
+    totalAntSlots++;  // Increase available slots instead of fixed enemy count
   }
   levelEnd = 0;
   score = 0;
@@ -4015,11 +4017,6 @@ function nextRound(){
   
   // antSize mutation rate: 0 until round 10, then 0.2
   let antSizeMutationRate = (level >= 10) ? 0.2 : 0;
-  
-  for (let i = 1; i <= enemyCount; i++) {
-    antX[i] = random(0, getGameplayWidth());
-    antY[i] = random(scoreBarHeight + ANT_SPAWN_BUFFER, getGameplayHeight() - expBarHeight - expBarBuffer - ANT_SPAWN_BUFFER);
-  }
 
   playerRotationValue = 0;
   bulletShot[enemyIndex] = 0;
@@ -4031,28 +4028,43 @@ function nextRound(){
   shot = bulletQuantity > 0 ? bulletQuantity : 0;
   dashCoolDown = 0;
 
-  playerSpeed = movementSpeed / enemyCount;
+  // playerSpeed will be set after ant creation (based on actual enemyCount)
   
   endmusic.stop();
   gamemusic.play();
   
 
-  // how many ants are influenced by each "winner"
-  let count1 = Math.round(enemyCount * 0.5);
-  let count2 = Math.round(enemyCount * 0.3);
-  let count3 = enemyCount - count1 - count2; // remainder
+  // Allocate slots per winner (50%, 30%, remainder)
+  let slots1 = Math.round(totalAntSlots * 0.5);
+  let slots2 = Math.round(totalAntSlots * 0.3);
+  let slots3 = totalAntSlots - slots1 - slots2;  // Gets the remainder
   
-  console.log(`Assigning ${count1} ants from #1, ${count2} ants from #2, ${count3} ants from #3`);
+  console.log(`Slot allocation: #1=${slots1}, #2=${slots2}, #3=${slots3} (total ${totalAntSlots})`);
 
-  let antGroups = [];
-  for (let i = 0; i < count1; i++) antGroups.push(topAnts[0]);
-  for (let i = 0; i < count2; i++) antGroups.push(topAnts[1]);
-  for (let i = 0; i < count3; i++) antGroups.push(topAnts[2]);
-
-  // shuffle so they aren’t always grouped
-  antGroups = shuffle(antGroups);
+  // Create ants from each winner to fill their slot allocation
+  let antIndex = 1;
+  const MAX_ANTS = 500;  // Safety limit
   
-  for (let i = 1; i <= enemyCount; i++) {
+  // Process each winner's slot allocation
+  let winnerGroups = [
+    { parent: topAnts[0], slots: slots1, name: '#1' },
+    { parent: topAnts[1], slots: slots2, name: '#2' },
+    { parent: topAnts[2], slots: slots3, name: '#3' }
+  ];
+  
+  for (let group of winnerGroups) {
+    let usedSlots = 0;
+    let antsFromThisWinner = 0;
+    const SLOT_EPSILON = 0.001;  // Tolerance for floating point comparisons
+    
+    while (usedSlots < group.slots && antIndex <= MAX_ANTS) {
+      let i = antIndex;
+      let parent = group.parent;
+    
+    // Set ant spawn position
+    antX[i] = random(0, getGameplayWidth());
+    antY[i] = random(scoreBarHeight + ANT_SPAWN_BUFFER, getGameplayHeight() - expBarHeight - expBarBuffer - ANT_SPAWN_BUFFER);
+    
     strikeX[i] = 0;
     strikeY[i] = 0;
     strikeTime1[i] = 0;
@@ -4060,7 +4072,6 @@ function nextRound(){
     bulletShot[i] = 0;
     enemyBullets[i] = [];
 
-    let parent = antGroups[i-1]; // pick which "winner" this ant is based on
     if (parent) {
       // Check if this is a custom ant from dev tools
       if (parent.custom && parent.stats) {
@@ -4084,6 +4095,9 @@ function nextRound(){
         explosionResidueMultiplier[i] = constrain(s.explosionResidueMultiplier + random(-0.2, 0.2), 0.5, 3);
         bulletExplodeAfter[i] = constrain(s.bulletExplodeAfter + random(-50, 50), 100, 800);
         antSize[i] = constrain(s.antSize + random(-antSizeMutationRate, antSizeMutationRate), 0.3, 3);
+        // Cap bullet size based on ant size (small ants can't have huge bullets)
+        let maxBulletSize = min(3, antSize[i] + 1.0);
+        bulletSize[i] = min(bulletSize[i], maxBulletSize);
         antMaxHealth[i] = antSize[i];
         antHealth[i] = antMaxHealth[i];
         antKnockedBack[i] = false;
@@ -4109,6 +4123,9 @@ function nextRound(){
         explosionResidueMultiplier[i] = constrain(explosionResidueMultiplier[parent.id] + random(-0.2, 0.2), 0.5, 3);
         bulletExplodeAfter[i] = constrain(bulletExplodeAfter[parent.id] + random(-50, 50), 100, 800);
         antSize[i] = constrain(antSize[parent.id] + random(-antSizeMutationRate, antSizeMutationRate), 0.3, 3);
+        // Cap bullet size based on ant size (small ants can't have huge bullets)
+        let maxBulletSize = min(3, antSize[i] + 1.0);
+        bulletSize[i] = min(bulletSize[i], maxBulletSize);
         antMaxHealth[i] = antSize[i];
         antHealth[i] = antMaxHealth[i];
         antKnockedBack[i] = false;
@@ -4225,6 +4242,10 @@ function nextRound(){
         ? constrain(antSize[winner.id] + random(-antSizeMutationRate, antSizeMutationRate), 0.3, 3)
         : 1;  // Start at 1 if no winner
       
+      // Cap bullet size based on ant size (small ants can't have huge bullets)
+      let maxBulletSize = min(3, antSize[i] + 1.0);
+      bulletSize[i] = min(bulletSize[i], maxBulletSize);
+      
       antMaxHealth[i] = antSize[i];
       antHealth[i] = antMaxHealth[i];
       antKnockedBack[i] = false;
@@ -4272,12 +4293,34 @@ function nextRound(){
       }
     }
     
+    // Check if this ant will fit in remaining slots (allow small floating point tolerance)
+    const SLOT_EPSILON = 0.001;
+    if (usedSlots + antSize[i] > group.slots + SLOT_EPSILON) {
+      console.log(`  Ant ${i} (size ${antSize[i].toFixed(2)}) won't fit in remaining slots (${(group.slots - usedSlots).toFixed(2)}), skipping`);
+      break;  // Exit this winner's loop
+    }
+    
     antPoints[i] = 0;
     antLives[i] = 1;
 
     
     console.log(`Ant ${i} bulletSpeed = ${bulletSpeed[i]}, cooldown = ${bulletCooldown[i]}`);
+    
+    // Track slot usage and increment counters
+    usedSlots += antSize[i];
+    antIndex++;
+    antsFromThisWinner++;
+    
+    console.log(`  Ant ${i} from ${group.name}: size=${antSize[i].toFixed(2)}, used slots=${usedSlots.toFixed(2)}/${group.slots}`);
+    }
+    
+    console.log(`Winner ${group.name}: created ${antsFromThisWinner} ants using ${usedSlots.toFixed(2)}/${group.slots} slots`);
   }
+  
+  // Set enemyCount to actual number of ants created
+  enemyCount = antIndex - 1;
+  playerSpeed = movementSpeed / enemyCount;
+  console.log(`Total: Created ${enemyCount} ants across all winners`);
 
   // Multiplayer: After setting up the new round, prepare for first player
   if (multiplayerTransition) {
