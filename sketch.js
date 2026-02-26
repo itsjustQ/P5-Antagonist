@@ -3335,8 +3335,8 @@ if (timeCount < 0) {
 }
 
 function drawUpgradeScreen() {
-  // Define all 18 upgrade options with their max levels
-  let upgradeMaxLevels = [4, 5, 5, 9, 8, 5, 5, 5, 1, 1, 1, 4, 4, 1, 5, 5, 5, 3];
+  // Define all 20 upgrade options with their max levels
+  let upgradeMaxLevels = [4, 5, 5, 9, 8, 5, 5, 5, 1, 1, 1, 4, 4, 1, 5, 5, 5, 3, 4, 5];
   let allUpgrades = [
     {
       title: 'Walking Speed',
@@ -3598,7 +3598,7 @@ function drawUpgradeScreen() {
 function applyUpgrade(upgradeIndex) {
   // Get the actual upgrade ID from the displayed upgrades
   let actualUpgradeId = displayedUpgrades[upgradeIndex];
-  let upgradeMaxLevels = [4, 5, 5, 9, 8, 5, 5, 5, 1, 1, 1, 4, 4, 1, 5, 5, 5, 3];
+  let upgradeMaxLevels = [4, 5, 5, 9, 8, 5, 5, 5, 1, 1, 1, 4, 4, 1, 5, 5, 5, 3, 4, 5];
   
   // Increment the selected upgrade's level (capped at respective max)
   if (actualUpgradeId === 0 && upgrade1Level < upgradeMaxLevels[0]) {
