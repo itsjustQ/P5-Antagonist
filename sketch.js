@@ -4055,15 +4055,10 @@ function nextRound(){
   for (let group of winnerGroups) {
     let usedSlots = 0;
     let antsFromThisWinner = 0;
-    const SLOT_EPSILON = 0.001;  // Tolerance for floating point comparisons
     
     while (usedSlots < group.slots && antIndex <= MAX_ANTS) {
       let i = antIndex;
       let parent = group.parent;
-    
-    // Set ant spawn position
-    antX[i] = random(0, getGameplayWidth());
-    antY[i] = random(scoreBarHeight + ANT_SPAWN_BUFFER, getGameplayHeight() - expBarHeight - expBarBuffer - ANT_SPAWN_BUFFER);
     
     strikeX[i] = 0;
     strikeY[i] = 0;
@@ -4297,8 +4292,13 @@ function nextRound(){
     const SLOT_EPSILON = 0.001;
     if (usedSlots + antSize[i] > group.slots + SLOT_EPSILON) {
       console.log(`  Ant ${i} (size ${antSize[i].toFixed(2)}) won't fit in remaining slots (${(group.slots - usedSlots).toFixed(2)}), skipping`);
+      // Don't increment antIndex - next group can try to use this slot
       break;  // Exit this winner's loop
     }
+    
+    // Now set spawn position (only for ants that will fit)
+    antX[i] = random(0, getGameplayWidth());
+    antY[i] = random(scoreBarHeight + ANT_SPAWN_BUFFER, getGameplayHeight() - expBarHeight - expBarBuffer - ANT_SPAWN_BUFFER);
     
     antPoints[i] = 0;
     antLives[i] = 1;
