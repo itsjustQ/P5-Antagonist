@@ -321,6 +321,7 @@ let sideBuffer = 25;
 let score = 0;
 let totalScore = 0;
 let health = 10;
+let playerLastDamageFrame = 0;  // Track when player last took damage for regeneration
 let timeCount = 10;
 let highScore = 0;
 let end = false;
@@ -356,8 +357,10 @@ let upgrade13Level = 0; // Potent Acid (max 4, increases bullet damage, requires
 let upgrade14Level = 0; // Shockwave Unlock (max 1, unlocks shockwave attack)
 let upgrade15Level = 0; // Shockwave Radius (max 5, 60→150)
 let upgrade16Level = 0; // Shockwave Damage (max 5, 0.5→1.2)
-let upgrade17Level = 0; // Shockwave Cooldown (max 5)
+let upgrade17Level = 0; // Shockwave Cooldown (max 5, 2.25s→0.375s)
 let upgrade18Level = 0; // Shockwave Knockback (max 3, 4→10)
+let upgrade19Level = 0; // Shockwave Bullet Deflection (max 4, 20%→100% bullet conversion)
+let upgrade20Level = 0; // Health Regeneration (max 5, regenerate health after 200 frames)
 let displayedUpgrades = [];  // Array of up to 3 randomly selected upgrade indices (0-9)
 
 // Free aiming variables
@@ -374,6 +377,7 @@ let prevGameplayMouseY = 0;  // Previous frame's gameplay mouse Y position
 let movementSpeed = 3;
 let dashSpeedStat = 2;
 let dashCooldownStat = 3;
+let windCooldownStat = 2.25; // Shockwave cooldown (3/4 of dash cooldown)
 let shieldQuantity = 0;
 let bulletQuantity = 0;
 let shieldRegenerationRate = 600;
@@ -751,6 +755,18 @@ function draw() {
         shield = shield + (1 / shieldRegenerationRate);
       }
       
+      // Health regeneration - if player hasn't taken damage for 200 frames
+      if (upgrade20Level > 0 && end == false) {
+        if (frameCount - playerLastDamageFrame >= 200 && health < 30) {
+          // Regeneration rates: 0.001, 0.005, 0.01, 0.05, 0.1
+          let regenRates = [0.001, 0.005, 0.01, 0.05, 0.1];
+          let regenAmount = regenRates[upgrade20Level - 1];
+          // Scale down regeneration as health increases (full rate at 10, nearly 0 at 30)
+          let regenMultiplier = max(0, (30 - health) / 20);
+          health = min(health + regenAmount * regenMultiplier, 30);
+        }
+      }
+      
       endGame();
       if (frameCount % 1000 === 0 && end === false) {  // roughly every 5 seconds at 60fps
         printLiveAntRankings();
@@ -873,6 +889,8 @@ function resetRunState() {
   upgrade16Level = 0;
   upgrade17Level = 0;
   upgrade18Level = 0;
+  upgrade19Level = 0;
+  upgrade20Level = 0;
   displayedUpgrades = [];
   updateUpgradeBooleans();  // Reset all upgrade booleans to false
 }
@@ -1521,10 +1539,7 @@ function drawBeetle(){
         let barX = -50;
         let barY = 42; // Below dash bar
         
-        let baseCooldown = dashCooldownStat * 0.75;
-        let cooldownReduction = upgrade17Level * 0.15;
-        let windCooldownTime = baseCooldown * (1 - cooldownReduction);
-        let fillPercent = 1 - (windAttackCooldown / windCooldownTime);
+        let fillPercent = 1 - (windAttackCooldown / windCooldownStat);
         
         // Background (dark grey)
         fill(50, 50, 50, 220);
@@ -1630,11 +1645,26 @@ function enemyInteraction1(){
             antKnockbackVelY[i] = (dy / distance) * pushSpeed;
             antKnockbackTimer[i] = max(antKnockbackTimer[i], 10); // Extend timer if needed
           } else {
-            // Start new knockback
+            // Start new knockback and deal damage
+            antHealth[i] -= 0.2;
+            
             antKnockbackVelX[i] = (dx / distance) * pushSpeed;
             antKnockbackVelY[i] = (dy / distance) * pushSpeed;
             antKnockedBack[i] = true;
             antKnockbackTimer[i] = 10; // Short push duration
+            
+            // If health depleted, kill the ant
+            if (antHealth[i] <= 0) {
+              antLives[i]++;
+              comboTime = 60;
+              if (combo < 1) {
+                combo = 1;
+              }
+              score += 100 * combo;
+              expProgress += 100 * combo;
+              combo++;
+              antHealth[i] = antMaxHealth[i]; // Reset health for respawn
+            }
           }
         }
       }
@@ -1848,6 +1878,7 @@ function enemyShoot1() {
 
 function handlePlayerHit(i){
   if (end == false){
+    playerLastDamageFrame = frameCount;  // Track when player took damage
     if (shield > 0){
       shield = shield - bulletSize[i];
       antPoints[i] = antPoints[i] + bulletSize[i];
@@ -2258,6 +2289,43 @@ function handleWindAttack() {
     windAttackAnimRadius += 10;
     
     if (windAttackAnimRadius >= maxRadius) {
+      // Deflect enemy bullets within shockwave area (20% base, increases with Bullet Deflection upgrade)
+      let deflectChance = (upgrade19Level + 1) * 0.2; // 20% base, +20% per level (0.2, 0.4, 0.6, 0.8, 1.0)
+      
+      for (let i = 1; i <= enemyCount; i++) {
+        for (let b = enemyBullets[i].length - 1; b >= 0; b--) {
+          let bullet = enemyBullets[i][b];
+          let bulletDistance = dist(playerX, playerY, bullet.x, bullet.y);
+            
+            if (bulletDistance <= maxRadius) {
+              // Check if this bullet gets deflected
+              if (random() < deflectChance) {
+                // Convert to player bullet
+                // Calculate angle from bullet to nearest ant
+                let nearestAntDist = Infinity;
+                let targetAngle = 0;
+                
+                for (let j = 1; j <= enemyCount; j++) {
+                  let distToAnt = dist(bullet.x, bullet.y, antX[j], antY[j]);
+                  if (distToAnt < nearestAntDist) {
+                    nearestAntDist = distToAnt;
+                    targetAngle = atan2(antY[j] - bullet.y, antX[j] - bullet.x) * (180 / PI);
+                  }
+                }
+                
+                playerBullets.push({
+                  x: bullet.x,
+                  y: bullet.y,
+                  rotation: targetAngle
+                });
+                
+                // Remove the enemy bullet
+                enemyBullets[i].splice(b, 1);
+              }
+            }
+          }
+        }
+      
       // Deal damage when radius reaches max
       let windDamage = 0.5 + (upgrade16Level * 0.14); // 0.5 to 1.2 in 5 steps
       let knockbackMultiplier = 4 + (upgrade18Level * 2); // 4, 6, 8, 10 in 3 steps
@@ -2310,13 +2378,8 @@ function handleWindAttack() {
   
   // Handle cooldown
   if (!windAttackReady) {
-    // Cooldown based on upgrade17Level (starts at dash cooldown * 0.75, decreases)
-    let baseCooldown = dashCooldownStat * 0.75;
-    let cooldownReduction = upgrade17Level * 0.15; // Reduce by 15% per level
-    let windCooldownTime = baseCooldown * (1 - cooldownReduction);
-    
     if (windAttackCooldown === 0) {
-      windAttackCooldown = windCooldownTime;
+      windAttackCooldown = windCooldownStat;
     }
     
     windAttackCooldown -= (1 / 100);
@@ -2986,12 +3049,12 @@ if (timeCount < 0) {
       upgradeKeyDebounce = 0;
       
       // Get upgrade levels and max levels
-      let upgradeLevels = [upgrade1Level, upgrade2Level, upgrade3Level, upgrade4Level, upgrade5Level, upgrade6Level, upgrade7Level, upgrade8Level, upgrade9Level, upgrade10Level, upgrade11Level, upgrade12Level, upgrade13Level, upgrade14Level, upgrade15Level, upgrade16Level, upgrade17Level, upgrade18Level];
-      let upgradeMaxLevels = [4, 5, 5, 9, 8, 5, 5, 5, 1, 1, 1, 4, 4, 1, 5, 5, 5, 3];  // Walking Speed, Dash Speed, Dash Cooldown, Add Shield, Add Bullets, Shield Regen, Bullet Reload, Bullet Speed, Free-Angle Aiming, Tiger Beetle, Oogpister Beetle, Horns, Potent Acid, Shockwave, Shockwave Radius, Shockwave Damage, Shockwave Cooldown, Shockwave Knockback
+      let upgradeLevels = [upgrade1Level, upgrade2Level, upgrade3Level, upgrade4Level, upgrade5Level, upgrade6Level, upgrade7Level, upgrade8Level, upgrade9Level, upgrade10Level, upgrade11Level, upgrade12Level, upgrade13Level, upgrade14Level, upgrade15Level, upgrade16Level, upgrade17Level, upgrade18Level, upgrade19Level, upgrade20Level];
+      let upgradeMaxLevels = [4, 5, 5, 9, 8, 5, 5, 5, 1, 1, 1, 4, 4, 1, 5, 5, 5, 3, 4, 5];  // Walking Speed, Dash Speed, Dash Cooldown, Add Shield, Add Bullets, Shield Regen, Bullet Reload, Bullet Speed, Free-Angle Aiming, Tiger Beetle, Oogpister Beetle, Horns, Potent Acid, Shockwave, Shockwave Radius, Shockwave Damage, Shockwave Cooldown, Shockwave Knockback, Shockwave Deflection, Health Regeneration
       
       // Filter out maxed upgrades and locked upgrades (prerequisites not met)
       let availableUpgrades = [];
-      for (let i = 0; i < 18; i++) {
+      for (let i = 0; i < 20; i++) {
         // Check if upgrade is not maxed
         if (upgradeLevels[i] < upgradeMaxLevels[i]) {
           // Check prerequisites
@@ -3006,6 +3069,7 @@ if (timeCount < 0) {
           if (i === 15 && upgrade14Level === 0) continue;  // Shockwave Damage requires Shockwave Unlock
           if (i === 16 && upgrade14Level === 0) continue;  // Shockwave Cooldown requires Shockwave Unlock
           if (i === 17 && upgrade14Level === 0) continue;  // Shockwave Knockback requires Shockwave Unlock
+          if (i === 18 && upgrade14Level === 0) continue;  // Shockwave Deflection requires Shockwave Unlock
           availableUpgrades.push(i);
         }
       }
@@ -3370,7 +3434,7 @@ function drawUpgradeScreen() {
     },
     {
       title: 'Shockwave Cooldown',
-      description: 'Reduce shockwave cooldown. Each level reduces by 15%. Requires Shockwave.',
+      description: 'Reduce shockwave cooldown. 2.25s→1.875s→1.5s→1.125s→0.75s→0.375s. Requires Shockwave.',
       level: upgrade17Level,
       maxLevel: 5
     },
@@ -3379,6 +3443,18 @@ function drawUpgradeScreen() {
       description: 'Increase shockwave knockback. Each level adds 2 base knockback (4→10). Requires Shockwave.',
       level: upgrade18Level,
       maxLevel: 3
+    },
+    {
+      title: 'Bullet Deflection',
+      description: 'Shockwave deflects enemy bullets into player bullets. Starts at 20%, +20% per level (20%→100%). Requires Shockwave.',
+      level: upgrade19Level,
+      maxLevel: 4
+    },
+    {
+      title: 'Health Regeneration',
+      description: 'Regenerate health after 200 frames without taking damage. Can exceed 10 health but slows down, stopping at 30. Rates: 0.001→0.1/frame.',
+      level: upgrade20Level,
+      maxLevel: 5
     }
   ];
   
@@ -3559,6 +3635,10 @@ function applyUpgrade(upgradeIndex) {
     upgrade17Level++;
   } else if (actualUpgradeId === 17 && upgrade18Level < upgradeMaxLevels[17]) {
     upgrade18Level++;
+  } else if (actualUpgradeId === 18 && upgrade19Level < upgradeMaxLevels[18]) {
+    upgrade19Level++;
+  } else if (actualUpgradeId === 19 && upgrade20Level < upgradeMaxLevels[19]) {
+    upgrade20Level++;
   }
   
   // Level up the EXP system
@@ -3571,10 +3651,10 @@ function applyUpgrade(upgradeIndex) {
   if (expProgress >= expRequired) {
     upgradeAvailable = true;
     // Keep upgrade menu active and regenerate upgrade options
-    let upgradeLevels = [upgrade1Level, upgrade2Level, upgrade3Level, upgrade4Level, upgrade5Level, upgrade6Level, upgrade7Level, upgrade8Level, upgrade9Level, upgrade10Level, upgrade11Level, upgrade12Level, upgrade13Level, upgrade14Level, upgrade15Level, upgrade16Level, upgrade17Level, upgrade18Level];
-    let upgradeMaxLevels = [4, 5, 5, 9, 8, 5, 5, 5, 1, 1, 1, 4, 4, 1, 5, 5, 5, 3];
+    let upgradeLevels = [upgrade1Level, upgrade2Level, upgrade3Level, upgrade4Level, upgrade5Level, upgrade6Level, upgrade7Level, upgrade8Level, upgrade9Level, upgrade10Level, upgrade11Level, upgrade12Level, upgrade13Level, upgrade14Level, upgrade15Level, upgrade16Level, upgrade17Level, upgrade18Level, upgrade19Level, upgrade20Level];
+    let upgradeMaxLevels = [4, 5, 5, 9, 8, 5, 5, 5, 1, 1, 1, 4, 4, 1, 5, 5, 5, 3, 4, 5];
     let availableUpgrades = [];
-    for (let i = 0; i < 18; i++) {
+    for (let i = 0; i < 20; i++) {
       // Check if upgrade is not maxed
       if (upgradeLevels[i] < upgradeMaxLevels[i]) {
         // Check prerequisites
@@ -3589,6 +3669,7 @@ function applyUpgrade(upgradeIndex) {
         if (i === 15 && upgrade14Level === 0) continue;  // Shockwave Damage requires Shockwave Unlock
         if (i === 16 && upgrade14Level === 0) continue;  // Shockwave Cooldown requires Shockwave Unlock
         if (i === 17 && upgrade14Level === 0) continue;  // Shockwave Knockback requires Shockwave Unlock
+        if (i === 18 && upgrade14Level === 0) continue;  // Bullet Deflection requires Shockwave Unlock
         availableUpgrades.push(i);
       }
     }
@@ -3611,9 +3692,9 @@ function applyUpgrade(upgradeIndex) {
     upgradeMenuActive = false;
   }
   
-  // TODO: Add actual upgrade effects based on actualUpgradeId (0-17)
-  let levels = [upgrade1Level, upgrade2Level, upgrade3Level, upgrade4Level, upgrade5Level, upgrade6Level, upgrade7Level, upgrade8Level, upgrade9Level, upgrade10Level, upgrade11Level, upgrade12Level, upgrade13Level, upgrade14Level, upgrade15Level, upgrade16Level, upgrade17Level, upgrade18Level];
-  let upgradeNames = ['Walking Speed', 'Dash Speed', 'Dash Cooldown', 'Add Shield', 'Add Bullets', 'Shield Regeneration', 'Bullet Reload', 'Bullet Speed', 'Free-Angle Aiming', 'Tiger Beetle', 'Oogpister Beetle', 'Horns', 'Potent Acid', 'Shockwave', 'Shockwave Radius', 'Shockwave Damage', 'Shockwave Cooldown', 'Shockwave Knockback'];
+  //TODO: Add actual upgrade effects based on actualUpgradeId (0-19)
+  let levels = [upgrade1Level, upgrade2Level, upgrade3Level, upgrade4Level, upgrade5Level, upgrade6Level, upgrade7Level, upgrade8Level, upgrade9Level, upgrade10Level, upgrade11Level, upgrade12Level, upgrade13Level, upgrade14Level, upgrade15Level, upgrade16Level, upgrade17Level, upgrade18Level, upgrade19Level, upgrade20Level];
+  let upgradeNames = ['Walking Speed', 'Dash Speed', 'Dash Cooldown', 'Add Shield', 'Add Bullets', 'Shield Regeneration', 'Bullet Reload', 'Bullet Speed', 'Free-Angle Aiming', 'Tiger Beetle', 'Oogpister Beetle', 'Horns', 'Potent Acid', 'Shockwave', 'Shockwave Radius', 'Shockwave Damage', 'Shockwave Cooldown', 'Shockwave Knockback', 'Bullet Deflection', 'Health Regeneration'];
   console.log(`${upgradeNames[actualUpgradeId]} selected! Level: ${levels[actualUpgradeId]}`);
   
   // Update upgrade booleans
@@ -3764,6 +3845,21 @@ function updateUpgradeBooleans() {
     freeAimEnabled = true;
   } else {
     freeAimEnabled = false;
+  }
+  
+  // Shockwave Cooldown (5 levels - 3/4 of dash cooldown values)
+  if (upgrade17Level === 1) {
+    windCooldownStat = 1.875; // 3/4 of 2.5
+  } else if (upgrade17Level === 2) {
+    windCooldownStat = 1.5; // 3/4 of 2.0
+  } else if (upgrade17Level === 3) {
+    windCooldownStat = 1.125; // 3/4 of 1.5
+  } else if (upgrade17Level === 4) {
+    windCooldownStat = 0.75; // 3/4 of 1.0
+  } else if (upgrade17Level === 5) {
+    windCooldownStat = 0.375; // 3/4 of 0.5
+  } else {
+    windCooldownStat = 2.25; // 3/4 of 3.0
   }
 }
 
@@ -3987,7 +4083,7 @@ function nextRound(){
         explosionRadiusMultiplier[i] = constrain(s.explosionRadiusMultiplier + random(-0.2, 0.2), 0.5, 3);
         explosionResidueMultiplier[i] = constrain(s.explosionResidueMultiplier + random(-0.2, 0.2), 0.5, 3);
         bulletExplodeAfter[i] = constrain(s.bulletExplodeAfter + random(-50, 50), 100, 800);
-        antSize[i] = constrain(s.antSize + random(-antSizeMutationRate, antSizeMutationRate), 1, 3);
+        antSize[i] = constrain(s.antSize + random(-antSizeMutationRate, antSizeMutationRate), 0.3, 3);
         antMaxHealth[i] = antSize[i];
         antHealth[i] = antMaxHealth[i];
         antKnockedBack[i] = false;
@@ -4012,7 +4108,7 @@ function nextRound(){
         explosionRadiusMultiplier[i] = constrain(explosionRadiusMultiplier[parent.id] + random(-0.2, 0.2), 0.5, 3);
         explosionResidueMultiplier[i] = constrain(explosionResidueMultiplier[parent.id] + random(-0.2, 0.2), 0.5, 3);
         bulletExplodeAfter[i] = constrain(bulletExplodeAfter[parent.id] + random(-50, 50), 100, 800);
-        antSize[i] = constrain(antSize[parent.id] + random(-antSizeMutationRate, antSizeMutationRate), 1, 3);
+        antSize[i] = constrain(antSize[parent.id] + random(-antSizeMutationRate, antSizeMutationRate), 0.3, 3);
         antMaxHealth[i] = antSize[i];
         antHealth[i] = antMaxHealth[i];
         antKnockedBack[i] = false;
@@ -4126,7 +4222,7 @@ function nextRound(){
       bulletExplodeAfter[i] = constrain(bulletExplodeAfter[winner.id] + random(-50, 50), 100, 800);
       
       antSize[i] = winner 
-        ? constrain(antSize[winner.id] + random(-antSizeMutationRate, antSizeMutationRate), 1, 3)
+        ? constrain(antSize[winner.id] + random(-antSizeMutationRate, antSizeMutationRate), 0.3, 3)
         : 1;  // Start at 1 if no winner
       
       antMaxHealth[i] = antSize[i];
@@ -5888,6 +5984,8 @@ function savePlayerState(playerIndex) {
   p.upgrade16 = upgrade16Level;
   p.upgrade17 = upgrade17Level;
   p.upgrade18 = upgrade18Level;
+  p.upgrade19 = upgrade19Level;
+  p.upgrade20 = upgrade20Level;
   
   // Save experience
   p.expLevel = expLevel;
@@ -5898,6 +5996,7 @@ function savePlayerState(playerIndex) {
   p.movementSpeed = movementSpeed;
   p.dashSpeedStat = dashSpeedStat;
   p.dashCooldownStat = dashCooldownStat;
+  p.windCooldownStat = windCooldownStat;
   p.shieldQuantity = shieldQuantity;
   p.bulletQuantity = bulletQuantity;
   p.shieldRegenerationRate = shieldRegenerationRate;
@@ -5929,6 +6028,8 @@ function loadPlayerState(playerIndex) {
   upgrade16Level = p.upgrade16 || 0;  // Default to 0 if not saved yet
   upgrade17Level = p.upgrade17 || 0;  // Default to 0 if not saved yet
   upgrade18Level = p.upgrade18 || 0;  // Default to 0 if not saved yet
+  upgrade19Level = p.upgrade19 || 0;  // Default to 0 if not saved yet
+  upgrade20Level = p.upgrade20 || 0;  // Default to 0 if not saved yet
   
   // Load experience
   expLevel = p.expLevel;
@@ -5939,6 +6040,7 @@ function loadPlayerState(playerIndex) {
   movementSpeed = p.movementSpeed;
   dashSpeedStat = p.dashSpeedStat;
   dashCooldownStat = p.dashCooldownStat;
+  windCooldownStat = p.windCooldownStat || 2.25;
   shieldQuantity = p.shieldQuantity;
   bulletQuantity = p.bulletQuantity;
   shieldRegenerationRate = p.shieldRegenerationRate;
@@ -6343,7 +6445,7 @@ function drawAntsTab(fadeAlpha) {
     { name: 'Explosion Radius Mult', key: 'explosionRadiusMultiplier', min: 0.5, max: 3, step: 0.01 },
     { name: 'Explosion Residue Mult', key: 'explosionResidueMultiplier', min: 0.5, max: 3, step: 0.01 },
     { name: 'Bullet Explode After', key: 'bulletExplodeAfter', min: 100, max: 800, step: 1 },
-    { name: 'Ant Size', key: 'antSize', min: 1, max: 3, step: 0.01,
+    { name: 'Ant Size', key: 'antSize', min: 0.3, max: 3, step: 0.01,
       help: 'Sprite & hitbox size (mutates from round 10+)' }
   ];
   
@@ -6700,7 +6802,9 @@ function drawDevTools() {
         upgrade15: upgrade15Level,
         upgrade16: upgrade16Level,
         upgrade17: upgrade17Level,
-        upgrade18: upgrade18Level
+        upgrade18: upgrade18Level,
+        upgrade19: upgrade19Level,
+        upgrade20: upgrade20Level
       };
     } else if (devToolsTab === 'multi') {
       // Multiplayer mode - get upgrades from selected player
@@ -6723,7 +6827,9 @@ function drawDevTools() {
           upgrade15: players[devToolsPlayerTab].upgrade15 || 0,
           upgrade16: players[devToolsPlayerTab].upgrade16 || 0,
           upgrade17: players[devToolsPlayerTab].upgrade17 || 0,
-          upgrade18: players[devToolsPlayerTab].upgrade18 || 0
+          upgrade18: players[devToolsPlayerTab].upgrade18 || 0,
+          upgrade19: players[devToolsPlayerTab].upgrade19 || 0,
+          upgrade20: players[devToolsPlayerTab].upgrade20 || 0
         };
       } else {
         // Player doesn't exist, show zeros
@@ -6731,7 +6837,7 @@ function drawDevTools() {
           upgrade1: 0, upgrade2: 0, upgrade3: 0, upgrade4: 0, upgrade5: 0,
           upgrade6: 0, upgrade7: 0, upgrade8: 0, upgrade9: 0, upgrade10: 0,
           upgrade11: 0, upgrade12: 0, upgrade13: 0, upgrade14: 0, upgrade15: 0,
-          upgrade16: 0, upgrade17: 0, upgrade18: 0
+          upgrade16: 0, upgrade17: 0, upgrade18: 0, upgrade19: 0, upgrade20: 0
         };
       }
     }
@@ -6757,7 +6863,9 @@ function drawDevTools() {
         { name: 'Shockwave Radius', level: currentUpgrades.upgrade15, maxLevel: 5, id: 14 },
         { name: 'Shockwave Damage', level: currentUpgrades.upgrade16, maxLevel: 5, id: 15 },
         { name: 'Shockwave Cooldown', level: currentUpgrades.upgrade17, maxLevel: 5, id: 16 },
-        { name: 'Shockwave Knockback', level: currentUpgrades.upgrade18, maxLevel: 3, id: 17 }
+        { name: 'Shockwave Knockback', level: currentUpgrades.upgrade18, maxLevel: 3, id: 17 },
+        { name: 'Bullet Deflection', level: currentUpgrades.upgrade19, maxLevel: 4, id: 18 },
+        { name: 'Health Regeneration', level: currentUpgrades.upgrade20, maxLevel: 5, id: 19 }
       ];
     
     // Handle player sub-tab switching in multiplayer mode
@@ -6787,21 +6895,21 @@ function drawDevTools() {
     if ((devToolsTab === 'single' || devToolsTab === 'multi') && devToolsNavigationCooldown === 0) {
       if (keyIsDown(87) || keyIsDown(38)) {  // W or Up
         devToolsSelectedUpgrade -= 2;
-        if (devToolsSelectedUpgrade < 0) devToolsSelectedUpgrade += 18;
-        if (devToolsSelectedUpgrade > 17) devToolsSelectedUpgrade = 17;
+        if (devToolsSelectedUpgrade < 0) devToolsSelectedUpgrade += 20;
+        if (devToolsSelectedUpgrade > 19) devToolsSelectedUpgrade = 19;
         devToolsNavigationCooldown = 10;
       } else if (keyIsDown(83) || keyIsDown(40)) {  // S or Down
         devToolsSelectedUpgrade += 2;
-        if (devToolsSelectedUpgrade > 17) devToolsSelectedUpgrade -= 18;
+        if (devToolsSelectedUpgrade > 19) devToolsSelectedUpgrade -= 20;
         if (devToolsSelectedUpgrade < 0) devToolsSelectedUpgrade = 0;
         devToolsNavigationCooldown = 10;
       } else if (keyIsDown(65) || keyIsDown(37)) {  // A or Left
         devToolsSelectedUpgrade--;
-        if (devToolsSelectedUpgrade < 0) devToolsSelectedUpgrade = 17;
+        if (devToolsSelectedUpgrade < 0) devToolsSelectedUpgrade = 19;
         devToolsNavigationCooldown = 10;
       } else if (keyIsDown(68) || keyIsDown(39)) {  // D or Right
         devToolsSelectedUpgrade++;
-        if (devToolsSelectedUpgrade > 17) devToolsSelectedUpgrade = 0;
+        if (devToolsSelectedUpgrade > 19) devToolsSelectedUpgrade = 0;
         devToolsNavigationCooldown = 10;
       } else if (keyIsDown(13)) {  // Enter
         toggleDevUpgrade(devToolsSelectedUpgrade);
@@ -6876,7 +6984,7 @@ function drawDevTools() {
     rectMode(CORNER);
     noStroke();
     
-    for (let i = 0; i < 18; i++) {
+    for (let i = 0; i < 20; i++) {
       let upgrade = allUpgrades[i];
       let col = i % 2;
       let row = floor(i / 2);
@@ -6985,11 +7093,11 @@ function drawDevTools() {
 function toggleDevUpgrade(upgradeId) {
   // Get current level based on tab
   let currentLevel = 0;
-  let maxLevels = [4, 5, 5, 9, 8, 5, 5, 5, 1, 1, 1, 4, 4, 1, 5, 5, 5, 3];
+  let maxLevels = [4, 5, 5, 9, 8, 5, 5, 5, 1, 1, 1, 4, 4, 1, 5, 5, 5, 3, 4, 5];
   
   if (devToolsTab === 'single') {
     let upgradeLevels = [upgrade1Level, upgrade2Level, upgrade3Level, upgrade4Level, upgrade5Level, 
-                         upgrade6Level, upgrade7Level, upgrade8Level, upgrade9Level, upgrade10Level, upgrade11Level, upgrade12Level, upgrade13Level, upgrade14Level, upgrade15Level, upgrade16Level, upgrade17Level, upgrade18Level];
+                         upgrade6Level, upgrade7Level, upgrade8Level, upgrade9Level, upgrade10Level, upgrade11Level, upgrade12Level, upgrade13Level, upgrade14Level, upgrade15Level, upgrade16Level, upgrade17Level, upgrade18Level, upgrade19Level, upgrade20Level];
     currentLevel = upgradeLevels[upgradeId];
   } else {
     // Multiplayer - get from selected player
@@ -7012,7 +7120,9 @@ function toggleDevUpgrade(upgradeId) {
         players[devToolsPlayerTab].upgrade15 || 0,
         players[devToolsPlayerTab].upgrade16 || 0,
         players[devToolsPlayerTab].upgrade17 || 0,
-        players[devToolsPlayerTab].upgrade18 || 0
+        players[devToolsPlayerTab].upgrade18 || 0,
+        players[devToolsPlayerTab].upgrade19 || 0,
+        players[devToolsPlayerTab].upgrade20 || 0
       ];
       currentLevel = playerUpgrades[upgradeId];
     }
@@ -7087,7 +7197,7 @@ function activateDevPrerequisites(upgradeId, targetLevel) {
   let getCurrentLevel = (id) => {
     if (devToolsTab === 'single') {
       let levels = [upgrade1Level, upgrade2Level, upgrade3Level, upgrade4Level, upgrade5Level, 
-                    upgrade6Level, upgrade7Level, upgrade8Level, upgrade9Level, upgrade10Level, upgrade11Level, upgrade12Level, upgrade13Level, upgrade14Level, upgrade15Level, upgrade16Level, upgrade17Level, upgrade18Level];
+                    upgrade6Level, upgrade7Level, upgrade8Level, upgrade9Level, upgrade10Level, upgrade11Level, upgrade12Level, upgrade13Level, upgrade14Level, upgrade15Level, upgrade16Level, upgrade17Level, upgrade18Level, upgrade19Level, upgrade20Level];
       return levels[id];
     } else if (players[devToolsPlayerTab]) {
       let playerLevels = [
@@ -7108,7 +7218,9 @@ function activateDevPrerequisites(upgradeId, targetLevel) {
         players[devToolsPlayerTab].upgrade15 || 0,
         players[devToolsPlayerTab].upgrade16 || 0,
         players[devToolsPlayerTab].upgrade17 || 0,
-        players[devToolsPlayerTab].upgrade18 || 0
+        players[devToolsPlayerTab].upgrade18 || 0,
+        players[devToolsPlayerTab].upgrade19 || 0,
+        players[devToolsPlayerTab].upgrade20 || 0
       ];
       return playerLevels[id];
     }
@@ -7156,7 +7268,7 @@ function activateDevPrerequisites(upgradeId, targetLevel) {
     }
   }
   
-  // Upgrade 14-17 (Shockwave upgrades) require Upgrade 13 (Shockwave Unlock)
+  // Upgrade 14-18 (Shockwave upgrades) require Upgrade 13 (Shockwave Unlock)
   if (upgradeId === 14 && getCurrentLevel(13) === 0) {
     setDevUpgradeLevel(13, 1);  // Activate Shockwave Unlock
   }
@@ -7167,6 +7279,9 @@ function activateDevPrerequisites(upgradeId, targetLevel) {
     setDevUpgradeLevel(13, 1);  // Activate Shockwave Unlock
   }
   if (upgradeId === 17 && getCurrentLevel(13) === 0) {
+    setDevUpgradeLevel(13, 1);  // Activate Shockwave Unlock
+  }
+  if (upgradeId === 18 && getCurrentLevel(13) === 0) {
     setDevUpgradeLevel(13, 1);  // Activate Shockwave Unlock
   }
 }
@@ -7233,12 +7348,13 @@ function deactivateDevDependentUpgrades(upgradeId) {
     setDevUpgradeLevel(9, 0);
   }
   
-  // If Shockwave (13) is reset, reset all shockwave upgrade levels (14-17)
+  // If Shockwave (13) is reset, reset all shockwave upgrade levels (14-18)
   if (upgradeId === 13) {
     setDevUpgradeLevel(14, 0);
     setDevUpgradeLevel(15, 0);
     setDevUpgradeLevel(16, 0);
     setDevUpgradeLevel(17, 0);
+    setDevUpgradeLevel(18, 0);
   }
 }
 
@@ -7262,6 +7378,8 @@ function setUpgradeLevel(upgradeId, level) {
   else if (upgradeId === 15) upgrade16Level = level;
   else if (upgradeId === 16) upgrade17Level = level;
   else if (upgradeId === 17) upgrade18Level = level;
+  else if (upgradeId === 18) upgrade19Level = level;
+  else if (upgradeId === 19) upgrade20Level = level;
   
   // Apply the changes to game stats
   updateUpgradeBooleans();
@@ -7289,6 +7407,8 @@ function setDevUpgradeLevel(upgradeId, level) {
     else if (upgradeId === 15) upgrade16Level = level;
     else if (upgradeId === 16) upgrade17Level = level;
     else if (upgradeId === 17) upgrade18Level = level;
+    else if (upgradeId === 18) upgrade19Level = level;
+    else if (upgradeId === 19) upgrade20Level = level;
     
     // Apply the changes to game stats
     updateUpgradeBooleans();
@@ -7313,6 +7433,8 @@ function setDevUpgradeLevel(upgradeId, level) {
       else if (upgradeId === 15) players[devToolsPlayerTab].upgrade16 = level;
       else if (upgradeId === 16) players[devToolsPlayerTab].upgrade17 = level;
       else if (upgradeId === 17) players[devToolsPlayerTab].upgrade18 = level;
+      else if (upgradeId === 18) players[devToolsPlayerTab].upgrade19 = level;
+      else if (upgradeId === 19) players[devToolsPlayerTab].upgrade20 = level;
       
       // Update player's stats based on their new upgrade levels
       updatePlayerStats(devToolsPlayerTab);
@@ -7426,6 +7548,21 @@ function updatePlayerStats(playerIndex) {
     p.playerBulletSpeed = 2.25;
   } else {
     p.playerBulletSpeed = 1;
+  }
+  
+  // Shockwave Cooldown (5 levels - 3/4 of dash cooldown values)
+  if (p.upgrade17 === 1) {
+    p.windCooldownStat = 1.875; // 3/4 of 2.5
+  } else if (p.upgrade17 === 2) {
+    p.windCooldownStat = 1.5; // 3/4 of 2.0
+  } else if (p.upgrade17 === 3) {
+    p.windCooldownStat = 1.125; // 3/4 of 1.5
+  } else if (p.upgrade17 === 4) {
+    p.windCooldownStat = 0.75; // 3/4 of 1.0
+  } else if (p.upgrade17 === 5) {
+    p.windCooldownStat = 0.375; // 3/4 of 0.5
+  } else {
+    p.windCooldownStat = 2.25; // 3/4 of 3.0
   }
 }
 
