@@ -46,7 +46,10 @@ let customAntStats = [
     followValue: 0,
     autonomy: 0,
     distanceFromAnchor: 200,
-    explosionBehavior: 0,
+    bulletHasSpecial: 0,
+    bulletSpecialType: 0,
+    bulletExplosionTrigger: 0,
+    bulletKnockbackMultiplier: 1,
     explosionProximity: 200,
     angleFromSpawn: Math.PI,
     bulletSize: 1,
@@ -67,7 +70,10 @@ let customAntStats = [
     followValue: 0,
     autonomy: 0,
     distanceFromAnchor: 200,
-    explosionBehavior: 0,
+    bulletHasSpecial: 0,
+    bulletSpecialType: 0,
+    bulletExplosionTrigger: 0,
+    bulletKnockbackMultiplier: 1,
     explosionProximity: 200,
     angleFromSpawn: Math.PI,
     bulletSize: 1,
@@ -88,7 +94,10 @@ let customAntStats = [
     followValue: 0,
     autonomy: 0,
     distanceFromAnchor: 200,
-    explosionBehavior: 0,
+    bulletHasSpecial: 0,
+    bulletSpecialType: 0,
+    bulletExplosionTrigger: 0,
+    bulletKnockbackMultiplier: 1,
     explosionProximity: 200,
     angleFromSpawn: Math.PI,
     bulletSize: 1,
@@ -274,7 +283,10 @@ let followValue = [];
 let keepDistance = [];
 let followTarget = [];
 let autonomy = [];
-let explosionBehavior = [];
+let bulletHasSpecial = [];
+let bulletSpecialType = [];
+let bulletExplosionTrigger = [];
+let bulletKnockbackMultiplier = [];
 let explodeOnTermination = [];
 let triggerExplodeViaProximity = [];
 let explosionProximity = [];
@@ -295,6 +307,10 @@ let antKnockedBack = [];
 let antKnockbackTimer = [];
 let antKnockbackVelX = [];
 let antKnockbackVelY = [];
+let antStunned = [];
+let antStunTimer = [];
+let antLastShotFrame = [];
+let antAirHeight = [];
 const ANT_SPAWN_BUFFER = 20;
 let antMoveX = [];
 let antMoveY = [];
@@ -323,6 +339,10 @@ let score = 0;
 let totalScore = 0;
 let health = 10;
 let playerLastDamageFrame = 0;  // Track when player last took damage for regeneration
+let playerKnockedBack = false;
+let playerKnockbackTimer = 0;
+let playerKnockbackVelX = 0;
+let playerKnockbackVelY = 0;
 let timeCount = 10;
 let highScore = 0;
 let end = false;
@@ -481,6 +501,10 @@ function setup() {
     antKnockbackTimer[i] = 0;
     antKnockbackVelX[i] = 0;
     antKnockbackVelY[i] = 0;
+    antStunned[i] = false;
+    antStunTimer[i] = 0;
+    antLastShotFrame[i] = 0;
+    antAirHeight[i] = 0;
     bulletSplitCount[i] = 1;          // no split by default
     bulletSpread[i] = 0;              // 0° spread (all bullets same direction)
     bulletExplodeAfter[i] = 800; 
@@ -490,18 +514,33 @@ function setup() {
     shotOffsetY[i] = 0;
     followValue[i] = 0;
     autonomy[i] = 0;
-    explosionBehavior[i] = 0;
+    bulletHasSpecial[i] = 0;
+    bulletSpecialType[i] = 0;
+    bulletExplosionTrigger[i] = 0;
+    bulletKnockbackMultiplier[i] = 1;
     explosionProximity[i] = 200;
-    if (Math.round(explosionBehavior[i]) === 0){
-      explodeOnTermination[i] = false;   // non-exploding default
-      triggerExplodeViaProximity[i] = false;
-    } else if (Math.round(explosionBehavior[i]) === 1){
-      explodeOnTermination[i] = true;    // time-based explosion
-      triggerExplodeViaProximity[i] = false;
-    } else if (Math.round(explosionBehavior[i]) === 2){
+    
+    // Set explosion flags based on genetics
+    if (Math.round(bulletHasSpecial[i]) === 0){
+      // No special bullet behavior
       explodeOnTermination[i] = false;
-      triggerExplodeViaProximity[i] = true; // proximity-based explosion
+      triggerExplodeViaProximity[i] = false;
+    } else if (Math.round(bulletHasSpecial[i]) === 1){
+      // Has special behavior - check what type
+      if (Math.round(bulletSpecialType[i]) === 0){
+        // Type 0 = Explosions - check trigger type
+        if (Math.round(bulletExplosionTrigger[i]) === 0){
+          // Time-based explosion
+          explodeOnTermination[i] = true;
+          triggerExplodeViaProximity[i] = false;
+        } else if (Math.round(bulletExplosionTrigger[i]) === 1){
+          // Proximity-based explosion
+          explodeOnTermination[i] = false;
+          triggerExplodeViaProximity[i] = true;
+        }
+      }
     }
+    
     standingPointX[i] = width / 2;
     standingPointY[i] = height / 2;
     distanceFromAnchor[i] = 200;
@@ -934,7 +973,10 @@ function applyCustomAntsToInitialPopulation() {
     followValue[i] = s.followValue;
     autonomy[i] = s.autonomy;
     distanceFromAnchor[i] = s.distanceFromAnchor;
-    explosionBehavior[i] = s.explosionBehavior;
+    bulletHasSpecial[i] = s.bulletHasSpecial;
+    bulletSpecialType[i] = s.bulletSpecialType;
+    bulletExplosionTrigger[i] = s.bulletExplosionTrigger;
+    bulletKnockbackMultiplier[i] = s.bulletKnockbackMultiplier;
     explosionProximity[i] = s.explosionProximity;
     angleFromSpawn[i] = s.angleFromSpawn;
     bulletSize[i] = s.bulletSize;
@@ -950,15 +992,25 @@ function applyCustomAntsToInitialPopulation() {
       followTarget[i] = false;
       keepDistance[i] = true;
     }
-    if (Math.round(explosionBehavior[i]) === 0){
+    // Set explosion flags based on genetics
+    if (Math.round(bulletHasSpecial[i]) === 0){
+      // No special bullet behavior
       explodeOnTermination[i] = false;
       triggerExplodeViaProximity[i] = false;
-    } else if (Math.round(explosionBehavior[i]) === 1){
-      explodeOnTermination[i] = true;
-      triggerExplodeViaProximity[i] = false;
-    } else if (Math.round(explosionBehavior[i]) === 2){
-      explodeOnTermination[i] = false;
-      triggerExplodeViaProximity[i] = true;
+    } else if (Math.round(bulletHasSpecial[i]) === 1){
+      // Has special behavior - check what type
+      if (Math.round(bulletSpecialType[i]) === 0){
+        // Type 0 = Explosions - check trigger type
+        if (Math.round(bulletExplosionTrigger[i]) === 0){
+          // Time-based explosion
+          explodeOnTermination[i] = true;
+          triggerExplodeViaProximity[i] = false;
+        } else if (Math.round(bulletExplosionTrigger[i]) === 1){
+          // Proximity-based explosion
+          explodeOnTermination[i] = false;
+          triggerExplodeViaProximity[i] = true;
+        }
+      }
     }
     if (Math.round(followValue[i]) === 0){
       followAnt[i] = false;
@@ -1005,7 +1057,10 @@ function syncActualWinnersToCustomStats(topAnts) {
         followValue: followValue[antId],
         autonomy: autonomy[antId],
         distanceFromAnchor: distanceFromAnchor[antId],
-        explosionBehavior: explosionBehavior[antId],
+        bulletHasSpecial: bulletHasSpecial[antId],
+        bulletSpecialType: bulletSpecialType[antId],
+        bulletExplosionTrigger: bulletExplosionTrigger[antId],
+        bulletKnockbackMultiplier: bulletKnockbackMultiplier[antId],
         explosionProximity: explosionProximity[antId],
         angleFromSpawn: angleFromSpawn[antId],
         bulletSize: bulletSize[antId],
@@ -1328,6 +1383,21 @@ function drawEnemy(){
     }
     
     if (shouldDraw) {
+      // Draw shadow when airborne
+      if (antAirHeight[i] > 0) {
+        push();
+        ellipseMode(CENTER);
+        noSmooth();
+        noStroke();
+        // Shadow darkness based on height (higher = lighter shadow)
+        let shadowAlpha = map(antAirHeight[i], 0, 30, 150, 50);
+        fill(0, 0, 0, shadowAlpha);
+        let shadowSize = (45 + (15 * antSize[i])) * 0.5;
+        ellipse(antX[i], antY[i], shadowSize, shadowSize);
+        smooth();
+        pop();
+      }
+      
       push();
         // Apply fade if Tiger Beetle is active
         if (tigerBeetleActive && tigerBeetleMoving) {
@@ -1335,12 +1405,36 @@ function drawEnemy(){
         }
         angleMode(DEGREES)
         imageMode(CENTER);
-        translate(antX[i], antY[i]);
+        // Offset ant visual position upward when airborne
+        translate(antX[i], antY[i] - antAirHeight[i]);
         let a = atan2(playerY - antY[i], playerX - antX[i]);
         rotate(a);
         let antImageSize = 45 + (15 * antSize[i]);
         image(ant, 0, 0, antImageSize, antImageSize);
       pop();
+      
+      // Draw yellow circles if ant is stunned
+      if (antStunned[i]) {
+        push();
+        translate(antX[i], antY[i]);
+        noStroke();
+        fill(255, 255, 0); // Yellow color
+        
+        // Draw 5 circles rotating around the ant
+        let circleCount = 5;
+        let radius = antImageSize * 0.35; // Closer to ant
+        let rotationOffset = frameCount * 2; // Rotate circles over time
+        
+        for (let s = 0; s < circleCount; s++) {
+          let circleAngle = (360 / circleCount) * s + rotationOffset;
+          let circleX = cos(circleAngle) * radius;
+          let circleY = sin(circleAngle) * radius + sin(frameCount * 3 + s * 60) * 5; // Bob up and down
+          
+          // Draw circle
+          ellipse(circleX, circleY, 6, 6); // 6 pixel diameter circles
+        }
+        pop();
+      }
     }
 
 
@@ -1582,10 +1676,13 @@ function enemyInteraction1(){
 
   //enemy one interaction
   for (let i = 1; i < enemyCount + 1; i++) {
+    // Skip if ant is airborne (in the air, not just knocked back)
+    if (antAirHeight[i] > 0) continue;
+    
     let antHitboxSize = 20.25 + (6.75 * antSize[i]);
     if(playerX > (antX[i] - antHitboxSize) && playerY > (antY[i] - antHitboxSize) && playerX < (antX[i] + antHitboxSize) && playerY < (antY[i] + antHitboxSize)) {
-      // Only run over ants with health <= 1
-      if (end == false && antHealth[i] <= 1){
+      // Only run over ants with health < 1
+      if (end == false && antHealth[i] < 1){
         comboTime = 60;
         combo = combo + 1;
         calculateBonus();
@@ -1617,6 +1714,10 @@ function enemyInteraction1(){
         antHealth[i] = antMaxHealth[i];  // Reset health on respawn
         antKnockedBack[i] = false;
         antKnockbackTimer[i] = 0;
+        antStunned[i] = false;
+        antStunTimer[i] = 0;
+        antLastShotFrame[i] = 0;
+        antAirHeight[i] = 0;
         antLives[i]++;
         console.log("Ant", i, "lives:", antLives[i]);
 
@@ -1630,8 +1731,8 @@ function enemyInteraction1(){
         }
 
       }
-      // Push ants with health > 1 out of the way when walking (not dashing)
-      else if (end == false && antHealth[i] > 1 && !dash) {
+      // Push ants with health >= 1 out of the way when walking (not dashing)
+      else if (end == false && antHealth[i] >= 1 && !dash) {
         // Calculate gentle push direction (away from player)
         let dx = antX[i] - playerX;
         let dy = antY[i] - playerY;
@@ -1649,6 +1750,13 @@ function enemyInteraction1(){
           } else {
             // Start new knockback and deal damage
             antHealth[i] -= 0.2;
+            
+            // Stun if damaged but not killed
+            if (antHealth[i] > 0) {
+              antStunned[i] = true;
+              antStunTimer[i] = 30;
+              antLastShotFrame[i] = frameCount; // Reset shooting cooldown
+            }
             
             antKnockbackVelX[i] = (dx / distance) * pushSpeed;
             antKnockbackVelY[i] = (dy / distance) * pushSpeed;
@@ -1690,6 +1798,13 @@ function dashCollision() {
       let dashDamage = 1 + (upgrade12Level * 0.2);
       antHealth[i] -= dashDamage;
       
+      // Stun if damaged but not killed
+      if (antHealth[i] > 0) {
+        antStunned[i] = true;
+        antStunTimer[i] = 30;
+        antLastShotFrame[i] = frameCount; // Reset shooting cooldown
+      }
+      
       // Calculate knockback direction (away from player)
       let dx = antX[i] - playerX;
       let dy = antY[i] - playerY;
@@ -1723,6 +1838,10 @@ function dashCollision() {
         antHealth[i] = antMaxHealth[i];
         antKnockedBack[i] = false;
         antKnockbackTimer[i] = 0;
+        antStunned[i] = false;
+        antStunTimer[i] = 0;
+        antLastShotFrame[i] = 0;
+        antAirHeight[i] = 0;
         
         if(!sGetHit1.isPlaying() || !sGetHit2.isPlaying()) {
           sHit = round(random(1,2));
@@ -1741,12 +1860,30 @@ function handleAntKnockback() {
   for (let i = 1; i <= enemyCount; i++) {
     if (antKnockedBack[i]) {
       // Apply knockback velocity
-      antX[i] += antKnockbackVelX[i];
-      antY[i] += antKnockbackVelY[i];
+      // During airborne phase: full velocity, during sliding: minimal velocity
+      if (antKnockbackTimer[i] > 40) {
+        // Airborne phase - full movement
+        antX[i] += antKnockbackVelX[i];
+        antY[i] += antKnockbackVelY[i];
+        antKnockbackVelX[i] *= 0.95;
+        antKnockbackVelY[i] *= 0.95;
+      } else {
+        // Sliding phase - rapid deceleration
+        antX[i] += antKnockbackVelX[i];
+        antY[i] += antKnockbackVelY[i];
+        antKnockbackVelX[i] *= 0.85;
+        antKnockbackVelY[i] *= 0.85;
+      }
       
-      // Apply friction to slow down
-      antKnockbackVelX[i] *= 0.95;
-      antKnockbackVelY[i] *= 0.95;
+      // Animate airborne height - arc completes in first 20 frames, then slides for last 40
+      if (antKnockbackTimer[i] > 40) {
+        // Airborne phase (frames 60-40)
+        let airProgress = 1 - ((antKnockbackTimer[i] - 40) / 20);
+        antAirHeight[i] = Math.sin(airProgress * Math.PI) * 30;
+      } else {
+        // Sliding phase (frames 40-0)
+        antAirHeight[i] = 0;
+      }
       
       // Keep ant in bounds
       antX[i] = constrain(antX[i], sideBuffer, getGameplayWidth() - sideBuffer);
@@ -1760,6 +1897,17 @@ function handleAntKnockback() {
         antKnockedBack[i] = false;
         antKnockbackVelX[i] = 0;
         antKnockbackVelY[i] = 0;
+        antAirHeight[i] = 0;
+      }
+    } else {
+      antAirHeight[i] = 0;
+    }
+    
+    // Handle stun timer
+    if (antStunned[i] && antStunTimer[i] > 0) {
+      antStunTimer[i]--;
+      if (antStunTimer[i] <= 0) {
+        antStunned[i] = false;
       }
     }
   }
@@ -1769,27 +1917,34 @@ function handleAntKnockback() {
 function enemyShoot1() {
   if (end == false) {
     for (let i = 1; i < enemyCount + 1; i++) {
-      if (frameCount % bulletCooldown[i] === 0) {
+      // Only skip shooting new bullets if ant is stunned, but still update existing bullets
+      if (!antStunned[i]) {
+        // Use cooldown tracking instead of modulo for proper reset capability
+        if (frameCount - antLastShotFrame[i] >= bulletCooldown[i]) {
+          antLastShotFrame[i] = frameCount;
 
-        let vx = ((playerX + shotOffsetX[i]) - antX[i] + 1) /
-                 (bulletSpeed[i] * (bulletSize[i] ** bulletSize[i]));
-        let vy = ((playerY + shotOffsetY[i]) - antY[i] + 1) /
-                 (bulletSpeed[i] * (bulletSize[i] ** bulletSize[i]));
+          let vx = ((playerX + shotOffsetX[i]) - antX[i] + 1) /
+                   (bulletSpeed[i] * (bulletSize[i] ** bulletSize[i]));
+          let vy = ((playerY + shotOffsetY[i]) - antY[i] + 1) /
+                   (bulletSpeed[i] * (bulletSize[i] ** bulletSize[i]));
 
-        let bullet = {
-          x: antX[i],
-          y: antY[i],
-          speedX: vx,
-          speedY: vy,
-          angle: atan2((playerY + shotOffsetY[i]) - antY[i],
-                       (playerX + shotOffsetX[i]) - antX[i]),
-          life: 0,
-          explodeAfter: bulletExplodeAfter[i], // per-ant timer
+          let bullet = {
+            x: antX[i],
+            y: antY[i],
+            speedX: vx,
+            speedY: vy,
+            angle: atan2((playerY + shotOffsetY[i]) - antY[i],
+                         (playerX + shotOffsetX[i]) - antX[i]),
+            life: 0,
+            explodeAfter: bulletExplodeAfter[i], // per-ant timer
 
-          size: bulletSize[i]                  // 🔴 key: keep the bullet's size
-        };
+            size: bulletSize[i],                  // 🔴 key: keep the bullet's size
+            knockbackBullet: (Math.round(bulletHasSpecial[i]) === 1 && Math.round(bulletSpecialType[i]) === 1), // Track knockback bullets
+            knockbackMultiplier: bulletKnockbackMultiplier[i] // Store the knockback multiplier
+          };
 
-        enemyBullets[i].push(bullet);
+          enemyBullets[i].push(bullet);
+        }
       }
 
       // Update and draw bullets
@@ -1849,6 +2004,18 @@ function enemyShoot1() {
           rotate(bullet.angle);
           image(bulletImage, 0, 0, (20 * bulletSize[i]), (20 * bulletSize[i]));
           pop();
+          
+          // Draw knockback bullet aura on top of bullet
+          if (bullet.knockbackBullet) {
+            push();
+            noStroke();
+            let flashSpeed = (bullet.knockbackMultiplier || 1) * 6; // Flash speed = multiplier × 3
+            let flashAlpha = 83 + 70 * sin(bullet.life * flashSpeed); // Scale to reasonable speed
+            fill(220, 220, 220, flashAlpha); // White/grey translucent solid circle
+            let auraSize = (25 * bulletSize[i]) + 5 * sin(bullet.life * 0.2);
+            ellipse(bullet.x, bullet.y, auraSize, auraSize);
+            pop();
+          }
         }
 
         if (!sSpit1.isPlaying() && !sSpit2.isPlaying()) {
@@ -1869,8 +2036,10 @@ function enemyShoot1() {
           bullet.x > playerX - 25 && bullet.x < playerX + 25 &&
           bullet.y > playerY - 25 && bullet.y < playerY + 25
         ) {
+          let isKnockbackBullet = bullet.knockbackBullet || false;
+          let knockbackMult = bullet.knockbackMultiplier || 1;
           enemyBullets[i].splice(b, 1);
-          handlePlayerHit(i);
+          handlePlayerHit(i, isKnockbackBullet, bullet.x, bullet.y, knockbackMult);
         }
       }
     }
@@ -1878,9 +2047,24 @@ function enemyShoot1() {
 }
 
 
-function handlePlayerHit(i){
+function handlePlayerHit(i, isKnockbackBullet = false, bulletX = 0, bulletY = 0, knockbackMult = 1){
   if (end == false){
     playerLastDamageFrame = frameCount;  // Track when player took damage
+    
+    // Apply knockback if this is a knockback bullet
+    if (isKnockbackBullet) {
+      let dx = playerX - bulletX;
+      let dy = playerY - bulletY;
+      let distance = dist(bulletX, bulletY, playerX, playerY);
+      if (distance > 0) {
+        let knockbackSpeed = 8 * knockbackMult; // Knockback speed multiplied by genetic stat
+        playerKnockbackVelX = (dx / distance) * knockbackSpeed;
+        playerKnockbackVelY = (dy / distance) * knockbackSpeed;
+        playerKnockedBack = true;
+        playerKnockbackTimer = 20; // Short knockback duration (ground-based)
+      }
+    }
+    
     if (shield > 0){
       shield = shield - bulletSize[i];
       antPoints[i] = antPoints[i] + bulletSize[i];
@@ -1941,6 +2125,25 @@ function detectKeyboardInput(){
         isGamepadMoving = true;
         moveSpeedX = playerSpeed * Math.abs(gamepadXAxis);
         moveSpeedY = playerSpeed * Math.abs(gamepadYAxis);
+      }
+
+      // Apply player knockback if active
+      if (playerKnockedBack) {
+        playerX += playerKnockbackVelX;
+        playerY += playerKnockbackVelY;
+        playerKnockbackVelX *= 0.85; // Deceleration
+        playerKnockbackVelY *= 0.85;
+        playerKnockbackTimer--;
+        
+        // Keep player in bounds
+        playerX = constrain(playerX, sideBuffer, getGameplayWidth() - sideBuffer);
+        playerY = constrain(playerY, scoreBarHeight + 25, getGameplayHeight() - expBarHeight - expBarBuffer);
+        
+        if (playerKnockbackTimer <= 0) {
+          playerKnockedBack = false;
+          playerKnockbackVelX = 0;
+          playerKnockbackVelY = 0;
+        }
       }
 
       //left
@@ -2192,6 +2395,9 @@ function beetleShoot() {
 
     // bullet collisions
     for (let j = 1; j < enemyCount + 1; j++) {
+      // Skip if ant is airborne (in the air, not just knocked back)
+      if (antAirHeight[j] > 0) continue;
+      
       if (
         b.x < antX[j] + 25 &&
         b.x > antX[j] - 25 &&
@@ -2201,6 +2407,13 @@ function beetleShoot() {
         // Deal damage to ant with Potent Acid multiplier
         let bulletDamage = 1 + (upgrade13Level * 0.2);
         antHealth[j] -= bulletDamage;
+        
+        // Stun if damaged but not killed
+        if (antHealth[j] > 0) {
+          antStunned[j] = true;
+          antStunTimer[j] = 30;
+          antLastShotFrame[j] = frameCount; // Reset shooting cooldown
+        }
         
         // Only kill ant if health drops to 0 or below
         if (antHealth[j] <= 0) {
@@ -2333,10 +2546,20 @@ function handleWindAttack() {
       let knockbackMultiplier = 4 + (upgrade18Level * 2); // 4, 6, 8, 10 in 3 steps
       
       for (let i = 1; i <= enemyCount; i++) {
+        // Skip if ant is airborne (in the air, not just knocked back)
+        if (antAirHeight[i] > 0) continue;
+        
         let distance = dist(playerX, playerY, antX[i], antY[i]);
         if (distance <= maxRadius) {
           // Deal damage
           antHealth[i] -= windDamage;
+          
+          // Stun if damaged but not killed
+          if (antHealth[i] > 0) {
+            antStunned[i] = true;
+            antStunTimer[i] = 30;
+            antLastShotFrame[i] = frameCount; // Reset shooting cooldown
+          }
           
           // Apply knockback
           let angle = atan2(antY[i] - playerY, antX[i] - playerX);
@@ -2363,6 +2586,10 @@ function handleWindAttack() {
             antHealth[i] = antMaxHealth[i];
             antKnockedBack[i] = false;
             antKnockbackTimer[i] = 0;
+            antStunned[i] = false;
+            antStunTimer[i] = 0;
+            antLastShotFrame[i] = 0;
+            antAirHeight[i] = 0;
           }
         }
       }
@@ -3993,6 +4220,12 @@ function nextRound(){
     topAnts = getTopAnts();  // Get top 3 from actual performance
     console.log("Top ants this round:", topAnts);
     
+    // Fill in missing top ants with the best ant if we don't have 3
+    // This ensures all slot groups have a valid parent
+    while (topAnts.length < 3 && topAnts.length > 0) {
+      topAnts.push(topAnts[0]);  // Duplicate the best ant for missing slots
+    }
+    
     // Update customAntStats to reflect actual winners (for viewing in dev tools)
     syncActualWinnersToCustomStats(topAnts);
   }
@@ -4056,6 +4289,12 @@ function nextRound(){
     let usedSlots = 0;
     let antsFromThisWinner = 0;
     
+    // Skip this group if no valid parent (safety check)
+    if (!group.parent) {
+      console.log(`Skipping ${group.name}: no valid parent ant`);
+      continue;
+    }
+    
     while (usedSlots < group.slots && antIndex <= MAX_ANTS) {
       let i = antIndex;
       let parent = group.parent;
@@ -4082,7 +4321,10 @@ function nextRound(){
         followValue[i]    = constrain(s.followValue    + random(-movementMutationRate, movementMutationRate), -0.5, 3.49);
         autonomy[i]    = constrain(s.autonomy    + random(-movementMutationRate, movementMutationRate), -0.5, 1.5);
         distanceFromAnchor[i]    = constrain(s.distanceFromAnchor    + random(-100, 100), 0.1, 1000);
-        explosionBehavior[i]    = constrain(s.explosionBehavior    + random(-movementMutationRate, movementMutationRate), -0.5, 2.5);
+        bulletHasSpecial[i]    = constrain(s.bulletHasSpecial    + random(-movementMutationRate, movementMutationRate), -0.5, 1.5);
+        bulletSpecialType[i]    = constrain(s.bulletSpecialType    + random(-movementMutationRate, movementMutationRate), -0.5, 1.5);
+        bulletExplosionTrigger[i]    = constrain(s.bulletExplosionTrigger    + random(-movementMutationRate, movementMutationRate), -0.5, 1.5);
+        bulletKnockbackMultiplier[i]    = constrain(s.bulletKnockbackMultiplier    + random(-0.5, 0.5), 0.5, 5);
         explosionProximity[i]    = constrain(s.explosionProximity    + random(-100, 100), 0.1, 1000);
         angleFromSpawn[i]    = constrain(s.angleFromSpawn    + random((-PI / 3), (PI / 3)), 0, TWO_PI);
         bulletSize[i]    = constrain(s.bulletSize    + random(-(movementMutationRate / 2), (movementMutationRate / 2)), 1, 3);
@@ -4097,6 +4339,10 @@ function nextRound(){
         antHealth[i] = antMaxHealth[i];
         antKnockedBack[i] = false;
         antKnockbackTimer[i] = 0;
+        antStunned[i] = false;
+        antStunTimer[i] = 0;
+        antLastShotFrame[i] = 0;
+        antAirHeight[i] = 0;
       } else {
         // Regular ant from game performance
         console.log(`Ant ${i} inherits from parent Ant ${parent.id}`);
@@ -4110,7 +4356,10 @@ function nextRound(){
         followValue[i]    = constrain(followValue[parent.id]    + random(-movementMutationRate, movementMutationRate), -0.5, 3.49);
         autonomy[i]    = constrain(autonomy[parent.id]    + random(-movementMutationRate, movementMutationRate), -0.5, 1.5);
         distanceFromAnchor[i]    = constrain(distanceFromAnchor[parent.id]    + random(-100, 100), 0.1, 1000);
-        explosionBehavior[i]    = constrain(explosionBehavior[parent.id]    + random(-movementMutationRate, movementMutationRate), -0.5, 2.5);
+        bulletHasSpecial[i]    = constrain(bulletHasSpecial[parent.id]    + random(-movementMutationRate, movementMutationRate), -0.5, 1.5);
+        bulletSpecialType[i]    = constrain(bulletSpecialType[parent.id]    + random(-movementMutationRate, movementMutationRate), -0.5, 1.5);
+        bulletExplosionTrigger[i]    = constrain(bulletExplosionTrigger[parent.id]    + random(-movementMutationRate, movementMutationRate), -0.5, 1.5);
+        bulletKnockbackMultiplier[i]    = constrain(bulletKnockbackMultiplier[parent.id]    + random(-0.5, 0.5), 0.5, 5);
         explosionProximity[i]    = constrain(explosionProximity[parent.id]    + random(-100, 100), 0.1, 1000);
         angleFromSpawn[i]    = constrain(angleFromSpawn[parent.id]    + random((-PI / 3), (PI / 3)), 0, TWO_PI);
         bulletSize[i]    = constrain(bulletSize[parent.id]    + random(-(movementMutationRate / 2), (movementMutationRate / 2)), 1, 3);
@@ -4125,6 +4374,10 @@ function nextRound(){
         antHealth[i] = antMaxHealth[i];
         antKnockedBack[i] = false;
         antKnockbackTimer[i] = 0;
+        antStunned[i] = false;
+        antStunTimer[i] = 0;
+        antLastShotFrame[i] = 0;
+        antAirHeight[i] = 0;
       }
 
       if (Math.round(autonomy[i]) === 0){
@@ -4134,15 +4387,25 @@ function nextRound(){
         followTarget[i] = false;
         keepDistance[i] = true;
       }
-      if (Math.round(explosionBehavior[i]) === 0){
+      // Set explosion flags based on genetics
+      if (Math.round(bulletHasSpecial[i]) === 0){
+        // No special bullet behavior
         explodeOnTermination[i] = false;
         triggerExplodeViaProximity[i] = false;
-      } else if (Math.round(explosionBehavior[i]) === 1){
-        explodeOnTermination[i] = true;
-        triggerExplodeViaProximity[i] = false;
-      } else if (Math.round(explosionBehavior[i]) === 2){
-        explodeOnTermination[i] = false;
-        triggerExplodeViaProximity[i] = true;
+      } else if (Math.round(bulletHasSpecial[i]) === 1){
+        // Has special behavior - check what type
+        if (Math.round(bulletSpecialType[i]) === 0){
+          // Type 0 = Explosions - check trigger type
+          if (Math.round(bulletExplosionTrigger[i]) === 0){
+            // Time-based explosion
+            explodeOnTermination[i] = true;
+            triggerExplodeViaProximity[i] = false;
+          } else if (Math.round(bulletExplosionTrigger[i]) === 1){
+            // Proximity-based explosion
+            explodeOnTermination[i] = false;
+            triggerExplodeViaProximity[i] = true;
+          }
+        }
       }
       if (Math.round(followValue[i]) === 0){
         followAnt[i] = false;
@@ -4207,9 +4470,21 @@ function nextRound(){
         ? constrain(distanceFromAnchor[winner.id] + random(-100, 100), 0.1, 1000)
         : random(0.1, 1000);
       
-      explosionBehavior[i] = winner
-        ? constrain(explosionBehavior[winner.id] + random(-movementMutationRate, movementMutationRate), -0.5, 2.5)
-        : random(-0.5, 2.5);
+      bulletHasSpecial[i] = winner
+        ? constrain(bulletHasSpecial[winner.id] + random(-movementMutationRate, movementMutationRate), -0.5, 1.5)
+        : random(-0.5, 1.5);
+      
+      bulletSpecialType[i] = winner
+        ? constrain(bulletSpecialType[winner.id] + random(-movementMutationRate, movementMutationRate), -0.5, 1.5)
+        : random(-0.5, 1.5);
+      
+      bulletExplosionTrigger[i] = winner
+        ? constrain(bulletExplosionTrigger[winner.id] + random(-movementMutationRate, movementMutationRate), -0.5, 1.5)
+        : random(-0.5, 1.5);
+      
+      bulletKnockbackMultiplier[i] = winner
+        ? constrain(bulletKnockbackMultiplier[winner.id] + random(-0.5, 0.5), 0.5, 5)
+        : random(0.5, 5);
       
       explosionProximity[i] = winner
         ? constrain(explosionProximity[winner.id] + random(-100, 100), 0.1, 1000)
@@ -4247,23 +4522,34 @@ function nextRound(){
       antKnockbackTimer[i] = 0;
       antKnockbackVelX[i] = 0;
       antKnockbackVelY[i] = 0;
-      
+      antStunned[i] = false;
+      antStunTimer[i] = 0;
+      antLastShotFrame[i] = 0;
+      antAirHeight[i] = 0;
+
       if (Math.round(autonomy[i]) === 0){
-        followTarget[i] = true;
-        keepDistance[i] = false;
-      } else if (Math.round(autonomy[i]) === 1){
         followTarget[i] = false;
         keepDistance[i] = true;
       }
-      if (Math.round(explosionBehavior[i]) === 0){
+      // Set explosion flags based on genetics
+      if (Math.round(bulletHasSpecial[i]) === 0){
+        // No special bullet behavior
         explodeOnTermination[i] = false;
         triggerExplodeViaProximity[i] = false;
-      } else if (Math.round(explosionBehavior[i]) === 1){
-        explodeOnTermination[i] = true;
-        triggerExplodeViaProximity[i] = false;
-      } else if (Math.round(explosionBehavior[i]) === 2){
-        explodeOnTermination[i] = false;
-        triggerExplodeViaProximity[i] = true;
+      } else if (Math.round(bulletHasSpecial[i]) === 1){
+        // Has special behavior - check what type
+        if (Math.round(bulletSpecialType[i]) === 0){
+          // Type 0 = Explosions - check trigger type
+          if (Math.round(bulletExplosionTrigger[i]) === 0){
+            // Time-based explosion
+            explodeOnTermination[i] = true;
+            triggerExplodeViaProximity[i] = false;
+          } else if (Math.round(bulletExplosionTrigger[i]) === 1){
+            // Proximity-based explosion
+            explodeOnTermination[i] = false;
+            triggerExplodeViaProximity[i] = true;
+          }
+        }
       }
       if (Math.round(followValue[i]) === 0){
         followAnt[i] = false;
@@ -5443,7 +5729,21 @@ function updateAntDexEntries() {
       }
 
       // Explosion type discoveries
-      const expMode = Math.round(explosionBehavior[i]);
+      const hasSpecial = Math.round(bulletHasSpecial[i]);
+      const specialType = Math.round(bulletSpecialType[i]);
+      const expTrigger = Math.round(bulletExplosionTrigger[i]);
+      
+      // Determine explosion mode from the three stats
+      let expMode = 0; // default: no explosion
+      if (hasSpecial === 1 && specialType === 0) {
+        // Has special behavior and it's explosions
+        if (expTrigger === 0) {
+          expMode = 1; // time-based
+        } else if (expTrigger === 1) {
+          expMode = 2; // proximity-based
+        }
+      }
+      
       if (!noExplosionDiscovered && expMode === 0) {
         noExplosionDiscovered = true;
         triggerDiscoveryPopup();
@@ -6300,6 +6600,10 @@ function advanceToNextAlivePlayer() {
     antHealth[i] = antMaxHealth[i];  // Reset health
     antKnockedBack[i] = false;
     antKnockbackTimer[i] = 0;
+    antStunned[i] = false;
+    antStunTimer[i] = 0;
+    antLastShotFrame[i] = 0;
+    antAirHeight[i] = 0;
     strikeX[i] = 0;
     strikeY[i] = 0;
     strikeTime1[i] = 0;
@@ -6479,8 +6783,14 @@ function drawAntsTab(fadeAlpha) {
     { name: 'Autonomy', key: 'autonomy', min: -0.5, max: 1.5, step: 0.01,
       help: '0=FollowTarget, 1=KeepDistance' },
     { name: 'Distance From Anchor', key: 'distanceFromAnchor', min: 0.1, max: 1000, step: 1 },
-    { name: 'Explosion Behavior', key: 'explosionBehavior', min: -0.5, max: 2.5, step: 0.01,
-      help: '0=None, 1=OnTerminate, 2=Proximity' },
+    { name: 'Bullet Has Special', key: 'bulletHasSpecial', min: -0.5, max: 1.5, step: 0.01,
+      help: '0=Normal, 1=Special' },
+    { name: 'Bullet Special Type', key: 'bulletSpecialType', min: -0.5, max: 1.5, step: 0.01,
+      help: '0=Explosions, 1=Knockback' },
+    { name: 'Bullet Explosion Trigger', key: 'bulletExplosionTrigger', min: -0.5, max: 1.5, step: 0.01,
+      help: '0=Time, 1=Proximity' },
+    { name: 'Knockback Multiplier', key: 'bulletKnockbackMultiplier', min: 0.5, max: 5, step: 0.1,
+      help: 'Multiplies knockback strength (0.5-5)' },
     { name: 'Explosion Proximity', key: 'explosionProximity', min: 0.1, max: 1000, step: 1 },
     { name: 'Angle From Spawn', key: 'angleFromSpawn', min: 0, max: 6.28, step: 0.01,
       help: 'Radians (0-2π)' },
