@@ -1739,7 +1739,7 @@ function enemyInteraction1(){
         let distance = dist(playerX, playerY, antX[i], antY[i]);
         
         if (distance > 0) {
-          let pushSpeed = playerSpeed * 4 / antSize[i]; // Push inversely proportional to ant size
+          let pushSpeed = playerSpeed * 8 / antSize[i]; // Push inversely proportional to ant size
           
           // If already knocked back, add to existing velocity instead of replacing
           if (antKnockedBack[i]) {
@@ -1812,7 +1812,7 @@ function dashCollision() {
       
       // Normalize and apply knockback velocity
       if (distance > 0) {
-        let knockbackSpeed = playerSpeed * 4 / antSize[i]; // Knockback inversely proportional to ant size
+        let knockbackSpeed = playerSpeed * 8 / antSize[i]; // Knockback inversely proportional to ant size
         antKnockbackVelX[i] = (dx / distance) * knockbackSpeed;
         antKnockbackVelY[i] = (dy / distance) * knockbackSpeed;
       }
@@ -1944,6 +1944,16 @@ function enemyShoot1() {
           };
 
           enemyBullets[i].push(bullet);
+          
+          // Play spit sound when bullet is created (not during update loop)
+          if (!sSpit1.isPlaying() && !sSpit2.isPlaying()) {
+            sHit = round(random(1, 2));
+            if (sHit == 1) {
+              sSpit1.play();
+            } else {
+              sSpit2.play();
+            }
+          }
         }
       }
 
@@ -2015,15 +2025,6 @@ function enemyShoot1() {
             let auraSize = (25 * bulletSize[i]) + 5 * sin(bullet.life * 0.2);
             ellipse(bullet.x, bullet.y, auraSize, auraSize);
             pop();
-          }
-        }
-
-        if (!sSpit1.isPlaying() && !sSpit2.isPlaying()) {
-          sHit = round(random(1, 2));
-          if (sHit == 1) {
-            sSpit1.play();
-          } else {
-            sSpit2.play();
           }
         }
 
@@ -2915,6 +2916,12 @@ function endGame(){
         // Check if only 1 or 0 players left
         if (checkMultiplayerWinCondition()) {
           multiplayerScoreboard = true;
+          
+          // Play end music when showing scoreboard
+          gamemusic.stop();
+          if (!endmusic.isPlaying()) {
+            endmusic.play();
+          }
           return;
         }
         
@@ -2929,6 +2936,12 @@ function endGame(){
         } else {
           // All alive players have played, show scoreboard
           multiplayerScoreboard = true;
+          
+          // Play end music when showing scoreboard
+          gamemusic.stop();
+          if (!endmusic.isPlaying()) {
+            endmusic.play();
+          }
           return;
         }
       }
@@ -4264,7 +4277,12 @@ function nextRound(){
   // playerSpeed will be set after ant creation (based on actual enemyCount)
   
   endmusic.stop();
-  gamemusic.play();
+  
+  // In multiplayer, title music will play when turn screen shows
+  // In single player, start game music immediately
+  if (!multiplayerMode) {
+    gamemusic.play();
+  }
   
 
   // Allocate slots per winner (50%, 30%, remainder)
@@ -4635,6 +4653,12 @@ function nextRound(){
     // Load first player's state and show turn screen
     loadPlayerState(currentPlayerIndex);
     showPlayerTurnScreen = true;
+    
+    // Play title music for turn screen
+    gamemusic.stop();
+    if (!titlemusic.isPlaying()) {
+      titlemusic.play();
+    }
   }
 
 }
@@ -4719,8 +4743,7 @@ function drawStartScreen(){
           applyCustomAntsToInitialPopulation();
         }
         start = true;
-        titlemusic.stop();
-        gamemusic.play();
+        // Don't change music here - title music already playing and will continue for turn screen
         menuNavigationCooldown = 20;
       }
       
@@ -6539,6 +6562,13 @@ function advanceToNextPlayer() {
   
   // Show turn screen for next player
   showPlayerTurnScreen = true;
+  
+  // Play title music during turn screen
+  gamemusic.stop();
+  endmusic.stop();
+  if (!titlemusic.isPlaying()) {
+    titlemusic.play();
+  }
 }
 
 function advanceToNextAlivePlayer() {
@@ -6615,6 +6645,13 @@ function advanceToNextAlivePlayer() {
   
   // Show turn screen for next player
   showPlayerTurnScreen = true;
+  
+  // Play title music during turn screen
+  gamemusic.stop();
+  endmusic.stop();
+  if (!titlemusic.isPlaying()) {
+    titlemusic.play();
+  }
 }
 
 function drawMultiplayerScoreboard() {
@@ -6688,6 +6725,8 @@ function drawMultiplayerScoreboard() {
       text('Enter or A  Continue to Next Round', getMenuWidth() / 2, getMenuHeight() - 60);
       
       if (isConfirmPressed() && menuNavigationCooldown === 0) {
+        // Stop end music, title music will start when turn screen shows
+        endmusic.stop();
         nextRound();
         menuNavigationCooldown = 20;
       }
@@ -6763,6 +6802,13 @@ function drawPlayerTurnScreen() {
       showPlayerTurnScreen = false;
       loadPlayerState(currentPlayerIndex);
       menuNavigationCooldown = 20;
+      
+      // Start game music when player begins their turn
+      titlemusic.stop();
+      endmusic.stop();
+      if (!gamemusic.isPlaying()) {
+        gamemusic.play();
+      }
     }
   endMenuScaling();
 }
