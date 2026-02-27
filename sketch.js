@@ -50,6 +50,7 @@ let customAntStats = [
     bulletSpecialType: 0,
     bulletExplosionTrigger: 0,
     bulletKnockbackMultiplier: 1,
+    bulletDeathType: 0,
     explosionProximity: 200,
     angleFromSpawn: Math.PI,
     bulletSize: 1,
@@ -74,6 +75,7 @@ let customAntStats = [
     bulletSpecialType: 0,
     bulletExplosionTrigger: 0,
     bulletKnockbackMultiplier: 1,
+    bulletDeathType: 0,
     explosionProximity: 200,
     angleFromSpawn: Math.PI,
     bulletSize: 1,
@@ -98,6 +100,7 @@ let customAntStats = [
     bulletSpecialType: 0,
     bulletExplosionTrigger: 0,
     bulletKnockbackMultiplier: 1,
+    bulletDeathType: 0,
     explosionProximity: 200,
     angleFromSpawn: Math.PI,
     bulletSize: 1,
@@ -270,6 +273,7 @@ let bulletSpeed = [];
 let bulletCooldown = [];
 let bulletAngle = [];
 let enemyBullets = [];
+let landMines = []; // Land mines from expired bullets
 let antSpeed = [];
 let antPoints = [];
 let antLives = [];
@@ -287,6 +291,7 @@ let bulletHasSpecial = [];
 let bulletSpecialType = [];
 let bulletExplosionTrigger = [];
 let bulletKnockbackMultiplier = [];
+let bulletDeathType = [];
 let explodeOnTermination = [];
 let triggerExplodeViaProximity = [];
 let explosionProximity = [];
@@ -518,6 +523,7 @@ function setup() {
     bulletSpecialType[i] = 0;
     bulletExplosionTrigger[i] = 0;
     bulletKnockbackMultiplier[i] = 1;
+    bulletDeathType[i] = 0;
     explosionProximity[i] = 200;
     
     // Set explosion flags based on genetics
@@ -765,6 +771,7 @@ function draw() {
       enemyInteraction1(); // Beetle Eats Enemy
       enemyShoot1();
       drawEnemyExplosions();
+      handleLandMines(); // Handle land mine drawing and collisions
       detectKeyboardInput();
       // Beetle Moves
       beetleShoot();
@@ -903,6 +910,7 @@ function resetRunState() {
   floatingTexts = [];
   antX[enemyIndex] = getGameplayWidth() * 0.75;
   antY[enemyIndex] = getGameplayHeight() * 0.5;
+
   
   // Reset EXP system
   expLevel = 1;
@@ -977,6 +985,7 @@ function applyCustomAntsToInitialPopulation() {
     bulletSpecialType[i] = s.bulletSpecialType;
     bulletExplosionTrigger[i] = s.bulletExplosionTrigger;
     bulletKnockbackMultiplier[i] = s.bulletKnockbackMultiplier;
+    bulletDeathType[i] = s.bulletDeathType;
     explosionProximity[i] = s.explosionProximity;
     angleFromSpawn[i] = s.angleFromSpawn;
     bulletSize[i] = s.bulletSize;
@@ -1061,6 +1070,7 @@ function syncActualWinnersToCustomStats(topAnts) {
         bulletSpecialType: bulletSpecialType[antId],
         bulletExplosionTrigger: bulletExplosionTrigger[antId],
         bulletKnockbackMultiplier: bulletKnockbackMultiplier[antId],
+        bulletDeathType: bulletDeathType[antId],
         explosionProximity: explosionProximity[antId],
         angleFromSpawn: angleFromSpawn[antId],
         bulletSize: bulletSize[antId],
@@ -1928,6 +1938,9 @@ function enemyShoot1() {
           let vy = ((playerY + shotOffsetY[i]) - antY[i] + 1) /
                    (bulletSpeed[i] * (bulletSize[i] ** bulletSize[i]));
 
+          // Calculate true bullet speed (pixels per frame)
+          let trueBulletSpeed = Math.sqrt(vx * vx + vy * vy);
+
           let bullet = {
             x: antX[i],
             y: antY[i],
@@ -1937,13 +1950,19 @@ function enemyShoot1() {
                          (playerX + shotOffsetX[i]) - antX[i]),
             life: 0,
             explodeAfter: bulletExplodeAfter[i], // per-ant timer
+            maxLife: trueBulletSpeed * 100,      // Bullet lifespan based on true speed
 
             size: bulletSize[i],                  // 🔴 key: keep the bullet's size
+            trueSpeed: trueBulletSpeed,          // Store true bullet speed
             knockbackBullet: (Math.round(bulletHasSpecial[i]) === 1 && Math.round(bulletSpecialType[i]) === 1), // Track knockback bullets
             knockbackMultiplier: bulletKnockbackMultiplier[i] // Store the knockback multiplier
           };
 
           enemyBullets[i].push(bullet);
+          
+          // Log bullet speed with tier categorization
+          let speedTier = getBulletSpeedTier(trueBulletSpeed);
+          console.log(`Ant ${i} fired ${speedTier.name} bullet - Speed: ${trueBulletSpeed.toFixed(3)} px/f, Damage multiplier: ${speedTier.damageMultiplier}x`);
           
           // Play spit sound when bullet is created (not during update loop)
           if (!sSpit1.isPlaying() && !sSpit2.isPlaying()) {
@@ -1987,16 +2006,46 @@ function enemyShoot1() {
           continue;
         }
 
+        // Check if bullet has exceeded its lifespan and should fade/disappear
+        const FADE_DURATION = 30; // Frames to fade out
+        if (bullet.life > bullet.maxLife + FADE_DURATION) {
+          // Check bullet death type
+          if (Math.round(bulletDeathType[i]) === 1) {
+            // Type 1: Convert to land mine
+            landMines.push({
+              x: bullet.x,
+              y: bullet.y,
+              size: bullet.size,
+              owner: i, // Ant that fired it
+              isPlayerMine: false,
+              knockbackBullet: bullet.knockbackBullet || false,
+              knockbackMultiplier: bullet.knockbackMultiplier || 1,
+              trueSpeed: bullet.trueSpeed || 5
+            });
+          }
+          // Type 0: Just fade and remove (default behavior)
+          enemyBullets[i].splice(b, 1);
+          continue;
+        }
+
         // draw bullet (check if should be visible with Tiger Beetle flash)
         let shouldDrawBullet = true;
         let bulletFadeAmount = 255;
+        
+        // Calculate fade based on bullet lifespan
+        if (bullet.life >= bullet.maxLife) {
+          let fadeProgress = (bullet.life - bullet.maxLife) / FADE_DURATION;
+          bulletFadeAmount = Math.floor(255 * (1 - fadeProgress));
+        }
+        
         if (tigerBeetleActive && tigerBeetleMoving) {
           // Check if this bullet is in the flashing entities list
           shouldDrawBullet = false;
           for (let f = 0; f < flashingEntities.length; f++) {
             if (flashingEntities[f].type === 'bullet' && flashingEntities[f].owner === i && flashingEntities[f].index === b) {
               shouldDrawBullet = true;
-              bulletFadeAmount = flashingEntities[f].fade;
+              // Combine Tiger Beetle fade with lifespan fade (use minimum)
+              bulletFadeAmount = Math.min(bulletFadeAmount, flashingEntities[f].fade);
               break;
             }
           }
@@ -2004,8 +2053,8 @@ function enemyShoot1() {
         
         if (shouldDrawBullet) {
           push();
-          // Apply fade if Tiger Beetle is active
-          if (tigerBeetleActive && tigerBeetleMoving) {
+          // Apply fade (either from Tiger Beetle or bullet lifespan)
+          if (tigerBeetleActive && tigerBeetleMoving || bullet.life >= bullet.maxLife) {
             tint(255, bulletFadeAmount);
           }
           angleMode(DEGREES);
@@ -2039,18 +2088,127 @@ function enemyShoot1() {
         ) {
           let isKnockbackBullet = bullet.knockbackBullet || false;
           let knockbackMult = bullet.knockbackMultiplier || 1;
+          let bulletSpeed = bullet.trueSpeed || 5; // Default to regular speed if not set
           enemyBullets[i].splice(b, 1);
-          handlePlayerHit(i, isKnockbackBullet, bullet.x, bullet.y, knockbackMult);
+          handlePlayerHit(i, isKnockbackBullet, bullet.x, bullet.y, knockbackMult, bulletSpeed);
         }
       }
     }
   }
 }
 
+// Categorize bullet speed into tiers and return damage multiplier
+function getBulletSpeedTier(speed) {
+  if (speed <= 2) {
+    return { name: "LOW SPEED", damageMultiplier: 0.5 };
+  } else if (speed <= 7) {
+    return { name: "REGULAR SPEED", damageMultiplier: 1.0 };
+  } else if (speed <= 10) {
+    return { name: "FAST SPEED", damageMultiplier: 1.5 };
+  } else if (speed <= 14) {
+    return { name: "SNIPER SPEED", damageMultiplier: 2.0 };
+  } else {
+    return { name: "GOD SPEED", damageMultiplier: 3.0 };
+  }
+}
 
-function handlePlayerHit(i, isKnockbackBullet = false, bulletX = 0, bulletY = 0, knockbackMult = 1){
+// Draw and handle land mines
+function handleLandMines() {
+  for (let m = landMines.length - 1; m >= 0; m--) {
+    let mine = landMines[m];
+    
+    // Draw land mine as a green circle
+    push();
+    let mineSize = 15 * mine.size; // Size based on bullet size
+    fill(0, 200, 0, 180); // Green with transparency
+    stroke(0, 255, 0, 255); // Bright green outline
+    strokeWeight(2);
+    ellipse(mine.x, mine.y, mineSize, mineSize);
+    
+    // Draw a small warning symbol in the center
+    fill(255, 255, 0);
+    noStroke();
+    ellipse(mine.x, mine.y, mineSize * 0.3, mineSize * 0.3);
+    pop();
+    
+    // Check collision with player (for enemy mines)
+    if (!mine.isPlayerMine) {
+      let hitboxSize = (mineSize / 2) + 15; // Mine radius + player hitbox
+      if (dist(playerX, playerY, mine.x, mine.y) < hitboxSize) {
+        // Trigger mine
+        handlePlayerHit(mine.owner, mine.knockbackBullet, mine.x, mine.y, mine.knockbackMultiplier, mine.trueSpeed, true);
+        landMines.splice(m, 1);
+        continue;
+      }
+    }
+    
+    // Check collision with ants (for player mines)
+    if (mine.isPlayerMine) {
+      for (let i = 1; i <= enemyCount; i++) {
+        let antHitboxSize = 20.25 + (6.75 * antSize[i]);
+        let mineHitboxSize = (mineSize / 2);
+        if (dist(antX[i], antY[i], mine.x, mine.y) < antHitboxSize + mineHitboxSize) {
+          // Mine hits ant
+          let damage = mine.size;
+          antHealth[i] -= damage;
+          
+          // Apply knockback if it's a knockback mine
+          if (mine.knockbackBullet) {
+            let dx = antX[i] - mine.x;
+            let dy = antY[i] - mine.y;
+            let distance = dist(mine.x, mine.y, antX[i], antY[i]);
+            if (distance > 0) {
+              let knockbackSpeed = 8 * mine.knockbackMultiplier;
+              antKnockbackVelX[i] = (dx / distance) * knockbackSpeed;
+              antKnockbackVelY[i] = (dy / distance) * knockbackSpeed;
+              antKnockedBack[i] = true;
+              antKnockbackTimer[i] = 60;
+            }
+          }
+          
+          // Check if ant dies
+          if (antHealth[i] <= 0) {
+            antLives[i]++;
+            comboTime = 60;
+            combo++;
+            calculateBonus();
+            streakPoints += comboPoints;
+            addScore(100 + comboPoints);
+            health++;
+            addDeathEffect(antX[i], antY[i], 100 + comboPoints);
+            antX[i] = random(0, getGameplayWidth());
+            antY[i] = random(scoreBarHeight + ANT_SPAWN_BUFFER, getGameplayHeight() - expBarHeight - expBarBuffer - ANT_SPAWN_BUFFER);
+            spawnX[i] = antX[i] + cos(angleFromSpawn[i]);
+            spawnY[i] = antY[i] + sin(angleFromSpawn[i]);
+            antHealth[i] = antMaxHealth[i];
+            antKnockedBack[i] = false;
+            antKnockbackTimer[i] = 0;
+            antStunned[i] = false;
+            antStunTimer[i] = 0;
+            antLastShotFrame[i] = 0;
+            antAirHeight[i] = 0;
+          }
+          
+          landMines.splice(m, 1);
+          break;
+        }
+      }
+    }
+  }
+}
+
+function handlePlayerHit(i, isKnockbackBullet = false, bulletX = 0, bulletY = 0, knockbackMult = 1, bulletSpeed = 5, isMine = false){
   if (end == false){
     playerLastDamageFrame = frameCount;  // Track when player took damage
+    
+    // Calculate damage based on bullet speed tier and size (mines use size only)
+    let damage;
+    if (isMine) {
+      damage = bulletSize[i];
+    } else {
+      let speedTier = getBulletSpeedTier(bulletSpeed);
+      damage = bulletSize[i] * speedTier.damageMultiplier;
+    }
     
     // Apply knockback if this is a knockback bullet
     if (isKnockbackBullet) {
@@ -2067,8 +2225,8 @@ function handlePlayerHit(i, isKnockbackBullet = false, bulletX = 0, bulletY = 0,
     }
     
     if (shield > 0){
-      shield = shield - bulletSize[i];
-      antPoints[i] = antPoints[i] + bulletSize[i];
+      shield = shield - damage;
+      antPoints[i] = antPoints[i] + damage;
       console.log("Ant", i, "points:", antPoints[i]);
       if(!sShieldHit1.isPlaying() || !sShieldHit2.isPlaying()) {
         sHit = round(random(1,2));
@@ -2079,8 +2237,8 @@ function handlePlayerHit(i, isKnockbackBullet = false, bulletX = 0, bulletY = 0,
         }       
       }
     } else {
-      health = health - bulletSize[i];
-      antPoints[i] = antPoints[i] + bulletSize[i];
+      health = health - damage;
+      antPoints[i] = antPoints[i] + damage;
       console.log("Ant", i, "points:", antPoints[i]);
       if(!sHit1.isPlaying() || !sHit2.isPlaying()) {
         sHit = round(random(1,2));
@@ -2541,6 +2699,20 @@ function handleWindAttack() {
             }
           }
         }
+      
+      // Deflect land mines within shockwave area
+      for (let m = landMines.length - 1; m >= 0; m--) {
+        let mine = landMines[m];
+        let mineDistance = dist(playerX, playerY, mine.x, mine.y);
+        
+        if (mineDistance <= maxRadius && !mine.isPlayerMine) {
+          // Check if this mine gets deflected
+          if (random() < deflectChance) {
+            // Convert to player mine - it will now damage ants
+            mine.isPlayerMine = true;
+          }
+        }
+      }
       
       // Deal damage when radius reaches max
       let windDamage = 0.5 + (upgrade16Level * 0.14); // 0.5 to 1.2 in 5 steps
@@ -4343,6 +4515,7 @@ function nextRound(){
         bulletSpecialType[i]    = constrain(s.bulletSpecialType    + random(-movementMutationRate, movementMutationRate), -0.5, 1.5);
         bulletExplosionTrigger[i]    = constrain(s.bulletExplosionTrigger    + random(-movementMutationRate, movementMutationRate), -0.5, 1.5);
         bulletKnockbackMultiplier[i]    = constrain(s.bulletKnockbackMultiplier    + random(-0.5, 0.5), 0.5, 5);
+        bulletDeathType[i]    = constrain(s.bulletDeathType    + random(-0, 0), -0.5, 1.5);
         explosionProximity[i]    = constrain(s.explosionProximity    + random(-100, 100), 0.1, 1000);
         angleFromSpawn[i]    = constrain(s.angleFromSpawn    + random((-PI / 3), (PI / 3)), 0, TWO_PI);
         bulletSize[i]    = constrain(s.bulletSize    + random(-(movementMutationRate / 2), (movementMutationRate / 2)), 1, 3);
@@ -4378,6 +4551,7 @@ function nextRound(){
         bulletSpecialType[i]    = constrain(bulletSpecialType[parent.id]    + random(-movementMutationRate, movementMutationRate), -0.5, 1.5);
         bulletExplosionTrigger[i]    = constrain(bulletExplosionTrigger[parent.id]    + random(-movementMutationRate, movementMutationRate), -0.5, 1.5);
         bulletKnockbackMultiplier[i]    = constrain(bulletKnockbackMultiplier[parent.id]    + random(-0.5, 0.5), 0.5, 5);
+        bulletDeathType[i]    = constrain(bulletDeathType[parent.id]    + random(-movementMutationRate, movementMutationRate), -0.5, 1.5);
         explosionProximity[i]    = constrain(explosionProximity[parent.id]    + random(-100, 100), 0.1, 1000);
         angleFromSpawn[i]    = constrain(angleFromSpawn[parent.id]    + random((-PI / 3), (PI / 3)), 0, TWO_PI);
         bulletSize[i]    = constrain(bulletSize[parent.id]    + random(-(movementMutationRate / 2), (movementMutationRate / 2)), 1, 3);
@@ -6837,6 +7011,8 @@ function drawAntsTab(fadeAlpha) {
       help: '0=Time, 1=Proximity' },
     { name: 'Knockback Multiplier', key: 'bulletKnockbackMultiplier', min: 0.5, max: 5, step: 0.1,
       help: 'Multiplies knockback strength (0.5-5)' },
+    { name: 'Bullet Death Type', key: 'bulletDeathType', min: -0.5, max: 1.5, step: 0.01,
+      help: '0=Fade out, 1=Land mine' },
     { name: 'Explosion Proximity', key: 'explosionProximity', min: 0.1, max: 1000, step: 1 },
     { name: 'Angle From Spawn', key: 'angleFromSpawn', min: 0, max: 6.28, step: 0.01,
       help: 'Radians (0-2π)' },
