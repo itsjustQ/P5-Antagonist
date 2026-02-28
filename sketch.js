@@ -2020,7 +2020,13 @@ function enemyShoot1() {
               isPlayerMine: false,
               knockbackBullet: bullet.knockbackBullet || false,
               knockbackMultiplier: bullet.knockbackMultiplier || 1,
-              trueSpeed: bullet.trueSpeed || 5
+                trueSpeed: bullet.trueSpeed || 5,
+                // Preserve explosion triggers from the originating ant/bullet
+                life: 0,
+                explodeOnTermination: explodeOnTermination[i] || false,
+                triggerExplodeViaProximity: triggerExplodeViaProximity[i] || false,
+                explosionProximity: explosionProximity[i] || 0,
+                explodeAfter: bullet.explodeAfter || bulletExplodeAfter[i]
             });
           }
           // Type 0: Just fade and remove (default behavior)
@@ -2116,6 +2122,131 @@ function getBulletSpeedTier(speed) {
 function handleLandMines() {
   for (let m = landMines.length - 1; m >= 0; m--) {
     let mine = landMines[m];
+    // Track mine lifetime for time-based explosion fuses
+    mine.life = (mine.life || 0) + 1;
+
+    // Handle time-based explosion (fuse)
+    if (mine.explodeOnTermination && mine.life >= (mine.explodeAfter || 0)) {
+      // If enemy-owned mine, spawn enemy explosion (damages player)
+      if (!mine.isPlayerMine) {
+        spawnEnemyExplosion(mine.x, mine.y, mine.size, mine.owner);
+      } else {
+        // Player-owned mine: apply explosion damage to nearby ants
+        const BASE_RADIUS = 20;
+        const RADIUS_PER_SIZE = 40;
+        let radius = (BASE_RADIUS + RADIUS_PER_SIZE * (mine.size - 1));
+        for (let ai = 1; ai <= enemyCount; ai++) {
+          let d = dist(mine.x, mine.y, antX[ai], antY[ai]);
+          if (d <= radius) {
+            antHealth[ai] -= mine.size;
+            // apply simple knockback
+            let dx = antX[ai] - mine.x;
+            let dy = antY[ai] - mine.y;
+            let distance = dist(mine.x, mine.y, antX[ai], antY[ai]);
+            if (distance > 0) {
+              let knockbackSpeed = 8 * (mine.knockbackMultiplier || 1);
+              antKnockbackVelX[ai] = (dx / distance) * knockbackSpeed;
+              antKnockbackVelY[ai] = (dy / distance) * knockbackSpeed;
+              antKnockedBack[ai] = true;
+              antKnockbackTimer[ai] = 60;
+            }
+
+            if (antHealth[ai] <= 0) {
+              antLives[ai]++;
+              comboTime = 60;
+              combo++;
+              calculateBonus();
+              streakPoints += comboPoints;
+              addScore(100 + comboPoints);
+              health++;
+              addDeathEffect(antX[ai], antY[ai], 100 + comboPoints);
+              antX[ai] = random(0, getGameplayWidth());
+              antY[ai] = random(scoreBarHeight + ANT_SPAWN_BUFFER, getGameplayHeight() - expBarHeight - expBarBuffer - ANT_SPAWN_BUFFER);
+              spawnX[ai] = antX[ai] + cos(angleFromSpawn[ai]);
+              spawnY[ai] = antY[ai] + sin(angleFromSpawn[ai]);
+              antHealth[ai] = antMaxHealth[ai];
+              antKnockedBack[ai] = false;
+              antKnockbackTimer[ai] = 0;
+              antStunned[ai] = false;
+              antStunTimer[ai] = 0;
+              antLastShotFrame[ai] = 0;
+              antAirHeight[ai] = 0;
+            }
+          }
+        }
+      }
+      // Remove mine after explosion
+      landMines.splice(m, 1);
+      continue;
+    }
+
+    // Handle proximity-triggered explosions
+    if (mine.triggerExplodeViaProximity) {
+      if (!mine.isPlayerMine) {
+        let d = dist(playerX, playerY, mine.x, mine.y);
+        if (d <= (mine.explosionProximity || 0)) {
+          spawnEnemyExplosion(mine.x, mine.y, mine.size, mine.owner);
+          landMines.splice(m, 1);
+          continue;
+        }
+      } else {
+        // Player-owned mine: check ants for proximity
+        for (let ai = 1; ai <= enemyCount; ai++) {
+          let d = dist(antX[ai], antY[ai], mine.x, mine.y);
+          if (d <= (mine.explosionProximity || 0)) {
+            // Apply explosion damage to nearby ants (same as time-based)
+            const BASE_RADIUS = 20;
+            const RADIUS_PER_SIZE = 40;
+            let radius = (BASE_RADIUS + RADIUS_PER_SIZE * (mine.size - 1));
+            for (let aj = 1; aj <= enemyCount; aj++) {
+              let dj = dist(mine.x, mine.y, antX[aj], antY[aj]);
+              if (dj <= radius) {
+                antHealth[aj] -= mine.size;
+                // simple knockback
+                let dx = antX[aj] - mine.x;
+                let dy = antY[aj] - mine.y;
+                let distance = dist(mine.x, mine.y, antX[aj], antY[aj]);
+                if (distance > 0) {
+                  let knockbackSpeed = 8 * (mine.knockbackMultiplier || 1);
+                  antKnockbackVelX[aj] = (dx / distance) * knockbackSpeed;
+                  antKnockbackVelY[aj] = (dy / distance) * knockbackSpeed;
+                  antKnockedBack[aj] = true;
+                  antKnockbackTimer[aj] = 60;
+                }
+
+                if (antHealth[aj] <= 0) {
+                  antLives[aj]++;
+                  comboTime = 60;
+                  combo++;
+                  calculateBonus();
+                  streakPoints += comboPoints;
+                  addScore(100 + comboPoints);
+                  health++;
+                  addDeathEffect(antX[aj], antY[aj], 100 + comboPoints);
+                  antX[aj] = random(0, getGameplayWidth());
+                  antY[aj] = random(scoreBarHeight + ANT_SPAWN_BUFFER, getGameplayHeight() - expBarHeight - expBarBuffer - ANT_SPAWN_BUFFER);
+                  spawnX[aj] = antX[aj] + cos(angleFromSpawn[aj]);
+                  spawnY[aj] = antY[aj] + sin(angleFromSpawn[aj]);
+                  antHealth[aj] = antMaxHealth[aj];
+                  antKnockedBack[aj] = false;
+                  antKnockbackTimer[aj] = 0;
+                  antStunned[aj] = false;
+                  antStunTimer[aj] = 0;
+                  antLastShotFrame[aj] = 0;
+                  antAirHeight[aj] = 0;
+                }
+              }
+            }
+            landMines.splice(m, 1);
+            break;
+          }
+        }
+        // If we removed the mine above, continue to next mine
+        if (m < landMines.length && landMines[m] && landMines[m].x !== mine.x) {
+          continue;
+        }
+      }
+    }
     
     // Draw land mine as a green circle
     push();
@@ -2704,12 +2835,34 @@ function handleWindAttack() {
       for (let m = landMines.length - 1; m >= 0; m--) {
         let mine = landMines[m];
         let mineDistance = dist(playerX, playerY, mine.x, mine.y);
-        
+
         if (mineDistance <= maxRadius && !mine.isPlayerMine) {
-          // Check if this mine gets deflected
+          // Check if this mine gets deflected. Use the same deflectChance
+          // as enemy bullets so the upgrade affects mines equally.
           if (random() < deflectChance) {
-            // Convert to player mine - it will now damage ants
-            mine.isPlayerMine = true;
+            // Convert mine into a player bullet aimed at nearest ant
+            let nearestAntDist = Infinity;
+            let targetAngle = 0;
+
+            for (let j = 1; j <= enemyCount; j++) {
+              let distToAnt = dist(mine.x, mine.y, antX[j], antY[j]);
+              if (distToAnt < nearestAntDist) {
+                nearestAntDist = distToAnt;
+                targetAngle = atan2(antY[j] - mine.y, antX[j] - mine.x) * (180 / PI);
+              }
+            }
+
+            playerBullets.push({
+              x: mine.x,
+              y: mine.y,
+              rotation: targetAngle
+            });
+
+            // Remove the mine once converted to a bullet
+            landMines.splice(m, 1);
+          } else {
+            // If not converted into a bullet, leave the mine as an enemy mine
+            // (do nothing) so it still harms the player.
           }
         }
       }
@@ -3601,8 +3754,10 @@ if (timeCount < 0) {
             return;
           }
         }
+        landMines.length = 0;
         nextRound();
       } else if (touches.length > 0) {
+        landMines.length = 0;
         nextRound();
       }
     } else {
@@ -3704,6 +3859,7 @@ if (timeCount < 0) {
             if (menuNavigationCooldown === 0) {
               intermissionMenu = false;
               intermissionMenuCooldown = 20;
+              landMines.length = 0;
               nextRound();
               menuNavigationCooldown = 20;
             }
@@ -3723,11 +3879,12 @@ if (timeCount < 0) {
         }
 
       // Enter key to select
-      if (isConfirmPressed() && menuNavigationCooldown === 0) {
+          if (isConfirmPressed() && menuNavigationCooldown === 0) {
         if (intermissionMenuSelection === 0) {
           intermissionMenu = false;
           intermissionMenuCooldown = 20;
-          nextRound();
+              landMines.length = 0;
+              nextRound();
         } else if (intermissionMenuSelection === 1) {
           intermissionMenu = false;
           intermissionMenuCooldown = 20;
@@ -3876,6 +4033,149 @@ function drawUpgradeScreen() {
   let upgrades = displayedUpgrades.map(index => allUpgrades[index]);
   let numOptions = displayedUpgrades.length;
 
+  // Helper: concise upgrade summary (what it does, current stat, next stat)
+  function getUpgradeSummary(upgradeIndex, level) {
+    // helper to clamp next level
+    const nextLevel = Math.min(level + 1, allUpgrades[upgradeIndex].maxLevel);
+    switch (upgradeIndex) {
+      case 0: { // Walking Speed
+        const vals = [3, 3.5, 4, 4.5, 5];
+        const cur = vals[level];
+        const nxt = vals[nextLevel];
+        return `Increase movement speed. Current: ${cur} → ${level === allUpgrades[upgradeIndex].maxLevel ? `${cur} (max)` : nxt}`;
+      }
+      case 1: { // Dash Speed
+        const vals = [2,3,4,5,6,7];
+        const cur = vals[level];
+        const nxt = vals[nextLevel];
+        return `Increase dash speed. Current: ${cur} → ${level === allUpgrades[upgradeIndex].maxLevel ? `${cur} (max)` : nxt}`;
+      }
+      case 2: { // Dash Cooldown
+        const vals = [3,2.5,2,1.5,1,0.5];
+        const cur = vals[level];
+        const nxt = vals[nextLevel];
+        return `Reduce dash cooldown. Current: ${cur}s → ${level === allUpgrades[upgradeIndex].maxLevel ? `${cur}s (min)` : `${nxt}s`}`;
+      }
+      case 3: { // Add Shield
+        const cur = level;
+        const nxt = nextLevel;
+        return `Increase shield capacity. Current: ${cur} → ${level === allUpgrades[upgradeIndex].maxLevel ? `${cur} (max)` : nxt}`;
+      }
+      case 4: { // Add Bullets
+        const vals = [0,2,4,6,8,10,12,14,16];
+        const cur = vals[level];
+        const nxt = vals[nextLevel];
+        return `Increase bullet capacity. Current: ${cur} → ${level === allUpgrades[upgradeIndex].maxLevel ? `${cur} (max)` : nxt}`;
+      }
+      case 5: { // Shield Regeneration
+        const vals = [600,500,400,300,200,100];
+        const cur = vals[level];
+        const nxt = vals[nextLevel];
+        return `Regenerate shields faster. Current rate divisor: ${cur} → ${level === allUpgrades[upgradeIndex].maxLevel ? `${cur} (best)` : nxt}`;
+      }
+      case 6: { // Bullet Reload
+        const vals = [180,150,120,90,60,30];
+        const cur = vals[level];
+        const nxt = vals[nextLevel];
+        return `Faster bullet reload (frames). Current: ${cur} → ${level === allUpgrades[upgradeIndex].maxLevel ? `${cur} (fastest)` : nxt}`;
+      }
+      case 7: { // Bullet Speed
+        const vals = [1,2,4,6,8,10];
+        const cur = vals[level];
+        const nxt = vals[nextLevel];
+        return `Increase bullet velocity. Current: ${cur} → ${level === allUpgrades[upgradeIndex].maxLevel ? `${cur} (max)` : nxt}`;
+      }
+      case 8: { // Free-Angle Aiming
+        return level > 0 ? 'Aim with mouse/right stick. Current: ON' : 'Aim with mouse/right stick. Current: OFF → Next: ON';
+      }
+      case 9: { // Tiger Beetle
+        return level > 0 ? 'Tiger Beetle form unlocked. Current: ON' : 'Tiger Beetle form (dash toggles). Current: OFF → Next: ON';
+      }
+      case 10: { // Oogpister Beetle
+        return level > 0 ? '20% chance to reload 1 bullet on kill. Current: ON' : '20% chance to reload 1 bullet on kill. Current: OFF → Next: ON';
+      }
+      case 11: { // Horns
+        const cur = (level * 0.2).toFixed(2);
+        const nxt = (nextLevel * 0.2).toFixed(2);
+        return `Increase dash damage. Current extra: ${cur} → ${level === allUpgrades[upgradeIndex].maxLevel ? `${cur} (max)` : nxt}`;
+      }
+      case 12: { // Potent Acid
+        const cur = (1 + level * 0.2).toFixed(2);
+        const nxt = (1 + nextLevel * 0.2).toFixed(2);
+        return `Increase bullet damage multiplier. Current: ×${cur} → ${level === allUpgrades[upgradeIndex].maxLevel ? `×${cur} (max)` : `×${nxt}`}`;
+      }
+      case 13: { // Shockwave
+        return level > 0 ? 'Unlock shockwave attack. Current: ON' : 'Unlock shockwave attack. Current: OFF → Next: ON';
+      }
+      case 14: { // Shockwave Radius
+        const cur = 60 + (level * 18);
+        const nxt = 60 + (nextLevel * 18);
+        return `Increase shockwave radius. Current: ${cur}px → ${level === allUpgrades[upgradeIndex].maxLevel ? `${cur}px (max)` : `${nxt}px`}`;
+      }
+      case 15: { // Shockwave Damage
+        const cur = (0.5 + level * 0.14).toFixed(2);
+        const nxt = (0.5 + nextLevel * 0.14).toFixed(2);
+        return `Increase shockwave damage. Current: ${cur} → ${level === allUpgrades[upgradeIndex].maxLevel ? `${cur} (max)` : nxt}`;
+      }
+      case 16: { // Shockwave Cooldown
+        const vals = [2.25,1.875,1.5,1.125,0.75,0.375];
+        const cur = vals[level];
+        const nxt = vals[nextLevel];
+        return `Reduce shockwave cooldown. Current: ${cur}s → ${level === allUpgrades[upgradeIndex].maxLevel ? `${cur}s (min)` : `${nxt}s`}`;
+      }
+      case 17: { // Shockwave Knockback
+        const cur = 4 + (level * 2);
+        const nxt = 4 + (nextLevel * 2);
+        return `Increase shockwave knockback. Current: ${cur} → ${level === allUpgrades[upgradeIndex].maxLevel ? `${cur} (max)` : nxt}`;
+      }
+      case 18: { // Bullet Deflection
+        const cur = ((level + 1) * 0.2 * 100).toFixed(0) + '%';
+        const nxt = ((nextLevel + 1) * 0.2 * 100).toFixed(0) + '%';
+        return `Shockwave bullet deflection. Current: ${cur} → ${level === allUpgrades[upgradeIndex].maxLevel ? `${cur} (max)` : nxt}`;
+      }
+      case 19: { // Health Regeneration
+        const rates = [0,0.001,0.005,0.01,0.05,0.1];
+        const cur = rates[level] ? rates[level] : 0;
+        const nxt = rates[nextLevel] ? rates[nextLevel] : 0;
+        return `Regenerate health when safe. Current: ${cur} → ${level === allUpgrades[upgradeIndex].maxLevel ? `${cur} (max)` : nxt}`;
+      }
+      default:
+        return allUpgrades[upgradeIndex].description;
+    }
+  }
+
+  // Helper: compute current and next display values for bottom of card
+  function getUpgradeValues(upgradeIndex, level) {
+    const nextLevel = Math.min(level + 1, allUpgrades[upgradeIndex].maxLevel);
+    let cur = '';
+    let nxt = '';
+    let isMax = (level >= allUpgrades[upgradeIndex].maxLevel);
+    switch (upgradeIndex) {
+      case 0: { const vals=[3,3.5,4,4.5,5]; cur = `${vals[level]}`; nxt = `${vals[nextLevel]}`; break; }
+      case 1: { const vals=[2,3,4,5,6,7]; cur = `${vals[level]}`; nxt = `${vals[nextLevel]}`; break; }
+      case 2: { const vals=[3,2.5,2,1.5,1,0.5]; cur = `${vals[level]}s`; nxt = `${vals[nextLevel]}s`; break; }
+      case 3: { cur = `${level}`; nxt = `${nextLevel}`; break; }
+      case 4: { const vals=[0,2,4,6,8,10,12,14,16]; cur = `${vals[level]}`; nxt = `${vals[nextLevel]}`; break; }
+      case 5: { const vals=[600,500,400,300,200,100]; cur = `${vals[level]}`; nxt = `${vals[nextLevel]}`; break; }
+      case 6: { const vals=[180,150,120,90,60,30]; cur = `${vals[level]}`; nxt = `${vals[nextLevel]}`; break; }
+      case 7: { const vals=[1,2,4,6,8,10]; cur = `${vals[level]}`; nxt = `${vals[nextLevel]}`; break; }
+      case 8: { cur = level > 0 ? 'ON' : 'OFF'; nxt = 'ON'; break; }
+      case 9: { cur = level > 0 ? 'ON' : 'OFF'; nxt = 'ON'; break; }
+      case 10:{ cur = level > 0 ? 'ON' : 'OFF'; nxt = 'ON'; break; }
+      case 11:{ cur = (level * 0.2).toFixed(2); nxt = (nextLevel * 0.2).toFixed(2); break; }
+      case 12:{ cur = (1 + level * 0.2).toFixed(2); nxt = (1 + nextLevel * 0.2).toFixed(2); break; }
+      case 13:{ cur = level > 0 ? 'ON' : 'OFF'; nxt = 'ON'; break; }
+      case 14:{ cur = `${60 + (level * 18)}px`; nxt = `${60 + (nextLevel * 18)}px`; break; }
+      case 15:{ cur = (0.5 + level * 0.14).toFixed(2); nxt = (0.5 + nextLevel * 0.14).toFixed(2); break; }
+      case 16:{ const vals=[2.25,1.875,1.5,1.125,0.75,0.375]; cur = `${vals[level]}s`; nxt = `${vals[nextLevel]}s`; break; }
+      case 17:{ cur = `${4 + (level * 2)}`; nxt = `${4 + (nextLevel * 2)}`; break; }
+      case 18:{ cur = `${((level + 1) * 0.2 * 100).toFixed(0)}%`; nxt = `${((nextLevel + 1) * 0.2 * 100).toFixed(0)}%`; break; }
+      case 19:{ const rates=[0,0.001,0.005,0.01,0.05,0.1]; cur = `${rates[level]}`; nxt = `${rates[nextLevel]}`; break; }
+      default: { cur = ''; nxt = ''; }
+    }
+    return { cur, nxt, isMax };
+  }
+
   beginMenuScaling();
     // Background - matching AntDex background
     fill(20);
@@ -3954,7 +4254,8 @@ function drawUpgradeScreen() {
       textAlign(CENTER, CENTER);
       text(upgrades[i].title, cardX, cardY - cardHeight * 0.28);
 
-      // Description
+      // Description (concise)
+      let desc = getUpgradeSummary(displayedUpgrades[i], upgrades[i].level);
       if (selectedUpgrade === i) {
         fill(40);  // Dark grey text on white background
       } else {
@@ -3962,18 +4263,40 @@ function drawUpgradeScreen() {
       }
       textSize(16);
       textAlign(CENTER, TOP);
-      text(upgrades[i].description, cardX, cardY + cardHeight * 0.02, cardWidth * 0.8, cardHeight * 0.4);
+      text(desc, cardX, cardY + cardHeight * 0.02, cardWidth * 0.8, cardHeight * 0.4);
 
-      // Level counter at bottom
-      if (selectedUpgrade === i) {
-        fill(10);  // Dark text on white background
-      } else {
-        fill(255);  // White text on dark background
-      }
+      // Values at bottom: show current → next (next in green)
       textSize(20);
       textAlign(CENTER, CENTER);
-      let levelText = upgrades[i].level >= upgrades[i].maxLevel ? 'MAX LEVEL' : `Level ${upgrades[i].level}`;
-      text(levelText, cardX, cardY + cardHeight * 0.38);
+      let vals = getUpgradeValues(displayedUpgrades[i], upgrades[i].level);
+      let bottomY = cardY + cardHeight * 0.38;
+      if (vals.isMax) {
+        if (selectedUpgrade === i) fill(10); else fill(255);
+        text('MAX LEVEL', cardX, bottomY);
+      } else {
+        // Draw current (white or dark on selected) and next (green)
+        let curText = vals.cur;
+        let nxtText = vals.nxt;
+        textSize(20);
+        let arrow = ' → ';
+        // measure widths to position pieces
+        let curW = textWidth(curText);
+        let arrowW = textWidth(arrow);
+        let nxtW = textWidth(nxtText);
+        let totalW = curW + arrowW + nxtW;
+        // current
+        let curX = cardX - totalW / 2 + curW / 2;
+        if (selectedUpgrade === i) fill(10); else fill(255);
+        text(curText, curX, bottomY);
+        // arrow
+        let arrowX = cardX - totalW / 2 + curW + arrowW / 2;
+        fill(180);
+        text(arrow, arrowX, bottomY);
+        // next (green)
+        let nxtX = cardX - totalW / 2 + curW + arrowW + nxtW / 2;
+        if (selectedUpgrade === i) fill(0,160,0); else fill(0,220,0);
+        text(nxtText, nxtX, bottomY);
+      }
     }
 
       // Fade effect for navigation elements
@@ -4515,7 +4838,7 @@ function nextRound(){
         bulletSpecialType[i]    = constrain(s.bulletSpecialType    + random(-movementMutationRate, movementMutationRate), -0.5, 1.5);
         bulletExplosionTrigger[i]    = constrain(s.bulletExplosionTrigger    + random(-movementMutationRate, movementMutationRate), -0.5, 1.5);
         bulletKnockbackMultiplier[i]    = constrain(s.bulletKnockbackMultiplier    + random(-0.5, 0.5), 0.5, 5);
-        bulletDeathType[i]    = constrain(s.bulletDeathType    + random(-0, 0), -0.5, 1.5);
+        bulletDeathType[i]    = constrain(s.bulletDeathType    + random(-(movementMutationRate/2), (movementMutationRate/2)), -0.5, 1.5);
         explosionProximity[i]    = constrain(s.explosionProximity    + random(-100, 100), 0.1, 1000);
         angleFromSpawn[i]    = constrain(s.angleFromSpawn    + random((-PI / 3), (PI / 3)), 0, TWO_PI);
         bulletSize[i]    = constrain(s.bulletSize    + random(-(movementMutationRate / 2), (movementMutationRate / 2)), 1, 3);
@@ -4551,7 +4874,7 @@ function nextRound(){
         bulletSpecialType[i]    = constrain(bulletSpecialType[parent.id]    + random(-movementMutationRate, movementMutationRate), -0.5, 1.5);
         bulletExplosionTrigger[i]    = constrain(bulletExplosionTrigger[parent.id]    + random(-movementMutationRate, movementMutationRate), -0.5, 1.5);
         bulletKnockbackMultiplier[i]    = constrain(bulletKnockbackMultiplier[parent.id]    + random(-0.5, 0.5), 0.5, 5);
-        bulletDeathType[i]    = constrain(bulletDeathType[parent.id]    + random(-movementMutationRate, movementMutationRate), -0.5, 1.5);
+        bulletDeathType[i]    = constrain(bulletDeathType[parent.id]    + random(-(movementMutationRate/2), (movementMutationRate/2)), -0.5, 1.5);
         explosionProximity[i]    = constrain(explosionProximity[parent.id]    + random(-100, 100), 0.1, 1000);
         angleFromSpawn[i]    = constrain(angleFromSpawn[parent.id]    + random((-PI / 3), (PI / 3)), 0, TWO_PI);
         bulletSize[i]    = constrain(bulletSize[parent.id]    + random(-(movementMutationRate / 2), (movementMutationRate / 2)), 1, 3);
@@ -6701,6 +7024,8 @@ function advanceToNextPlayer() {
       break;
     }
   } while (!players[currentPlayerIndex].alive);
+  // Clear any land mines when advancing to the next player's turn
+  landMines.length = 0;
   
   // Reset game state for next player's turn (same round)
   end = false;
@@ -6760,6 +7085,8 @@ function advanceToNextAlivePlayer() {
       break;
     }
   } while (!players[currentPlayerIndex].alive || players[currentPlayerIndex].hasPlayedRound);
+  // Clear any land mines when advancing to the next alive player's turn
+  landMines.length = 0;
   
   // Reset game state for next player's turn (same round)
   end = false;
@@ -6901,6 +7228,7 @@ function drawMultiplayerScoreboard() {
       if (isConfirmPressed() && menuNavigationCooldown === 0) {
         // Stop end music, title music will start when turn screen shows
         endmusic.stop();
+        landMines.length = 0;
         nextRound();
         menuNavigationCooldown = 20;
       }
