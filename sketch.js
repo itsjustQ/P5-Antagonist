@@ -153,67 +153,107 @@ let dexTabRegions = {
   exotic: { x: 0, y: 0, w: 0, h: 0 }
 };
 
-let movementType1Discovered = false; 
-let movementType2Discovered = false; 
-let movementType3Discovered = false; 
-let movementType4Discovered = false;
-let movementType5Discovered = false;
-let movementType6Discovered = false;
-let movementType7Discovered = false;
-let movementType8Discovered = false;
+// Movement behavior discoveries
+let movementType1Discovered = false;  // Follow Beetle
+let movementType2Discovered = false;  // Follow Ants
+let movementType3Discovered = false;  // Find Location
+let movementType4Discovered = false;  // Stand Still
+let movementType5Discovered = false;  // Keep Distance From Beetle
+let movementType6Discovered = false;  // Keep Distance From Ants
+let movementType7Discovered = false;  // Keep Distance From Location
+let movementType8Discovered = false;  // Keep Distance From Spawn
 
-let maxSpeedDiscovered = false;
-let minSpeedDiscovered = false;
-let walkingAntsDiscovered = false;
+// Ant Speed discoveries (0.9-3.5)
+let antSpeedMinDiscovered = false;     // 0.9-1.2
+let antSpeedLowDiscovered = false;     // 1.3-1.7
+let antSpeedMedDiscovered = false;     // 1.8-2.3
+let antSpeedHighDiscovered = false;    // 2.4-3.0
+let antSpeedMaxDiscovered = false;     // 3.1-3.5
 
-let basicBulletsDiscovered = false;
-let heavyBulletsDiscovered = false;
-let landMineDiscovered = false;
+// Bullet Speed discoveries (60-300)
+let bulletSpeedMinDiscovered = false;  // 60-90 (fastest)
+let bulletSpeedLowDiscovered = false;  // 91-140
+let bulletSpeedMedDiscovered = false;  // 141-220
+let bulletSpeedHighDiscovered = false; // 221-270
+let bulletSpeedMaxDiscovered = false;  // 271-300 (slowest)
 
-let minBulletSpeedDiscovered = false;
-let midBulletSpeedDiscovered = false;
-let maxBulletSpeedDiscovered = false;
+// Bullet Cooldown discoveries (79-200)
+let cooldownMinDiscovered = false;     // 79-95 (rapid fire)
+let cooldownLowDiscovered = false;     // 96-120
+let cooldownMedDiscovered = false;     // 121-150
+let cooldownHighDiscovered = false;    // 151-180
+let cooldownMaxDiscovered = false;     // 181-200 (slow fire)
 
-let straightShootingAntsDiscovered = false;
-let wideShotAntsDiscovered = false;
-let wildShotAntsDiscovered = false;
-let mostOffTargetAntsDiscovered = false;
+// Shot Offset discoveries (0-500)
+let offsetMinDiscovered = false;       // 0-50
+let offsetLowDiscovered = false;       // 51-150
+let offsetMedDiscovered = false;       // 151-300
+let offsetHighDiscovered = false;      // 301-450
+let offsetMaxDiscovered = false;       // 451-500
 
-let rapidFireDiscovered = false;
-let averageFireRateAntsDiscovered = false;
-let minimalFireRateAntsDiscovered = false;
+// Bullet Size discoveries (1-3)
+let bulletSizeMinDiscovered = false;   // 1.0
+let bulletSizeLowDiscovered = false;   // 1.1-1.4
+let bulletSizeMedDiscovered = false;   // 1.5-2.0
+let bulletSizeHighDiscovered = false;  // 2.1-2.4
+let bulletSizeMaxDiscovered = false;   // 2.5-3.0
 
-let middleStationedAntsDiscovered = false;
+// Ant Size discoveries (exact values + categories)
+let antSizeMinDiscovered = false;      // 0.3
+let antSizeLowDiscovered = false;      // 0.7
+let antSizeMedDiscovered = false;      // 1.0
+let antSizeHighDiscovered = false;     // 2.0
+let antSizeMaxDiscovered = false;      // 3.0
+let smallAntsDiscovered = false;       // Any < 1.0
+let largeAntsDiscovered = false;       // Any > 1.0
 
-let chaserAntsDiscovered = false;
-let midrangeAntsDiscovered = false;
-let farRangeAntsDiscovered = false;
-let playerBasedSnipersDiscovered = false;
+// Distance From Anchor discoveries (0.1-1000, Keep Distance mode only)
+let distanceMinDiscovered = false;     // 0.1-100
+let distanceLowDiscovered = false;     // 101-250
+let distanceMedDiscovered = false;     // 251-500
+let distanceHighDiscovered = false;    // 501-750
+let distanceMaxDiscovered = false;     // 751-1000
 
-// Explosion-related discoveries
-let noExplosionDiscovered = false;
-let timeExplosionDiscovered = false;
-let proximityExplosionDiscovered = false;
+// Special ability discoveries
+let noSpecialDiscovered = false;       // No special
+let timeExplosionDiscovered = false;   // Time-based explosion
+let proximityExplosionDiscovered = false; // Proximity explosion
+let knockbackDiscovered = false;       // Knockback bullets
 
-// Time-based explosion fuse tiers
-let quickFuseDiscovered = false;     // short fuse
-let averageFuseDiscovered = false;   // mid fuse
-let longFuseDiscovered = false;      // long fuse
+// Explosion Fuse discoveries (100-800, Time Explosion only)
+let fuseMinDiscovered = false;         // 100-250
+let fuseLowDiscovered = false;         // 251-400
+let fuseMedDiscovered = false;         // 401-550
+let fuseHighDiscovered = false;        // 551-700
+let fuseMaxDiscovered = false;         // 701-800
 
-// Proximity explosion distance tiers
-let closeProximityDiscovered = false;
-let averageProximityDiscovered = false;
-let farProximityDiscovered = false;
+// Explosion Proximity discoveries (0.1-1000, Proximity Explosion only)
+let proxMinDiscovered = false;         // 0.1-150
+let proxLowDiscovered = false;         // 151-300
+let proxMedDiscovered = false;         // 301-550
+let proxHighDiscovered = false;        // 551-800
+let proxMaxDiscovered = false;         // 801-1000
 
-// Explosion size (radius multiplier) tiers
-let smallExplosionDiscovered = false;    // radiusMultiplier ≤ 1.0
-let averageExplosionDiscovered = false;  // 1.0 < radiusMultiplier ≤ 2.0
-let largeExplosionDiscovered = false;    // radiusMultiplier > 2.0
+// Explosion Radius discoveries (0.5-3, Explosions only)
+let radiusMinDiscovered = false;       // 0.5-1.0
+let radiusLowDiscovered = false;       // 1.1-1.5
+let radiusMedDiscovered = false;       // 1.6-2.0
+let radiusHighDiscovered = false;      // 2.1-2.5
+let radiusMaxDiscovered = false;       // 2.6-3.0
 
-// Explosion residue tiers
-let lowResidueDiscovered = false;        // residueMultiplier ≤ 1.0
-let averageResidueDiscovered = false;    // 1.0 < residueMultiplier ≤ 2.0
-let highResidueDiscovered = false;       // residueMultiplier > 2.0
+// Explosion Residue discoveries (0.5-3, Explosions only)
+let residueMinDiscovered = false;      // 0.5-1.0
+let residueLowDiscovered = false;      // 1.1-1.5
+let residueMedDiscovered = false;      // 1.6-2.0
+let residueHighDiscovered = false;     // 2.1-2.5
+let residueMaxDiscovered = false;      // 2.6-3.0
+
+// Knockback Multiplier discoveries (0.5-5, Knockback only)
+let knockbackMinDiscovered = false;    // 0.5-1.5
+let knockbackLowDiscovered = false;    // 1.6-2.5
+let knockbackMedDiscovered = false;    // 2.6-3.5
+let knockbackHighDiscovered = false;   // 3.6-4.5
+let knockbackMaxDiscovered = false;    // 4.6-5.0
 
 let showDiscoveryPopup = false;
 let discoveryPopupTimer = 0;
@@ -342,6 +382,7 @@ let expBarBuffer = 15;
 let sideBuffer = 25;
 let score = 0;
 let totalScore = 0;
+let intermissionScore = 0;  // Saved score for display during intermission
 let health = 10;
 let playerLastDamageFrame = 0;  // Track when player last took damage for regeneration
 let playerKnockedBack = false;
@@ -1691,8 +1732,8 @@ function enemyInteraction1(){
     
     let antHitboxSize = 20.25 + (6.75 * antSize[i]);
     if(playerX > (antX[i] - antHitboxSize) && playerY > (antY[i] - antHitboxSize) && playerX < (antX[i] + antHitboxSize) && playerY < (antY[i] + antHitboxSize)) {
-      // Only run over ants with health < 1
-      if (end == false && antHealth[i] < 1){
+      // Only run over ants with health < 1, and only if round is active and player is alive
+      if (end == false && health > 0 && antHealth[i] < 1){
         comboTime = 60;
         combo = combo + 1;
         calculateBonus();
@@ -2330,8 +2371,6 @@ function handleLandMines() {
 
 function handlePlayerHit(i, isKnockbackBullet = false, bulletX = 0, bulletY = 0, knockbackMult = 1, bulletSpeed = 5, isMine = false){
   if (end == false){
-    playerLastDamageFrame = frameCount;  // Track when player took damage
-    
     // Calculate damage based on bullet speed tier and size (mines use size only)
     let damage;
     if (isMine) {
@@ -2368,6 +2407,7 @@ function handlePlayerHit(i, isKnockbackBullet = false, bulletX = 0, bulletY = 0,
         }       
       }
     } else {
+      playerLastDamageFrame = frameCount;  // Only track damage frame when health actually decreases
       health = health - damage;
       antPoints[i] = antPoints[i] + damage;
       console.log("Ant", i, "points:", antPoints[i]);
@@ -2713,7 +2753,10 @@ function beetleShoot() {
           calculateBonus();
           streakPoints += comboPoints;
           addScore(100 + comboPoints);
-          health++;
+          // Only restore health if round is active and player is alive
+          if (end == false && health > 0) {
+            health++;
+          }
           addDeathEffect(antX[j], antY[j], 100 + comboPoints);
           antX[j] = random(0, getGameplayWidth());
           antY[j] = random(scoreBarHeight + ANT_SPAWN_BUFFER, getGameplayHeight() - expBarHeight - expBarBuffer - ANT_SPAWN_BUFFER);
@@ -3274,6 +3317,9 @@ function endGame(){
     
     // Single player mode
     if(levelEnd == 0){
+      // Save the round score before it gets reset (for display purposes)
+      intermissionScore = score;
+      
       intermissionMenu = false;
       intermissionMenuCooldown = 0;
       gameOverMenu = false;
@@ -3318,12 +3364,12 @@ function endGame(){
 
       textSize(24);
       fill(180, 220, 255);
-      text(`Final Health`, getMenuWidth() / 2 - getMenuWidth() * 0.20, getMenuHeight() * 0.56);
+      text(`Round Score`, getMenuWidth() / 2 - getMenuWidth() * 0.20, getMenuHeight() * 0.56);
       text(`Total Score`, getMenuWidth() / 2 + getMenuWidth() * 0.20, getMenuHeight() * 0.56);
 
       textSize(42);
-      fill(255, 90, 90);
-      text(Math.max(0, health).toFixed(2), getMenuWidth() / 2 - getMenuWidth() * 0.20, getMenuHeight() * 0.61);
+      fill(240, 164, 0);
+      text(intermissionScore, getMenuWidth() / 2 - getMenuWidth() * 0.20, getMenuHeight() * 0.61);
 
       fill(240, 164, 0);
       text(totalScore, getMenuWidth() / 2 + getMenuWidth() * 0.20, getMenuHeight() * 0.61);
@@ -3505,6 +3551,9 @@ function endGame(){
 
 if (timeCount < 0) {
     if(levelEnd == 0){
+      // Save the round score before it gets reset (for display purposes)
+      intermissionScore = score;
+      
       // Only update global totalScore in single player mode
       if (!multiplayerMode) {
         totalScore = totalScore + score;
@@ -3537,11 +3586,11 @@ if (timeCount < 0) {
     const intermissionHealth = health;
     
     // Calculate scores to display based on mode
-    let displayScore = score;
+    let displayScore = intermissionScore;  // Use saved score value
     let displayTotal;
     if (multiplayerMode && players.length > 0) {
       // In multiplayer, show current player's total + this round's score
-      displayTotal = players[currentPlayerIndex].totalScore + score;
+      displayTotal = players[currentPlayerIndex].totalScore + intermissionScore;
     } else {
       // In single player, use global totalScore
       displayTotal = totalScore;
@@ -5831,513 +5880,596 @@ function mousePressed() {
 
 function updateAntDexEntries() {
   //checks for and stores previously discovered ants
-  if (movementType1Discovered === true){
-    storeItem('movementType1PreviouslyDiscovered', movementType1Discovered)
-  }
-  if (getItem('movementType1PreviouslyDiscovered') === true){
-    movementType1Discovered = getItem('movementType1PreviouslyDiscovered')
-  }
-  if (movementType2Discovered === true){
-    storeItem('movementType2PreviouslyDiscovered', movementType2Discovered)
-  }
-  if (getItem('movementType2PreviouslyDiscovered') === true){
-    movementType2Discovered = getItem('movementType2PreviouslyDiscovered')
-  }
-  if (movementType3Discovered === true){
-    storeItem('movementType3PreviouslyDiscovered', movementType3Discovered)
-  }
-  if (getItem('movementType3PreviouslyDiscovered') === true){
-    movementType3Discovered = getItem('movementType3PreviouslyDiscovered')
-  }
-  if (movementType4Discovered === true){
-    storeItem('movementType4PreviouslyDiscovered', movementType4Discovered)
-  }
-  if (getItem('movementType4PreviouslyDiscovered') === true){
-    movementType4Discovered = getItem('movementType4PreviouslyDiscovered')
-  }
-  if (movementType5Discovered === true) {
-    storeItem('movementType5PreviouslyDiscovered', movementType5Discovered);
-  }
-  if (getItem('movementType5PreviouslyDiscovered') === true) {
-    movementType5Discovered = getItem('movementType5PreviouslyDiscovered');
-  }
-
-  if (movementType6Discovered === true) {
-    storeItem('movementType6PreviouslyDiscovered', movementType6Discovered);
-  }
-  if (getItem('movementType6PreviouslyDiscovered') === true) {
-    movementType6Discovered = getItem('movementType6PreviouslyDiscovered');
-  }
-
-  if (movementType7Discovered === true) {
-    storeItem('movementType7PreviouslyDiscovered', movementType7Discovered);
-  }
-  if (getItem('movementType7PreviouslyDiscovered') === true) {
-    movementType7Discovered = getItem('movementType7PreviouslyDiscovered');
-  }
-
-  if (movementType8Discovered === true) {
-    storeItem('movementType8PreviouslyDiscovered', movementType8Discovered);
-  }
-  if (getItem('movementType8PreviouslyDiscovered') === true) {
-    movementType8Discovered = getItem('movementType8PreviouslyDiscovered');
-  }
-  if (maxSpeedDiscovered === true) {
-    storeItem('maxSpeedPreviouslyDiscovered', maxSpeedDiscovered);
-  }
-  if (getItem('maxSpeedPreviouslyDiscovered') === true) {
-    maxSpeedDiscovered = getItem('maxSpeedPreviouslyDiscovered');
-  }
-
-  if (minSpeedDiscovered === true) {
-    storeItem('minSpeedPreviouslyDiscovered', minSpeedDiscovered);
-  }
-  if (getItem('minSpeedPreviouslyDiscovered') === true) {
-    minSpeedDiscovered = getItem('minSpeedPreviouslyDiscovered');
-  }
-  if (heavyBulletsDiscovered === true) {
-    storeItem('heavyBulletsPreviouslyDiscovered', heavyBulletsDiscovered);
-  }
-  if (getItem('heavyBulletsPreviouslyDiscovered') === true) {
-    heavyBulletsDiscovered = getItem('heavyBulletsPreviouslyDiscovered');
-  }
-
-  if (landMineDiscovered === true) {
-    storeItem('landMinePreviouslyDiscovered', landMineDiscovered);
-  }
-  if (getItem('landMinePreviouslyDiscovered') === true) {
-    landMineDiscovered = getItem('landMinePreviouslyDiscovered');
-  }
   
-  if (minBulletSpeedDiscovered === true) {
-    storeItem('minBulletSpeedPreviouslyDiscovered', minBulletSpeedDiscovered);
-  }
-  if (getItem('minBulletSpeedPreviouslyDiscovered') === true) {
-    minBulletSpeedDiscovered = getItem('minBulletSpeedPreviouslyDiscovered');
-  }
-
-  if (midBulletSpeedDiscovered === true) {
-    storeItem('midBulletSpeedPreviouslyDiscovered', midBulletSpeedDiscovered);
-  }
-  if (getItem('midBulletSpeedPreviouslyDiscovered') === true) {
-    midBulletSpeedDiscovered = getItem('midBulletSpeedPreviouslyDiscovered');
-  }
-
-  if (maxBulletSpeedDiscovered === true) {
-    storeItem('maxBulletSpeedPreviouslyDiscovered', maxBulletSpeedDiscovered);
-  }
-  if (getItem('maxBulletSpeedPreviouslyDiscovered') === true) {
-    maxBulletSpeedDiscovered = getItem('maxBulletSpeedPreviouslyDiscovered');
-  }
-
-  if (basicBulletsDiscovered === true) {
-    storeItem('basicBulletsPreviouslyDiscovered', basicBulletsDiscovered);
-  }
-  if (getItem('basicBulletsPreviouslyDiscovered') === true) {
-    basicBulletsDiscovered = getItem('basicBulletsPreviouslyDiscovered');
-  }
-
-  if (rapidFireDiscovered === true) {
-    storeItem('rapidFirePreviouslyDiscovered', rapidFireDiscovered);
-  }
-  if (getItem('rapidFirePreviouslyDiscovered') === true) {
-    rapidFireDiscovered = getItem('rapidFirePreviouslyDiscovered');
-  }
+  // Movement Type 1-8
+  if (movementType1Discovered === true) storeItem('movementType1PreviouslyDiscovered', movementType1Discovered);
+  if (getItem('movementType1PreviouslyDiscovered') === true) movementType1Discovered = getItem('movementType1PreviouslyDiscovered');
   
-  if (walkingAntsDiscovered === true) {
-    storeItem('walkingAntsPreviouslyDiscovered', walkingAntsDiscovered);
-  }
-  if (getItem('walkingAntsPreviouslyDiscovered') === true) {
-    walkingAntsDiscovered = getItem('walkingAntsPreviouslyDiscovered');
-  }
+  if (movementType2Discovered === true) storeItem('movementType2PreviouslyDiscovered', movementType2Discovered);
+  if (getItem('movementType2PreviouslyDiscovered') === true) movementType2Discovered = getItem('movementType2PreviouslyDiscovered');
+  
+  if (movementType3Discovered === true) storeItem('movementType3PreviouslyDiscovered', movementType3Discovered);
+  if (getItem('movementType3PreviouslyDiscovered') === true) movementType3Discovered = getItem('movementType3PreviouslyDiscovered');
+  
+  if (movementType4Discovered === true) storeItem('movementType4PreviouslyDiscovered', movementType4Discovered);
+  if (getItem('movementType4PreviouslyDiscovered') === true) movementType4Discovered = getItem('movementType4PreviouslyDiscovered');
+  
+  if (movementType5Discovered === true) storeItem('movementType5PreviouslyDiscovered', movementType5Discovered);
+  if (getItem('movementType5PreviouslyDiscovered') === true) movementType5Discovered = getItem('movementType5PreviouslyDiscovered');
+  
+  if (movementType6Discovered === true) storeItem('movementType6PreviouslyDiscovered', movementType6Discovered);
+  if (getItem('movementType6PreviouslyDiscovered') === true) movementType6Discovered = getItem('movementType6PreviouslyDiscovered');
+  
+  if (movementType7Discovered === true) storeItem('movementType7PreviouslyDiscovered', movementType7Discovered);
+  if (getItem('movementType7PreviouslyDiscovered') === true) movementType7Discovered = getItem('movementType7PreviouslyDiscovered');
+  
+  if (movementType8Discovered === true) storeItem('movementType8PreviouslyDiscovered', movementType8Discovered);
+  if (getItem('movementType8PreviouslyDiscovered') === true) movementType8Discovered = getItem('movementType8PreviouslyDiscovered');
 
-  if (averageFireRateAntsDiscovered === true) {
-    storeItem('averageFireRateAntsPreviouslyDiscovered', averageFireRateAntsDiscovered);
-  }
-  if (getItem('averageFireRateAntsPreviouslyDiscovered') === true) {
-    averageFireRateAntsDiscovered = getItem('averageFireRateAntsPreviouslyDiscovered');
-  }
+  // Ant Speed (9-13)
+  if (antSpeedMinDiscovered === true) storeItem('antSpeedMinPreviouslyDiscovered', antSpeedMinDiscovered);
+  if (getItem('antSpeedMinPreviouslyDiscovered') === true) antSpeedMinDiscovered = getItem('antSpeedMinPreviouslyDiscovered');
+  
+  if (antSpeedLowDiscovered === true) storeItem('antSpeedLowPreviouslyDiscovered', antSpeedLowDiscovered);
+  if (getItem('antSpeedLowPreviouslyDiscovered') === true) antSpeedLowDiscovered = getItem('antSpeedLowPreviouslyDiscovered');
+  
+  if (antSpeedMedDiscovered === true) storeItem('antSpeedMedPreviouslyDiscovered', antSpeedMedDiscovered);
+  if (getItem('antSpeedMedPreviouslyDiscovered') === true) antSpeedMedDiscovered = getItem('antSpeedMedPreviouslyDiscovered');
+  
+  if (antSpeedHighDiscovered === true) storeItem('antSpeedHighPreviouslyDiscovered', antSpeedHighDiscovered);
+  if (getItem('antSpeedHighPreviouslyDiscovered') === true) antSpeedHighDiscovered = getItem('antSpeedHighPreviouslyDiscovered');
+  
+  if (antSpeedMaxDiscovered === true) storeItem('antSpeedMaxPreviouslyDiscovered', antSpeedMaxDiscovered);
+  if (getItem('antSpeedMaxPreviouslyDiscovered') === true) antSpeedMaxDiscovered = getItem('antSpeedMaxPreviouslyDiscovered');
 
-  if (minimalFireRateAntsDiscovered === true) {
-    storeItem('minimalFireRateAntsPreviouslyDiscovered', minimalFireRateAntsDiscovered);
-  }
-  if (getItem('minimalFireRateAntsPreviouslyDiscovered') === true) {
-    minimalFireRateAntsDiscovered = getItem('minimalFireRateAntsPreviouslyDiscovered');
-  }
+  // Bullet Speed (14-18)
+  if (bulletSpeedMinDiscovered === true) storeItem('bulletSpeedMinPreviouslyDiscovered', bulletSpeedMinDiscovered);
+  if (getItem('bulletSpeedMinPreviouslyDiscovered') === true) bulletSpeedMinDiscovered = getItem('bulletSpeedMinPreviouslyDiscovered');
+  
+  if (bulletSpeedLowDiscovered === true) storeItem('bulletSpeedLowPreviouslyDiscovered', bulletSpeedLowDiscovered);
+  if (getItem('bulletSpeedLowPreviouslyDiscovered') === true) bulletSpeedLowDiscovered = getItem('bulletSpeedLowPreviouslyDiscovered');
+  
+  if (bulletSpeedMedDiscovered === true) storeItem('bulletSpeedMedPreviouslyDiscovered', bulletSpeedMedDiscovered);
+  if (getItem('bulletSpeedMedPreviouslyDiscovered') === true) bulletSpeedMedDiscovered = getItem('bulletSpeedMedPreviouslyDiscovered');
+  
+  if (bulletSpeedHighDiscovered === true) storeItem('bulletSpeedHighPreviouslyDiscovered', bulletSpeedHighDiscovered);
+  if (getItem('bulletSpeedHighPreviouslyDiscovered') === true) bulletSpeedHighDiscovered = getItem('bulletSpeedHighPreviouslyDiscovered');
+  
+  if (bulletSpeedMaxDiscovered === true) storeItem('bulletSpeedMaxPreviouslyDiscovered', bulletSpeedMaxDiscovered);
+  if (getItem('bulletSpeedMaxPreviouslyDiscovered') === true) bulletSpeedMaxDiscovered = getItem('bulletSpeedMaxPreviouslyDiscovered');
 
-  if (straightShootingAntsDiscovered === true) {
-    storeItem('straightShootingAntsPreviouslyDiscovered', straightShootingAntsDiscovered);
-  }
-  if (getItem('straightShootingAntsPreviouslyDiscovered') === true) {
-    straightShootingAntsDiscovered = getItem('straightShootingAntsPreviouslyDiscovered');
-  }
+  // Cooldown (19-23)
+  if (cooldownMinDiscovered === true) storeItem('cooldownMinPreviouslyDiscovered', cooldownMinDiscovered);
+  if (getItem('cooldownMinPreviouslyDiscovered') === true) cooldownMinDiscovered = getItem('cooldownMinPreviouslyDiscovered');
+  
+  if (cooldownLowDiscovered === true) storeItem('cooldownLowPreviouslyDiscovered', cooldownLowDiscovered);
+  if (getItem('cooldownLowPreviouslyDiscovered') === true) cooldownLowDiscovered = getItem('cooldownLowPreviouslyDiscovered');
+  
+  if (cooldownMedDiscovered === true) storeItem('cooldownMedPreviouslyDiscovered', cooldownMedDiscovered);
+  if (getItem('cooldownMedPreviouslyDiscovered') === true) cooldownMedDiscovered = getItem('cooldownMedPreviouslyDiscovered');
+  
+  if (cooldownHighDiscovered === true) storeItem('cooldownHighPreviouslyDiscovered', cooldownHighDiscovered);
+  if (getItem('cooldownHighPreviouslyDiscovered') === true) cooldownHighDiscovered = getItem('cooldownHighPreviouslyDiscovered');
+  
+  if (cooldownMaxDiscovered === true) storeItem('cooldownMaxPreviouslyDiscovered', cooldownMaxDiscovered);
+  if (getItem('cooldownMaxPreviouslyDiscovered') === true) cooldownMaxDiscovered = getItem('cooldownMaxPreviouslyDiscovered');
 
-  if (wideShotAntsDiscovered === true) {
-    storeItem('wideShotAntsPreviouslyDiscovered', wideShotAntsDiscovered);
-  }
-  if (getItem('wideShotAntsPreviouslyDiscovered') === true) {
-    wideShotAntsDiscovered = getItem('wideShotAntsPreviouslyDiscovered');
-  }
+  // Offset (24-28)
+  if (offsetMinDiscovered === true) storeItem('offsetMinPreviouslyDiscovered', offsetMinDiscovered);
+  if (getItem('offsetMinPreviouslyDiscovered') === true) offsetMinDiscovered = getItem('offsetMinPreviouslyDiscovered');
+  
+  if (offsetLowDiscovered === true) storeItem('offsetLowPreviouslyDiscovered', offsetLowDiscovered);
+  if (getItem('offsetLowPreviouslyDiscovered') === true) offsetLowDiscovered = getItem('offsetLowPreviouslyDiscovered');
+  
+  if (offsetMedDiscovered === true) storeItem('offsetMedPreviouslyDiscovered', offsetMedDiscovered);
+  if (getItem('offsetMedPreviouslyDiscovered') === true) offsetMedDiscovered = getItem('offsetMedPreviouslyDiscovered');
+  
+  if (offsetHighDiscovered === true) storeItem('offsetHighPreviouslyDiscovered', offsetHighDiscovered);
+  if (getItem('offsetHighPreviouslyDiscovered') === true) offsetHighDiscovered = getItem('offsetHighPreviouslyDiscovered');
+  
+  if (offsetMaxDiscovered === true) storeItem('offsetMaxPreviouslyDiscovered', offsetMaxDiscovered);
+  if (getItem('offsetMaxPreviouslyDiscovered') === true) offsetMaxDiscovered = getItem('offsetMaxPreviouslyDiscovered');
 
-  if (wildShotAntsDiscovered === true) {
-    storeItem('wildShotAntsPreviouslyDiscovered', wildShotAntsDiscovered);
-  }
-  if (getItem('wildShotAntsPreviouslyDiscovered') === true) {
-    wildShotAntsDiscovered = getItem('wildShotAntsPreviouslyDiscovered');
-  }
+  // Bullet Size (29-33)
+  if (bulletSizeMinDiscovered === true) storeItem('bulletSizeMinPreviouslyDiscovered', bulletSizeMinDiscovered);
+  if (getItem('bulletSizeMinPreviouslyDiscovered') === true) bulletSizeMinDiscovered = getItem('bulletSizeMinPreviouslyDiscovered');
+  
+  if (bulletSizeLowDiscovered === true) storeItem('bulletSizeLowPreviouslyDiscovered', bulletSizeLowDiscovered);
+  if (getItem('bulletSizeLowPreviouslyDiscovered') === true) bulletSizeLowDiscovered = getItem('bulletSizeLowPreviouslyDiscovered');
+  
+  if (bulletSizeMedDiscovered === true) storeItem('bulletSizeMedPreviouslyDiscovered', bulletSizeMedDiscovered);
+  if (getItem('bulletSizeMedPreviouslyDiscovered') === true) bulletSizeMedDiscovered = getItem('bulletSizeMedPreviouslyDiscovered');
+  
+  if (bulletSizeHighDiscovered === true) storeItem('bulletSizeHighPreviouslyDiscovered', bulletSizeHighDiscovered);
+  if (getItem('bulletSizeHighPreviouslyDiscovered') === true) bulletSizeHighDiscovered = getItem('bulletSizeHighPreviouslyDiscovered');
+  
+  if (bulletSizeMaxDiscovered === true) storeItem('bulletSizeMaxPreviouslyDiscovered', bulletSizeMaxDiscovered);
+  if (getItem('bulletSizeMaxPreviouslyDiscovered') === true) bulletSizeMaxDiscovered = getItem('bulletSizeMaxPreviouslyDiscovered');
 
-  if (mostOffTargetAntsDiscovered === true) {
-    storeItem('mostOffTargetAntsPreviouslyDiscovered', mostOffTargetAntsDiscovered);
-  }
-  if (getItem('mostOffTargetAntsPreviouslyDiscovered') === true) {
-    mostOffTargetAntsDiscovered = getItem('mostOffTargetAntsPreviouslyDiscovered');
-  }
+  // Ant Size (34-38 + 73-74)
+  if (antSizeMinDiscovered === true) storeItem('antSizeMinPreviouslyDiscovered', antSizeMinDiscovered);
+  if (getItem('antSizeMinPreviouslyDiscovered') === true) antSizeMinDiscovered = getItem('antSizeMinPreviouslyDiscovered');
+  
+  if (antSizeLowDiscovered === true) storeItem('antSizeLowPreviouslyDiscovered', antSizeLowDiscovered);
+  if (getItem('antSizeLowPreviouslyDiscovered') === true) antSizeLowDiscovered = getItem('antSizeLowPreviouslyDiscovered');
+  
+  if (antSizeMedDiscovered === true) storeItem('antSizeMedPreviouslyDiscovered', antSizeMedDiscovered);
+  if (getItem('antSizeMedPreviouslyDiscovered') === true) antSizeMedDiscovered = getItem('antSizeMedPreviouslyDiscovered');
+  
+  if (antSizeHighDiscovered === true) storeItem('antSizeHighPreviouslyDiscovered', antSizeHighDiscovered);
+  if (getItem('antSizeHighPreviouslyDiscovered') === true) antSizeHighDiscovered = getItem('antSizeHighPreviouslyDiscovered');
+  
+  if (antSizeMaxDiscovered === true) storeItem('antSizeMaxPreviouslyDiscovered', antSizeMaxDiscovered);
+  if (getItem('antSizeMaxPreviouslyDiscovered') === true) antSizeMaxDiscovered = getItem('antSizeMaxPreviouslyDiscovered');
+  
+  if (smallAntsDiscovered === true) storeItem('smallAntsPreviouslyDiscovered', smallAntsDiscovered);
+  if (getItem('smallAntsPreviouslyDiscovered') === true) smallAntsDiscovered = getItem('smallAntsPreviouslyDiscovered');
+  
+  if (largeAntsDiscovered === true) storeItem('largeAntsPreviouslyDiscovered', largeAntsDiscovered);
+  if (getItem('largeAntsPreviouslyDiscovered') === true) largeAntsDiscovered = getItem('largeAntsPreviouslyDiscovered');
 
-  if (middleStationedAntsDiscovered === true) {
-    storeItem('middleStationedAntsPreviouslyDiscovered', middleStationedAntsDiscovered);
-  }
-  if (getItem('middleStationedAntsPreviouslyDiscovered') === true) {
-    middleStationedAntsDiscovered = getItem('middleStationedAntsPreviouslyDiscovered');
-  }
+  // Distance From Anchor (39-43)
+  if (distanceMinDiscovered === true) storeItem('distanceMinPreviouslyDiscovered', distanceMinDiscovered);
+  if (getItem('distanceMinPreviouslyDiscovered') === true) distanceMinDiscovered = getItem('distanceMinPreviouslyDiscovered');
+  
+  if (distanceLowDiscovered === true) storeItem('distanceLowPreviouslyDiscovered', distanceLowDiscovered);
+  if (getItem('distanceLowPreviouslyDiscovered') === true) distanceLowDiscovered = getItem('distanceLowPreviouslyDiscovered');
+  
+  if (distanceMedDiscovered === true) storeItem('distanceMedPreviouslyDiscovered', distanceMedDiscovered);
+  if (getItem('distanceMedPreviouslyDiscovered') === true) distanceMedDiscovered = getItem('distanceMedPreviouslyDiscovered');
+  
+  if (distanceHighDiscovered === true) storeItem('distanceHighPreviouslyDiscovered', distanceHighDiscovered);
+  if (getItem('distanceHighPreviouslyDiscovered') === true) distanceHighDiscovered = getItem('distanceHighPreviouslyDiscovered');
+  
+  if (distanceMaxDiscovered === true) storeItem('distanceMaxPreviouslyDiscovered', distanceMaxDiscovered);
+  if (getItem('distanceMaxPreviouslyDiscovered') === true) distanceMaxDiscovered = getItem('distanceMaxPreviouslyDiscovered');
 
-  if (chaserAntsDiscovered === true) {
-    storeItem('chaserAntsPreviouslyDiscovered', chaserAntsDiscovered);
-  }
-  if (getItem('chaserAntsPreviouslyDiscovered') === true) {
-    chaserAntsDiscovered = getItem('chaserAntsPreviouslyDiscovered');
-  }
+  // Special Abilities (44-46 + 67)
+  if (noSpecialDiscovered === true) storeItem('noSpecialPreviouslyDiscovered', noSpecialDiscovered);
+  if (getItem('noSpecialPreviouslyDiscovered') === true) noSpecialDiscovered = getItem('noSpecialPreviouslyDiscovered');
+  
+  if (timeExplosionDiscovered === true) storeItem('timeExplosionPreviouslyDiscovered', timeExplosionDiscovered);
+  if (getItem('timeExplosionPreviouslyDiscovered') === true) timeExplosionDiscovered = getItem('timeExplosionPreviouslyDiscovered');
+  
+  if (proximityExplosionDiscovered === true) storeItem('proximityExplosionPreviouslyDiscovered', proximityExplosionDiscovered);
+  if (getItem('proximityExplosionPreviouslyDiscovered') === true) proximityExplosionDiscovered = getItem('proximityExplosionPreviouslyDiscovered');
+  
+  if (knockbackDiscovered === true) storeItem('knockbackPreviouslyDiscovered', knockbackDiscovered);
+  if (getItem('knockbackPreviouslyDiscovered') === true) knockbackDiscovered = getItem('knockbackPreviouslyDiscovered');
 
-  if (midrangeAntsDiscovered === true) {
-    storeItem('midrangeAntsPreviouslyDiscovered', midrangeAntsDiscovered);
-  }
-  if (getItem('midrangeAntsPreviouslyDiscovered') === true) {
-    midrangeAntsDiscovered = getItem('midrangeAntsPreviouslyDiscovered');
-  }
+  // Explosion Fuse (47-51)
+  if (fuseMinDiscovered === true) storeItem('fuseMinPreviouslyDiscovered', fuseMinDiscovered);
+  if (getItem('fuseMinPreviouslyDiscovered') === true) fuseMinDiscovered = getItem('fuseMinPreviouslyDiscovered');
+  
+  if (fuseLowDiscovered === true) storeItem('fuseLowPreviouslyDiscovered', fuseLowDiscovered);
+  if (getItem('fuseLowPreviouslyDiscovered') === true) fuseLowDiscovered = getItem('fuseLowPreviouslyDiscovered');
+  
+  if (fuseMedDiscovered === true) storeItem('fuseMedPreviouslyDiscovered', fuseMedDiscovered);
+  if (getItem('fuseMedPreviouslyDiscovered') === true) fuseMedDiscovered = getItem('fuseMedPreviouslyDiscovered');
+  
+  if (fuseHighDiscovered === true) storeItem('fuseHighPreviouslyDiscovered', fuseHighDiscovered);
+  if (getItem('fuseHighPreviouslyDiscovered') === true) fuseHighDiscovered = getItem('fuseHighPreviouslyDiscovered');
+  
+  if (fuseMaxDiscovered === true) storeItem('fuseMaxPreviouslyDiscovered', fuseMaxDiscovered);
+  if (getItem('fuseMaxPreviouslyDiscovered') === true) fuseMaxDiscovered = getItem('fuseMaxPreviouslyDiscovered');
 
-  if (farRangeAntsDiscovered === true) {
-    storeItem('farRangeAntsPreviouslyDiscovered', farRangeAntsDiscovered);
-  }
-  if (getItem('farRangeAntsPreviouslyDiscovered') === true) {
-    farRangeAntsDiscovered = getItem('farRangeAntsPreviouslyDiscovered');
-  }
+  // Proximity (52-56)
+  if (proxMinDiscovered === true) storeItem('proxMinPreviouslyDiscovered', proxMinDiscovered);
+  if (getItem('proxMinPreviouslyDiscovered') === true) proxMinDiscovered = getItem('proxMinPreviouslyDiscovered');
+  
+  if (proxLowDiscovered === true) storeItem('proxLowPreviouslyDiscovered', proxLowDiscovered);
+  if (getItem('proxLowPreviouslyDiscovered') === true) proxLowDiscovered = getItem('proxLowPreviouslyDiscovered');
+  
+  if (proxMedDiscovered === true) storeItem('proxMedPreviouslyDiscovered', proxMedDiscovered);
+  if (getItem('proxMedPreviouslyDiscovered') === true) proxMedDiscovered = getItem('proxMedPreviouslyDiscovered');
+  
+  if (proxHighDiscovered === true) storeItem('proxHighPreviouslyDiscovered', proxHighDiscovered);
+  if (getItem('proxHighPreviouslyDiscovered') === true) proxHighDiscovered = getItem('proxHighPreviouslyDiscovered');
+  
+  if (proxMaxDiscovered === true) storeItem('proxMaxPreviouslyDiscovered', proxMaxDiscovered);
+  if (getItem('proxMaxPreviouslyDiscovered') === true) proxMaxDiscovered = getItem('proxMaxPreviouslyDiscovered');
 
-  if (playerBasedSnipersDiscovered === true) {
-    storeItem('playerBasedSnipersPreviouslyDiscovered', playerBasedSnipersDiscovered);
-  }
-  if (getItem('playerBasedSnipersPreviouslyDiscovered') === true) {
-    playerBasedSnipersDiscovered = getItem('playerBasedSnipersPreviouslyDiscovered');
-  }
+  // Explosion Radius (57-61)
+  if (radiusMinDiscovered === true) storeItem('radiusMinPreviouslyDiscovered', radiusMinDiscovered);
+  if (getItem('radiusMinPreviouslyDiscovered') === true) radiusMinDiscovered = getItem('radiusMinPreviouslyDiscovered');
+  
+  if (radiusLowDiscovered === true) storeItem('radiusLowPreviouslyDiscovered', radiusLowDiscovered);
+  if (getItem('radiusLowPreviouslyDiscovered') === true) radiusLowDiscovered = getItem('radiusLowPreviouslyDiscovered');
+  
+  if (radiusMedDiscovered === true) storeItem('radiusMedPreviouslyDiscovered', radiusMedDiscovered);
+  if (getItem('radiusMedPreviouslyDiscovered') === true) radiusMedDiscovered = getItem('radiusMedPreviouslyDiscovered');
+  
+  if (radiusHighDiscovered === true) storeItem('radiusHighPreviouslyDiscovered', radiusHighDiscovered);
+  if (getItem('radiusHighPreviouslyDiscovered') === true) radiusHighDiscovered = getItem('radiusHighPreviouslyDiscovered');
+  
+  if (radiusMaxDiscovered === true) storeItem('radiusMaxPreviouslyDiscovered', radiusMaxDiscovered);
+  if (getItem('radiusMaxPreviouslyDiscovered') === true) radiusMaxDiscovered = getItem('radiusMaxPreviouslyDiscovered');
 
-  // Explosion type persistence
-  if (noExplosionDiscovered === true) {
-    storeItem('noExplosionPreviouslyDiscovered', noExplosionDiscovered);
-  }
-  if (getItem('noExplosionPreviouslyDiscovered') === true) {
-    noExplosionDiscovered = getItem('noExplosionPreviouslyDiscovered');
-  }
-  if (timeExplosionDiscovered === true) {
-    storeItem('timeExplosionPreviouslyDiscovered', timeExplosionDiscovered);
-  }
-  if (getItem('timeExplosionPreviouslyDiscovered') === true) {
-    timeExplosionDiscovered = getItem('timeExplosionPreviouslyDiscovered');
-  }
-  if (proximityExplosionDiscovered === true) {
-    storeItem('proximityExplosionPreviouslyDiscovered', proximityExplosionDiscovered);
-  }
-  if (getItem('proximityExplosionPreviouslyDiscovered') === true) {
-    proximityExplosionDiscovered = getItem('proximityExplosionPreviouslyDiscovered');
-  }
+  // Explosion Residue (62-66)
+  if (residueMinDiscovered === true) storeItem('residueMinPreviouslyDiscovered', residueMinDiscovered);
+  if (getItem('residueMinPreviouslyDiscovered') === true) residueMinDiscovered = getItem('residueMinPreviouslyDiscovered');
+  
+  if (residueLowDiscovered === true) storeItem('residueLowPreviouslyDiscovered', residueLowDiscovered);
+  if (getItem('residueLowPreviouslyDiscovered') === true) residueLowDiscovered = getItem('residueLowPreviouslyDiscovered');
+  
+  if (residueMedDiscovered === true) storeItem('residueMedPreviouslyDiscovered', residueMedDiscovered);
+  if (getItem('residueMedPreviouslyDiscovered') === true) residueMedDiscovered = getItem('residueMedPreviouslyDiscovered');
+  
+  if (residueHighDiscovered === true) storeItem('residueHighPreviouslyDiscovered', residueHighDiscovered);
+  if (getItem('residueHighPreviouslyDiscovered') === true) residueHighDiscovered = getItem('residueHighPreviouslyDiscovered');
+  
+  if (residueMaxDiscovered === true) storeItem('residueMaxPreviouslyDiscovered', residueMaxDiscovered);
+  if (getItem('residueMaxPreviouslyDiscovered') === true) residueMaxDiscovered = getItem('residueMaxPreviouslyDiscovered');
 
-  // Time fuse tiers persistence
-  if (quickFuseDiscovered === true) {
-    storeItem('quickFusePreviouslyDiscovered', quickFuseDiscovered);
-  }
-  if (getItem('quickFusePreviouslyDiscovered') === true) {
-    quickFuseDiscovered = getItem('quickFusePreviouslyDiscovered');
-  }
-  if (averageFuseDiscovered === true) {
-    storeItem('averageFusePreviouslyDiscovered', averageFuseDiscovered);
-  }
-  if (getItem('averageFusePreviouslyDiscovered') === true) {
-    averageFuseDiscovered = getItem('averageFusePreviouslyDiscovered');
-  }
-  if (longFuseDiscovered === true) {
-    storeItem('longFusePreviouslyDiscovered', longFuseDiscovered);
-  }
-  if (getItem('longFusePreviouslyDiscovered') === true) {
-    longFuseDiscovered = getItem('longFusePreviouslyDiscovered');
-  }
+  // Knockback Multiplier (68-72)
+  if (knockbackMinDiscovered === true) storeItem('knockbackMinPreviouslyDiscovered', knockbackMinDiscovered);
+  if (getItem('knockbackMinPreviouslyDiscovered') === true) knockbackMinDiscovered = getItem('knockbackMinPreviouslyDiscovered');
+  
+  if (knockbackLowDiscovered === true) storeItem('knockbackLowPreviouslyDiscovered', knockbackLowDiscovered);
+  if (getItem('knockbackLowPreviouslyDiscovered') === true) knockbackLowDiscovered = getItem('knockbackLowPreviouslyDiscovered');
+  
+  if (knockbackMedDiscovered === true) storeItem('knockbackMedPreviouslyDiscovered', knockbackMedDiscovered);
+  if (getItem('knockbackMedPreviouslyDiscovered') === true) knockbackMedDiscovered = getItem('knockbackMedPreviouslyDiscovered');
+  
+  if (knockbackHighDiscovered === true) storeItem('knockbackHighPreviouslyDiscovered', knockbackHighDiscovered);
+  if (getItem('knockbackHighPreviouslyDiscovered') === true) knockbackHighDiscovered = getItem('knockbackHighPreviouslyDiscovered');
+  
+  if (knockbackMaxDiscovered === true) storeItem('knockbackMaxPreviouslyDiscovered', knockbackMaxDiscovered);
+  if (getItem('knockbackMaxPreviouslyDiscovered') === true) knockbackMaxDiscovered = getItem('knockbackMaxPreviouslyDiscovered');
 
-  // Proximity tiers persistence
-  if (closeProximityDiscovered === true) {
-    storeItem('closeProximityPreviouslyDiscovered', closeProximityDiscovered);
-  }
-  if (getItem('closeProximityPreviouslyDiscovered') === true) {
-    closeProximityDiscovered = getItem('closeProximityPreviouslyDiscovered');
-  }
-  if (averageProximityDiscovered === true) {
-    storeItem('averageProximityPreviouslyDiscovered', averageProximityDiscovered);
-  }
-  if (getItem('averageProximityPreviouslyDiscovered') === true) {
-    averageProximityDiscovered = getItem('averageProximityPreviouslyDiscovered');
-  }
-  if (farProximityDiscovered === true) {
-    storeItem('farProximityPreviouslyDiscovered', farProximityDiscovered);
-  }
-  if (getItem('farProximityPreviouslyDiscovered') === true) {
-    farProximityDiscovered = getItem('farProximityPreviouslyDiscovered');
-  }
-
-  // Explosion size tiers persistence
-  if (smallExplosionDiscovered === true) {
-    storeItem('smallExplosionPreviouslyDiscovered', smallExplosionDiscovered);
-  }
-  if (getItem('smallExplosionPreviouslyDiscovered') === true) {
-    smallExplosionDiscovered = getItem('smallExplosionPreviouslyDiscovered');
-  }
-  if (averageExplosionDiscovered === true) {
-    storeItem('averageExplosionPreviouslyDiscovered', averageExplosionDiscovered);
-  }
-  if (getItem('averageExplosionPreviouslyDiscovered') === true) {
-    averageExplosionDiscovered = getItem('averageExplosionPreviouslyDiscovered');
-  }
-  if (largeExplosionDiscovered === true) {
-    storeItem('largeExplosionPreviouslyDiscovered', largeExplosionDiscovered);
-  }
-  if (getItem('largeExplosionPreviouslyDiscovered') === true) {
-    largeExplosionDiscovered = getItem('largeExplosionPreviouslyDiscovered');
-  }
-
-  // Explosion residue tiers persistence
-  if (lowResidueDiscovered === true) {
-    storeItem('lowResiduePreviouslyDiscovered', lowResidueDiscovered);
-  }
-  if (getItem('lowResiduePreviouslyDiscovered') === true) {
-    lowResidueDiscovered = getItem('lowResiduePreviouslyDiscovered');
-  }
-  if (averageResidueDiscovered === true) {
-    storeItem('averageResiduePreviouslyDiscovered', averageResidueDiscovered);
-  }
-  if (getItem('averageResiduePreviouslyDiscovered') === true) {
-    averageResidueDiscovered = getItem('averageResiduePreviouslyDiscovered');
-  }
-  if (highResidueDiscovered === true) {
-    storeItem('highResiduePreviouslyDiscovered', highResidueDiscovered);
-  }
-  if (getItem('highResiduePreviouslyDiscovered') === true) {
-    highResidueDiscovered = getItem('highResiduePreviouslyDiscovered');
-  }
   
   //checks for new discoveries
   if (start === true){
     for (let i = 1; i <= enemyCount; i++) {
-      if (!movementType1Discovered && followBeetle[i] === true && followTarget[i] === true){
+      // 1-8: Movement Behaviors
+      if (!movementType1Discovered && followBeetle[i] && followTarget[i]) {
         movementType1Discovered = true;
         triggerDiscoveryPopup();
       }
-      if (!movementType2Discovered && followAnt[i] === true && followTarget[i] === true){
+      if (!movementType2Discovered && followAnt[i] && followTarget[i]) {
         movementType2Discovered = true;
         triggerDiscoveryPopup();
       }
-      if (!movementType3Discovered && findLocation[i] === true && followTarget[i] === true){
+      if (!movementType3Discovered && findLocation[i] && followTarget[i]) {
         movementType3Discovered = true;
         triggerDiscoveryPopup();
       }
-      if (!movementType4Discovered && standStill[i] === true && followTarget[i] === true){
+      if (!movementType4Discovered && standStill[i] && followTarget[i]) {
         movementType4Discovered = true;
         triggerDiscoveryPopup();
       }
-      if (!movementType5Discovered && followBeetle[i] === true && keepDistance[i] === true) {
+      if (!movementType5Discovered && followBeetle[i] && keepDistance[i]) {
         movementType5Discovered = true;
         triggerDiscoveryPopup();
       }
-      if (!movementType6Discovered && followAnt[i] === true && keepDistance[i] === true) {
+      if (!movementType6Discovered && followAnt[i] && keepDistance[i]) {
         movementType6Discovered = true;
         triggerDiscoveryPopup();
       }
-      if (!movementType7Discovered && findLocation[i] === true && keepDistance[i] === true) {
+      if (!movementType7Discovered && findLocation[i] && keepDistance[i]) {
         movementType7Discovered = true;
         triggerDiscoveryPopup();
       }
-      if (!movementType8Discovered && standStill[i] === true && keepDistance[i] === true) {
+      if (!movementType8Discovered && standStill[i] && keepDistance[i]) {
         movementType8Discovered = true;
         triggerDiscoveryPopup();
       }
-      if (!maxSpeedDiscovered && antSpeed[i] === 3.5) {
-        maxSpeedDiscovered = true;
+
+      // 9-13: Ant Speed (0.9-3.5)
+      const spd = antSpeed[i];
+      if (!antSpeedMinDiscovered && spd >= 0.9 && spd <= 1.2) {
+        antSpeedMinDiscovered = true;
         triggerDiscoveryPopup();
       }
-      if (!minSpeedDiscovered && antSpeed[i] === 0.9) {
-        minSpeedDiscovered = true;
+      if (!antSpeedLowDiscovered && spd > 1.2 && spd <= 1.7) {
+        antSpeedLowDiscovered = true;
         triggerDiscoveryPopup();
       }
-      if (!heavyBulletsDiscovered && bulletSize[i] >= 1.5) {
-        heavyBulletsDiscovered = true;
+      if (!antSpeedMedDiscovered && spd > 1.7 && spd <= 2.3) {
+        antSpeedMedDiscovered = true;
         triggerDiscoveryPopup();
       }
-      if (!landMineDiscovered && bulletSize[i] >= 2.5) {
-        landMineDiscovered = true;
+      if (!antSpeedHighDiscovered && spd > 2.3 && spd <= 3.0) {
+        antSpeedHighDiscovered = true;
         triggerDiscoveryPopup();
       }
-      if (!minBulletSpeedDiscovered && bulletSpeed[i] === 300) {
-        minBulletSpeedDiscovered = true;
-        triggerDiscoveryPopup();
-      }
-      if (!midBulletSpeedDiscovered && bulletSpeed[i] === 180) {
-        midBulletSpeedDiscovered = true;
-        triggerDiscoveryPopup();
-      }
-      if (!maxBulletSpeedDiscovered && bulletSpeed[i] === 60) {
-        maxBulletSpeedDiscovered = true;
-        triggerDiscoveryPopup();
-      }
-      if (!basicBulletsDiscovered && bulletSize[i] === 1) {
-        basicBulletsDiscovered = true;
-        triggerDiscoveryPopup();
-      }
-      if (!rapidFireDiscovered && bulletCooldown[i] === 80) {
-        rapidFireDiscovered = true;
-        triggerDiscoveryPopup();
-      }
-      if (!walkingAntsDiscovered && antSpeed[i] === 1.95) {
-        walkingAntsDiscovered = true;
-        triggerDiscoveryPopup();
-      }
-      if (!averageFireRateAntsDiscovered && bulletCooldown[i] === 120) {
-        averageFireRateAntsDiscovered = true;
-        triggerDiscoveryPopup();
-      }
-      if (!minimalFireRateAntsDiscovered && bulletCooldown[i] === 200) {
-        minimalFireRateAntsDiscovered = true;
-        triggerDiscoveryPopup();
-      }
-      if (!straightShootingAntsDiscovered && shotOffsetX[i] === 0 && shotOffsetY[i] === 0) {
-        straightShootingAntsDiscovered = true;
-        triggerDiscoveryPopup();
-      }
-      if (!wideShotAntsDiscovered && (shotOffsetX[i] > 100 || shotOffsetY[i] > 0)) {
-        wideShotAntsDiscovered = true;
-        triggerDiscoveryPopup();
-      }
-      if (!wildShotAntsDiscovered && (shotOffsetX[i] > 350 || shotOffsetY[i] > 350)) {
-        wildShotAntsDiscovered = true;
-        triggerDiscoveryPopup();
-      }
-      if (!mostOffTargetAntsDiscovered && (shotOffsetX[i] === 500 || shotOffsetY[i] === 500)) {
-        mostOffTargetAntsDiscovered = true;
-        triggerDiscoveryPopup();
-      }
-      if (!middleStationedAntsDiscovered && findLocation[i] === true && followTarget[i] === true && (standingPointX[i] === getGameplayWidth() / 2 || standingPointY === getGameplayHeight() / 2)) {
-        middleStationedAntsDiscovered = true;
-        triggerDiscoveryPopup();
-      }
-      if (!chaserAntsDiscovered && followBeetle[i] === true && keepDistance[i] === true && distanceFromAnchor[i] < 80) {
-        chaserAntsDiscovered = true;
-        triggerDiscoveryPopup();
-      }
-      if (!midrangeAntsDiscovered && followBeetle[i] === true && keepDistance[i] === true && distanceFromAnchor[i] > 150) {
-        midrangeAntsDiscovered = true;
-        triggerDiscoveryPopup();
-      }
-      if (!farRangeAntsDiscovered && followBeetle[i] === true && keepDistance[i] === true && distanceFromAnchor[i] > 500) {
-        farRangeAntsDiscovered = true;
-        triggerDiscoveryPopup();
-      }
-      if (!playerBasedSnipersDiscovered && followBeetle[i] === true && keepDistance[i] === true && distanceFromAnchor[i] > 800) {
-        playerBasedSnipersDiscovered = true;
+      if (!antSpeedMaxDiscovered && spd > 3.0 && spd <= 3.5) {
+        antSpeedMaxDiscovered = true;
         triggerDiscoveryPopup();
       }
 
-      // Explosion type discoveries
+      // 14-18: Bullet Speed (60-300, note: lower = faster)
+      const bSpd = bulletSpeed[i];
+      if (!bulletSpeedMinDiscovered && bSpd >= 60 && bSpd <= 90) {
+        bulletSpeedMinDiscovered = true;
+        triggerDiscoveryPopup();
+      }
+      if (!bulletSpeedLowDiscovered && bSpd > 90 && bSpd <= 140) {
+        bulletSpeedLowDiscovered = true;
+        triggerDiscoveryPopup();
+      }
+      if (!bulletSpeedMedDiscovered && bSpd > 140 && bSpd <= 220) {
+        bulletSpeedMedDiscovered = true;
+        triggerDiscoveryPopup();
+      }
+      if (!bulletSpeedHighDiscovered && bSpd > 220 && bSpd <= 270) {
+        bulletSpeedHighDiscovered = true;
+        triggerDiscoveryPopup();
+      }
+      if (!bulletSpeedMaxDiscovered && bSpd > 270 && bSpd <= 300) {
+        bulletSpeedMaxDiscovered = true;
+        triggerDiscoveryPopup();
+      }
+
+      // 19-23: Bullet Cooldown (79-200)
+      const cd = bulletCooldown[i];
+      if (!cooldownMinDiscovered && cd >= 79 && cd <= 95) {
+        cooldownMinDiscovered = true;
+        triggerDiscoveryPopup();
+      }
+      if (!cooldownLowDiscovered && cd > 95 && cd <= 120) {
+        cooldownLowDiscovered = true;
+        triggerDiscoveryPopup();
+      }
+      if (!cooldownMedDiscovered && cd > 120 && cd <= 150) {
+        cooldownMedDiscovered = true;
+        triggerDiscoveryPopup();
+      }
+      if (!cooldownHighDiscovered && cd > 150 && cd <= 180) {
+        cooldownHighDiscovered = true;
+        triggerDiscoveryPopup();
+      }
+      if (!cooldownMaxDiscovered && cd > 180 && cd <= 200) {
+        cooldownMaxDiscovered = true;
+        triggerDiscoveryPopup();
+      }
+
+      // 24-28: Shot Offset (0-500)
+      const offset = Math.max(Math.abs(shotOffsetX[i]), Math.abs(shotOffsetY[i]));
+      if (!offsetMinDiscovered && offset >= 0 && offset <= 50) {
+        offsetMinDiscovered = true;
+        triggerDiscoveryPopup();
+      }
+      if (!offsetLowDiscovered && offset > 50 && offset <= 150) {
+        offsetLowDiscovered = true;
+        triggerDiscoveryPopup();
+      }
+      if (!offsetMedDiscovered && offset > 150 && offset <= 300) {
+        offsetMedDiscovered = true;
+        triggerDiscoveryPopup();
+      }
+      if (!offsetHighDiscovered && offset > 300 && offset <= 450) {
+        offsetHighDiscovered = true;
+        triggerDiscoveryPopup();
+      }
+      if (!offsetMaxDiscovered && offset > 450 && offset <= 500) {
+        offsetMaxDiscovered = true;
+        triggerDiscoveryPopup();
+      }
+
+      // 29-33: Bullet Size (1-3)
+      const bSize = bulletSize[i];
+      if (!bulletSizeMinDiscovered && bSize === 1.0) {
+        bulletSizeMinDiscovered = true;
+        triggerDiscoveryPopup();
+      }
+      if (!bulletSizeLowDiscovered && bSize > 1.0 && bSize <= 1.4) {
+        bulletSizeLowDiscovered = true;
+        triggerDiscoveryPopup();
+      }
+      if (!bulletSizeMedDiscovered && bSize > 1.4 && bSize <= 2.0) {
+        bulletSizeMedDiscovered = true;
+        triggerDiscoveryPopup();
+      }
+      if (!bulletSizeHighDiscovered && bSize > 2.0 && bSize < 2.5) {
+        bulletSizeHighDiscovered = true;
+        triggerDiscoveryPopup();
+      }
+      if (!bulletSizeMaxDiscovered && bSize >= 2.5 && bSize <= 3.0) {
+        bulletSizeMaxDiscovered = true;
+        triggerDiscoveryPopup();
+      }
+
+      // 34-38: Ant Size (exact values) + 73-74: Small/Large Ants
+      const aSize = antSize[i];
+      if (!antSizeMinDiscovered && aSize === 0.3) {
+        antSizeMinDiscovered = true;
+        triggerDiscoveryPopup();
+      }
+      if (!antSizeLowDiscovered && aSize === 0.7) {
+        antSizeLowDiscovered = true;
+        triggerDiscoveryPopup();
+      }
+      if (!antSizeMedDiscovered && aSize === 1.0) {
+        antSizeMedDiscovered = true;
+        triggerDiscoveryPopup();
+      }
+      if (!antSizeHighDiscovered && aSize === 2.0) {
+        antSizeHighDiscovered = true;
+        triggerDiscoveryPopup();
+      }
+      if (!antSizeMaxDiscovered && aSize === 3.0) {
+        antSizeMaxDiscovered = true;
+        triggerDiscoveryPopup();
+      }
+      // Categorical: any variation from 1.0
+      if (!smallAntsDiscovered && aSize < 1.0) {
+        smallAntsDiscovered = true;
+        triggerDiscoveryPopup();
+      }
+      if (!largeAntsDiscovered && aSize > 1.0) {
+        largeAntsDiscovered = true;
+        triggerDiscoveryPopup();
+      }
+
+      // 39-43: Distance From Anchor (only for Keep Distance mode)
+      if (keepDistance[i]) {
+        const dist = distanceFromAnchor[i];
+        if (!distanceMinDiscovered && dist >= 0.1 && dist <= 100) {
+          distanceMinDiscovered = true;
+          triggerDiscoveryPopup();
+        }
+        if (!distanceLowDiscovered && dist > 100 && dist <= 250) {
+          distanceLowDiscovered = true;
+          triggerDiscoveryPopup();
+        }
+        if (!distanceMedDiscovered && dist > 250 && dist <= 500) {
+          distanceMedDiscovered = true;
+          triggerDiscoveryPopup();
+        }
+        if (!distanceHighDiscovered && dist > 500 && dist <= 750) {
+          distanceHighDiscovered = true;
+          triggerDiscoveryPopup();
+        }
+        if (!distanceMaxDiscovered && dist > 750 && dist <= 1000) {
+          distanceMaxDiscovered = true;
+          triggerDiscoveryPopup();
+        }
+      }
+
+      // 44-46 + 67: Special Abilities
       const hasSpecial = Math.round(bulletHasSpecial[i]);
       const specialType = Math.round(bulletSpecialType[i]);
       const expTrigger = Math.round(bulletExplosionTrigger[i]);
-      
-      // Determine explosion mode from the three stats
-      let expMode = 0; // default: no explosion
-      if (hasSpecial === 1 && specialType === 0) {
-        // Has special behavior and it's explosions
-        if (expTrigger === 0) {
-          expMode = 1; // time-based
-        } else if (expTrigger === 1) {
-          expMode = 2; // proximity-based
-        }
-      }
-      
-      if (!noExplosionDiscovered && expMode === 0) {
-        noExplosionDiscovered = true;
+
+      if (!noSpecialDiscovered && hasSpecial === 0) {
+        noSpecialDiscovered = true;
         triggerDiscoveryPopup();
       }
-      if (!timeExplosionDiscovered && expMode === 1) {
+      if (!timeExplosionDiscovered && hasSpecial === 1 && specialType === 0 && expTrigger === 0) {
         timeExplosionDiscovered = true;
         triggerDiscoveryPopup();
       }
-      if (!proximityExplosionDiscovered && expMode === 2) {
+      if (!proximityExplosionDiscovered && hasSpecial === 1 && specialType === 0 && expTrigger === 1) {
         proximityExplosionDiscovered = true;
         triggerDiscoveryPopup();
       }
+      if (!knockbackDiscovered && hasSpecial === 1 && specialType === 1) {
+        knockbackDiscovered = true;
+        triggerDiscoveryPopup();
+      }
 
-      // Time fuse tiers (only when time-based explosion is active)
-      if (expMode === 1) {
-        const fuse = bulletExplodeAfter[i]; // 100..800 typical
-        if (!quickFuseDiscovered && fuse <= 300) {
-          quickFuseDiscovered = true;
+      // 47-51: Explosion Fuse (Time Explosion only)
+      if (hasSpecial === 1 && specialType === 0 && expTrigger === 0) {
+        const fuse = bulletExplodeAfter[i];
+        if (!fuseMinDiscovered && fuse >= 100 && fuse <= 250) {
+          fuseMinDiscovered = true;
           triggerDiscoveryPopup();
         }
-        if (!averageFuseDiscovered && fuse > 300 && fuse <= 600) {
-          averageFuseDiscovered = true;
+        if (!fuseLowDiscovered && fuse > 250 && fuse <= 400) {
+          fuseLowDiscovered = true;
           triggerDiscoveryPopup();
         }
-        if (!longFuseDiscovered && fuse > 600) {
-          longFuseDiscovered = true;
+        if (!fuseMedDiscovered && fuse > 400 && fuse <= 550) {
+          fuseMedDiscovered = true;
+          triggerDiscoveryPopup();
+        }
+        if (!fuseHighDiscovered && fuse > 550 && fuse <= 700) {
+          fuseHighDiscovered = true;
+          triggerDiscoveryPopup();
+        }
+        if (!fuseMaxDiscovered && fuse > 700 && fuse <= 800) {
+          fuseMaxDiscovered = true;
           triggerDiscoveryPopup();
         }
       }
 
-      // Proximity tiers (only when proximity explosion is active)
-      if (expMode === 2) {
-        const prox = explosionProximity[i]; // ~0.1..1000 typical
-        if (!closeProximityDiscovered && prox <= 150) {
-          closeProximityDiscovered = true;
+      // 52-56: Explosion Proximity (Proximity Explosion only)
+      if (hasSpecial === 1 && specialType === 0 && expTrigger === 1) {
+        const prox = explosionProximity[i];
+        if (!proxMinDiscovered && prox >= 0.1 && prox <= 150) {
+          proxMinDiscovered = true;
           triggerDiscoveryPopup();
         }
-        if (!averageProximityDiscovered && prox > 150 && prox <= 400) {
-          averageProximityDiscovered = true;
+        if (!proxLowDiscovered && prox > 150 && prox <= 300) {
+          proxLowDiscovered = true;
           triggerDiscoveryPopup();
         }
-        if (!farProximityDiscovered && prox > 400) {
-          farProximityDiscovered = true;
+        if (!proxMedDiscovered && prox > 300 && prox <= 550) {
+          proxMedDiscovered = true;
+          triggerDiscoveryPopup();
+        }
+        if (!proxHighDiscovered && prox > 550 && prox <= 800) {
+          proxHighDiscovered = true;
+          triggerDiscoveryPopup();
+        }
+        if (!proxMaxDiscovered && prox > 800 && prox <= 1000) {
+          proxMaxDiscovered = true;
           triggerDiscoveryPopup();
         }
       }
 
-      // Explosion size/residue tiers (apply only if explosions are enabled)
-      if (expMode === 1 || expMode === 2) {
-        const radiusMul = explosionRadiusMultiplier[i]; // 0.5..3
-        if (!smallExplosionDiscovered && radiusMul <= 1.0) {
-          smallExplosionDiscovered = true;
+      // 57-61: Explosion Radius (Any Explosion type)
+      if (hasSpecial === 1 && specialType === 0) {
+        const rad = explosionRadiusMultiplier[i];
+        if (!radiusMinDiscovered && rad >= 0.5 && rad <= 1.0) {
+          radiusMinDiscovered = true;
           triggerDiscoveryPopup();
         }
-        if (!averageExplosionDiscovered && radiusMul > 1.0 && radiusMul <= 2.0) {
-          averageExplosionDiscovered = true;
+        if (!radiusLowDiscovered && rad > 1.0 && rad <= 1.5) {
+          radiusLowDiscovered = true;
           triggerDiscoveryPopup();
         }
-        if (!largeExplosionDiscovered && radiusMul > 2.0) {
-          largeExplosionDiscovered = true;
+        if (!radiusMedDiscovered && rad > 1.5 && rad <= 2.0) {
+          radiusMedDiscovered = true;
           triggerDiscoveryPopup();
         }
+        if (!radiusHighDiscovered && rad > 2.0 && rad <= 2.5) {
+          radiusHighDiscovered = true;
+          triggerDiscoveryPopup();
+        }
+        if (!radiusMaxDiscovered && rad > 2.5 && rad <= 3.0) {
+          radiusMaxDiscovered = true;
+          triggerDiscoveryPopup();
+        }
+      }
 
-        const residueMul = explosionResidueMultiplier[i]; // 0.5..3
-        if (!lowResidueDiscovered && residueMul <= 1.0) {
-          lowResidueDiscovered = true;
+      // 62-66: Explosion Residue (Any Explosion type)
+      if (hasSpecial === 1 && specialType === 0) {
+        const res = explosionResidueMultiplier[i];
+        if (!residueMinDiscovered && res >= 0.5 && res <= 1.0) {
+          residueMinDiscovered = true;
           triggerDiscoveryPopup();
         }
-        if (!averageResidueDiscovered && residueMul > 1.0 && residueMul <= 2.0) {
-          averageResidueDiscovered = true;
+        if (!residueLowDiscovered && res > 1.0 && res <= 1.5) {
+          residueLowDiscovered = true;
           triggerDiscoveryPopup();
         }
-        if (!highResidueDiscovered && residueMul > 2.0) {
-          highResidueDiscovered = true;
+        if (!residueMedDiscovered && res > 1.5 && res <= 2.0) {
+          residueMedDiscovered = true;
+          triggerDiscoveryPopup();
+        }
+        if (!residueHighDiscovered && res > 2.0 && res <= 2.5) {
+          residueHighDiscovered = true;
+          triggerDiscoveryPopup();
+        }
+        if (!residueMaxDiscovered && res > 2.5 && res <= 3.0) {
+          residueMaxDiscovered = true;
+          triggerDiscoveryPopup();
+        }
+      }
+
+      // 68-72: Knockback Multiplier (Knockback type only)
+      if (hasSpecial === 1 && specialType === 1) {
+        const kb = bulletKnockbackMultiplier[i];
+        if (!knockbackMinDiscovered && kb >= 0.5 && kb <= 1.5) {
+          knockbackMinDiscovered = true;
+          triggerDiscoveryPopup();
+        }
+        if (!knockbackLowDiscovered && kb > 1.5 && kb <= 2.5) {
+          knockbackLowDiscovered = true;
+          triggerDiscoveryPopup();
+        }
+        if (!knockbackMedDiscovered && kb > 2.5 && kb <= 3.5) {
+          knockbackMedDiscovered = true;
+          triggerDiscoveryPopup();
+        }
+        if (!knockbackHighDiscovered && kb > 3.5 && kb <= 4.5) {
+          knockbackHighDiscovered = true;
+          triggerDiscoveryPopup();
+        }
+        if (!knockbackMaxDiscovered && kb > 4.5 && kb <= 5.0) {
+          knockbackMaxDiscovered = true;
           triggerDiscoveryPopup();
         }
       }
@@ -6347,281 +6479,491 @@ function updateAntDexEntries() {
 
   
   antDexEntries = [
-    // Explosion behavior types
-    {
-      name: "Non-Exploding Ants",
-      desc: "Bullets never explode. They persist until collision or leaving the arena.",
-      stats: "Explosion: None",
-      discovered: noExplosionDiscovered
-    },
-    {
-      name: "Timed Explosion Ants",
-      desc: "Bullets explode after a fuse duration unique to each ant.",
-      stats: "Explosion: Time (Fuse)",
-      discovered: timeExplosionDiscovered
-    },
-    {
-      name: "Proximity Explosion Ants",
-      desc: "Bullets explode when close enough to the beetle.",
-      stats: "Explosion: Proximity",
-      discovered: proximityExplosionDiscovered
-    },
-
-    // Timed fuse tiers
-    {
-      name: "Quick Fuse Ants",
-      desc: "Short fuse timers. Bullets detonate quickly after being fired.",
-      stats: "Fuse: Low (≤ 300 frames)",
-      discovered: quickFuseDiscovered
-    },
-    {
-      name: "Standard Fuse Ants",
-      desc: "Moderate fuse timers typical of most ants.",
-      stats: "Fuse: Average (301–600 frames)",
-      discovered: averageFuseDiscovered
-    },
-    {
-      name: "Long Fuse Ants",
-      desc: "Extended fuse timers. Bullets linger before detonation.",
-      stats: "Fuse: High (> 600 frames)",
-      discovered: longFuseDiscovered
-    },
-
-    // Proximity radius tiers
-    {
-      name: "Close Proximity Ants",
-      desc: "Explodes only very close to the beetle.",
-      stats: "Proximity Radius: Low (≤ 150)",
-      discovered: closeProximityDiscovered
-    },
-    {
-      name: "Medium Proximity Ants",
-      desc: "Explodes at a moderate distance from the beetle.",
-      stats: "Proximity Radius: Average (151–400)",
-      discovered: averageProximityDiscovered
-    },
-    {
-      name: "Wide Proximity Ants",
-      desc: "Explodes from far away. Harder to approach safely.",
-      stats: "Proximity Radius: High (> 400)",
-      discovered: farProximityDiscovered
-    },
-
-    // Explosion size tiers
-    {
-      name: "Small Blast Ants",
-      desc: "Smaller explosion radius. Easier to dodge its area of effect.",
-      stats: "Explosion Size: Low (≤ 1.0x)",
-      discovered: smallExplosionDiscovered
-    },
-    {
-      name: "Standard Blast Ants",
-      desc: "Typical explosion radius.",
-      stats: "Explosion Size: Average (1.0–2.0x)",
-      discovered: averageExplosionDiscovered
-    },
-    {
-      name: "Massive Blast Ants",
-      desc: "Large explosion radius. A small bullet could have a big surprise.",
-      stats: "Explosion Size: High (> 2.0x)",
-      discovered: largeExplosionDiscovered
-    },
-
-    // Explosion residue tiers
-    {
-      name: "Clean Detonation Ants",
-      desc: "Minimal residue left behind after explosions.",
-      stats: "Residue: Low (≤ 1.0x)",
-      discovered: lowResidueDiscovered
-    },
-    {
-      name: "Lingering Detonation Ants",
-      desc: "Typical residue that slightly clutters the arena.",
-      stats: "Residue: Average (1.0–2.0x)",
-      discovered: averageResidueDiscovered
-    },
-    {
-      name: "Saturated Detonation Ants",
-      desc: "Heavy residue. The explosions stay for a long time.",
-      stats: "Residue: High (> 2.0x)",
-      discovered: highResidueDiscovered
-    },
+    // 1-8: Movement Behaviors
     {
       name: "Follow Beetle Ants",
-      desc: "Follows the movements and intentions of the player, easily influenced and trapped.",
-      stats: "Follow Target: Beetle • Follow Style: Follow",
+      desc: "Tracks and follows the beetle's position directly.",
+      stats: "Autonomy: Beetle • Follow Style: Follow",
       discovered: movementType1Discovered
     },
     {
-      name: "Follow Ants Ants",
-      desc: "Follows the movements of other ants, adapting to the style that's working for its neighbors.",
-      stats: "Follow Target: Ants • Follow Style: Follow",
+      name: "Follow Other Ants",
+      desc: "Mirrors the movement patterns of nearby ants.",
+      stats: "Autonomy: Ants • Follow Style: Follow",
       discovered: movementType2Discovered
     },
     {
-      name: "Find Spot Ants",
-      desc: "Constantly moving to a chosen spot on the screen. This spot stays the same the entire round.",
-      stats: "Follow Target: Location • Follow Style: Follow",
+      name: "Find Location Ants",
+      desc: "Moves toward a predetermined spot on the screen.",
+      stats: "Autonomy: Location • Follow Style: Follow",
       discovered: movementType3Discovered
     },
     {
       name: "Stand Still Ants",
-      desc: "Never moves. Stay on the location of its spawn until killed. The lack of movement often grants better aim.",
-      stats: "Follow Target: Spawn • Follow Style: Follow",
+      desc: "Remains stationary at spawn point for better aim.",
+      stats: "Autonomy: Spawn • Follow Style: Follow",
       discovered: movementType4Discovered
     },
     {
       name: "Keep Distance From Beetle Ants",
-      desc: "Strives to maintain a certain distance from the player, retreating if they're too close and closing in if they're too far.",
-      stats: "Follow Target: Beetle • Follow Style: Keep Distance",
+      desc: "Maintains a specific range from the beetle.",
+      stats: "Autonomy: Beetle • Follow Style: Keep Distance",
       discovered: movementType5Discovered
     },
     {
-      name: "Keep Distance From Ants Ants",
-      desc: "Keeps a certain distance from other ants, allowing them to coordinate how they distribute themselves across the screen.",
-      stats: "Follow Target: Ants • Follow Style: Keep Distance",
+      name: "Keep Distance From Ants",
+      desc: "Maintains spacing relative to other ants.",
+      stats: "Autonomy: Ants • Follow Style: Keep Distance",
       discovered: movementType6Discovered
     },
     {
       name: "Keep Distance From Location Ants",
-      desc: "Stays a certain distance away from a spot in all directions. This spot and distance does not change for the entire round.",
-      stats: "Follow Target: Location • Follow Style: Keep Distance",
+      desc: "Orbits around a fixed point at set distance.",
+      stats: "Autonomy: Location • Follow Style: Keep Distance",
       discovered: movementType7Discovered
     },
     {
       name: "Keep Distance From Spawn Ants",
-      desc: "Moves a certain distance away from where it spawned each time it respawns. This combines slightly chaotic movements with the accuracy of standing still.",
-      stats: "Follow Target: Spawn • Follow Style: Keep Distance",
+      desc: "Moves set distance from respawn location.",
+      stats: "Autonomy: Spawn • Follow Style: Keep Distance",
       discovered: movementType8Discovered
     },
+
+    // 9-13: Ant Speed
     {
-      name: "Sprinting Ants",
-      desc: "The fastest ants possible, moving at 3/4 the speed of the player. this allows them to prolong close encounters but more easily influenced.",
-      stats: "Ant Speed: 3",
-      discovered: maxSpeedDiscovered
+      name: "Minimum Speed Ants",
+      desc: "Barely moving, prioritizing aim over mobility.",
+      stats: "Ant Speed: 0.9-1.2",
+      discovered: antSpeedMinDiscovered
     },
     {
-      name: "Crawling Ants",
-      desc: "The slowest ants possible, moving at just barely a crawl. They can't be influenced much position wise but they often get more accurate shots.",
-      stats: "Ant Speed: 0.9",
-      discovered: minSpeedDiscovered
+      name: "Low Speed Ants",
+      desc: "Slow crawlers with deliberate movement.",
+      stats: "Ant Speed: 1.3-1.7",
+      discovered: antSpeedLowDiscovered
     },
     {
-      name: "Heavy Bullets Ants",
-      desc: "These ants have bigger bullets, dealing more damage but moving at a slower speed. If they hit shields for more damage than the shields can handle the shield will take longer to regenerate.",
-      stats: "Bullet Size: > 1.5",
-      discovered: heavyBulletsDiscovered
+      name: "Medium Speed Ants",
+      desc: "Balanced speed for versatility.",
+      stats: "Ant Speed: 1.8-2.3",
+      discovered: antSpeedMedDiscovered
     },
     {
-      name: "Land Mine Ants",
-      desc: "These ants have humongous bullets dealing devastating damage, so big that they practically aren't even moving, creating traps. It is extremely rare for bullets to get this size.",
-      stats: "Bullet Size: > 2.5",
-      discovered: landMineDiscovered,
+      name: "High Speed Ants",
+      desc: "Quick movers that reposition rapidly.",
+      stats: "Ant Speed: 2.4-3.0",
+      discovered: antSpeedHighDiscovered
+    },
+    {
+      name: "Maximum Speed Ants",
+      desc: "Sprinters moving at beetle-threatening pace.",
+      stats: "Ant Speed: 3.1-3.5",
+      discovered: antSpeedMaxDiscovered
+    },
+
+    // 14-18: Bullet Speed
+    {
+      name: "Minimum Bullet Speed Ants",
+      desc: "Lightning-fast projectiles with minimal dodge time.",
+      stats: "Bullet Speed: 60-90",
+      discovered: bulletSpeedMinDiscovered
+    },
+    {
+      name: "Low Bullet Speed Ants",
+      desc: "Fast bullets that pressure the beetle.",
+      stats: "Bullet Speed: 91-140",
+      discovered: bulletSpeedLowDiscovered
+    },
+    {
+      name: "Medium Bullet Speed Ants",
+      desc: "Moderate bullet velocity for balanced threat.",
+      stats: "Bullet Speed: 141-220",
+      discovered: bulletSpeedMedDiscovered
+    },
+    {
+      name: "High Bullet Speed Ants",
+      desc: "Slow bullets that linger as obstacles.",
+      stats: "Bullet Speed: 221-270",
+      discovered: bulletSpeedHighDiscovered
+    },
+    {
+      name: "Maximum Bullet Speed Ants",
+      desc: "Crawling projectiles that clutter the arena.",
+      stats: "Bullet Speed: 271-300",
+      discovered: bulletSpeedMaxDiscovered
+    },
+
+    // 19-23: Bullet Cooldown
+    {
+      name: "Minimum Cooldown Ants",
+      desc: "Rapid fire with overwhelming bullet spam.",
+      stats: "Bullet Cooldown: 79-95",
+      discovered: cooldownMinDiscovered
+    },
+    {
+      name: "Low Cooldown Ants",
+      desc: "Quick shots that maintain pressure.",
+      stats: "Bullet Cooldown: 96-120",
+      discovered: cooldownLowDiscovered
+    },
+    {
+      name: "Medium Cooldown Ants",
+      desc: "Standard firing rate for typical ants.",
+      stats: "Bullet Cooldown: 121-150",
+      discovered: cooldownMedDiscovered
+    },
+    {
+      name: "High Cooldown Ants",
+      desc: "Slow shooters with deliberate shots.",
+      stats: "Bullet Cooldown: 151-180",
+      discovered: cooldownHighDiscovered
+    },
+    {
+      name: "Maximum Cooldown Ants",
+      desc: "Bizarrely sluggish fire rate, barely shooting.",
+      stats: "Bullet Cooldown: 181-200",
+      discovered: cooldownMaxDiscovered,
+      category: 'exotic'
+    },
+
+    // 24-28: Shot Offset
+    {
+      name: "Minimum Offset Ants",
+      desc: "Perfect aim directly at the beetle's position.",
+      stats: "Shot Offset: 0-50",
+      discovered: offsetMinDiscovered
+    },
+    {
+      name: "Low Offset Ants",
+      desc: "Slight lead shots that predict movement.",
+      stats: "Shot Offset: 51-150",
+      discovered: offsetLowDiscovered
+    },
+    {
+      name: "Medium Offset Ants",
+      desc: "Moderate angles for area denial.",
+      stats: "Shot Offset: 151-300",
+      discovered: offsetMedDiscovered
+    },
+    {
+      name: "High Offset Ants",
+      desc: "Wide-angle shots that flank the beetle.",
+      stats: "Shot Offset: 301-450",
+      discovered: offsetHighDiscovered
+    },
+    {
+      name: "Maximum Offset Ants",
+      desc: "Shooting completely away from the beetle.",
+      stats: "Shot Offset: 451-500",
+      discovered: offsetMaxDiscovered,
+      category: 'exotic'
+    },
+
+    // 29-33: Bullet Size
+    {
+      name: "Minimum Bullet Size Ants",
+      desc: "Standard projectiles with basic damage.",
+      stats: "Bullet Size: 1.0",
+      discovered: bulletSizeMinDiscovered
+    },
+    {
+      name: "Low Bullet Size Ants",
+      desc: "Slightly enlarged bullets with more impact.",
+      stats: "Bullet Size: 1.1-1.4",
+      discovered: bulletSizeLowDiscovered
+    },
+    {
+      name: "Medium Bullet Size Ants",
+      desc: "Noticeably larger bullets that slow down.",
+      stats: "Bullet Size: 1.5-2.0",
+      discovered: bulletSizeMedDiscovered
+    },
+    {
+      name: "High Bullet Size Ants",
+      desc: "Heavy projectiles with serious damage.",
+      stats: "Bullet Size: 2.1-2.4",
+      discovered: bulletSizeHighDiscovered
+    },
+    {
+      name: "Maximum Bullet Size Ants",
+      desc: "Massive landmine-like bullets that barely move.",
+      stats: "Bullet Size: 2.5-3.0",
+      discovered: bulletSizeMaxDiscovered,
+      category: 'exotic'
+    },
+
+    // 34-38: Ant Size
+    {
+      name: "Minimum Ant Size Ants",
+      desc: "Tiniest possible ants, barely visible.",
+      stats: "Ant Size: 0.3",
+      discovered: antSizeMinDiscovered,
       category: 'exotic'
     },
     {
-      name: "Basic Bullets Ants",
-      desc: "Ants with normal sized bullets, each one doing basic damage. They often stay this way when the speed decrease of larger bullets is not worth the extra damage.",
-      stats: "Bullet Size: 1",
-      discovered: basicBulletsDiscovered
+      name: "Low Ant Size Ants",
+      desc: "Small ants with reduced hitboxes.",
+      stats: "Ant Size: 0.7",
+      discovered: antSizeLowDiscovered
     },
     {
-      name: "Slow Bullets Ants",
-      desc: "The slowest a bullet can be. With a basic bullet it takes around 5 seconds for one to reach its target. This keeps the bullets on the screen for longer, providing more obstacles to avoid.",
-      stats: "Bullet Speed: 300",
-      discovered: minBulletSpeedDiscovered
+      name: "Medium Ant Size Ants",
+      desc: "Standard-sized ants, well-balanced.",
+      stats: "Ant Size: 1.0",
+      discovered: antSizeMedDiscovered
     },
     {
-      name: "Moderate Bullet Speed Ants",
-      desc: "The most moderate bullet speed possible. With a basic bullet it takes around 3 seconds for one to reach its target. It’s not too fast or slow.",
-      stats: "Bullet Speed: 180",
-      discovered: midBulletSpeedDiscovered
+      name: "High Ant Size Ants",
+      desc: "Large ants that are easier targets.",
+      stats: "Ant Size: 2.0",
+      discovered: antSizeHighDiscovered
     },
     {
-      name: "Fast Bullets Ants",
-      desc: "The fastest a bullet can be. With a basic bullet it takes around 1 seconds for one to reach its target. This gives the player less time to react but also less lingering obstacles",
-      stats: "Bullet Speed: 60",
-      discovered: maxBulletSpeedDiscovered
-    },
-    {
-      name: "Rapid Fire Ants",
-      desc: "Ants with shortest possible cooldown, shooting a bullet every 1.2 seconds. This is often peak difficulty.",
-      stats: "Bullet Cooldown: 80",
-      discovered: rapidFireDiscovered
-    },
-    {
-      name: "Walking Ants",
-      desc: "Ants with a moderate movement speed, enough to get around in a decent time but not speeding around, moving about half as fast as the player.",
-      stats: "Ant Speed: 1.95",
-      discovered: walkingAntsDiscovered
-    },
-    {
-      name: "Average Fire Rate Ants",
-      desc: "Fires bullets at a moderate rate. The ant will fire a bullet every 2 seconds.",
-      stats: "Bullet Cooldown: 120",
-      discovered: averageFireRateAntsDiscovered
-    },
-    {
-      name: "Minimal Fire Rate Ants",
-      desc: "What? How? Why? There’s no advantage to this, it starts the game at a faster fire rate already. Fires a bullet every 3.3 seconds.",
-      stats: "Bullet Cooldown: 200",
-      discovered: minimalFireRateAntsDiscovered,
+      name: "Maximum Ant Size Ants",
+      desc: "Gigantic ants with massive health pools.",
+      stats: "Ant Size: 3.0",
+      discovered: antSizeMaxDiscovered,
       category: 'exotic'
     },
+
+    // 39-43: Distance From Anchor
     {
-      name: "Straight Shooting Ants",
-      desc: "These ants shoot directly at the player, often not hitting a moving target. Good for players that sit still.",
-      stats: "Shot Offset: 0",
-      discovered: straightShootingAntsDiscovered
+      name: "Minimum Distance Ants",
+      desc: "Stays extremely close to target, aggressive.",
+      stats: "Distance From Anchor: 0.1-100",
+      discovered: distanceMinDiscovered
     },
     {
-      name: "Wide Shot Ants",
-      desc: "These ants shoot off target often in an attempt to lead the player. Sometimes this gets so precise you could swear the ants can predict the future.",
-      stats: "Shot Offset: < 100",
-      discovered: wideShotAntsDiscovered
+      name: "Low Distance Ants",
+      desc: "Moderately close positioning.",
+      stats: "Distance From Anchor: 101-250",
+      discovered: distanceLowDiscovered
     },
     {
-      name: "Wild Shot Ants",
-      desc: "These ants shoot way off target, maybe taking advantage of extra speed from shooting a far bullet or blocking off the player’s next part of the screen. There are many potential uses for this.",
-      stats: "Shot Offset: < 350",
-      discovered: wildShotAntsDiscovered
+      name: "Medium Distance Ants",
+      desc: "Maintains mid-range combat distance.",
+      stats: "Distance From Anchor: 251-500",
+      discovered: distanceMedDiscovered
     },
     {
-      name: "The Most Off Target Ants",
-      desc: "Doesn’t shoot anywhere near the player. Who knows why.",
-      stats: "Shot Offset: 500",
-      discovered: mostOffTargetAntsDiscovered,
+      name: "High Distance Ants",
+      desc: "Prefers long-range positioning.",
+      stats: "Distance From Anchor: 501-750",
+      discovered: distanceHighDiscovered
+    },
+    {
+      name: "Maximum Distance Ants",
+      desc: "Extreme range, almost arena-edge positioning.",
+      stats: "Distance From Anchor: 751-1000",
+      discovered: distanceMaxDiscovered,
       category: 'exotic'
     },
+
+    // 44-46: Special Abilities
     {
-      name: "Middle Stationed Ants",
-      desc: "These ants move towards spots in the middle of the screen, either because it's advantageous or nowhere else is.",
-      stats: "Follow Target: Location • Follow Style: Follow • Standing Point: Middle",
-      discovered: middleStationedAntsDiscovered
+      name: "No Special Ability Ants",
+      desc: "Basic bullets with no special properties.",
+      stats: "Special: None",
+      discovered: noSpecialDiscovered
     },
     {
-      name: "Chaser Ants",
-      desc: "aka. Oh My God Those Ants Are Coming Right At Me Ants. These ants get close to the player to hit more of their shots, often seen as threatening because of their chosen proximity.",
-      stats: "Follow Target: Beetle • Follow Style: Keep Distance • Distance From Target: < 80",
-      discovered: chaserAntsDiscovered
+      name: "Time Explosion Ants",
+      desc: "Bullets detonate after a set duration.",
+      stats: "Special: Explosion • Trigger: Time",
+      discovered: timeExplosionDiscovered
     },
     {
-      name: "Midrange Ants",
-      desc: "These ants usually blend into a group, using bullets to keep the beetle at bay. They tend to skillfully dodge if the beetle gets too close.",
-      stats: "Follow Target: Beetle • Follow Style: Keep Distance • Distance From Target: > 150",
-      discovered: midrangeAntsDiscovered
+      name: "Proximity Explosion Ants",
+      desc: "Bullets explode when near the beetle.",
+      stats: "Special: Explosion • Trigger: Proximity",
+      discovered: proximityExplosionDiscovered
+    },
+
+    // 47-51: Explosion Fuse
+    {
+      name: "Minimum Fuse Ants",
+      desc: "Very short fuse, quick detonations.",
+      stats: "Explode After: 100-250 frames",
+      discovered: fuseMinDiscovered
     },
     {
-      name: "Far Range Ants",
-      desc: "These ants keep a distance from the player that is often inconvenient to close, usually resulting in them being overlooked and ignored in favor of easier prey.",
-      stats: "Follow Target: Beetle • Follow Style: Keep Distance • Distance From Target: > 500",
-      discovered: farRangeAntsDiscovered
+      name: "Low Fuse Ants",
+      desc: "Short fuse for moderate timing.",
+      stats: "Explode After: 251-400 frames",
+      discovered: fuseLowDiscovered
     },
     {
-      name: "Player Based Snipers",
-      desc: "Stays very far away from the player, often ensuring a faster bullet.",
-      stats: "Follow Target: Beetle • Follow Style: Keep Distance • Distance From Target: > 800",
-      discovered: playerBasedSnipersDiscovered
+      name: "Medium Fuse Ants",
+      desc: "Standard detonation timing.",
+      stats: "Explode After: 401-550 frames",
+      discovered: fuseMedDiscovered
+    },
+    {
+      name: "High Fuse Ants",
+      desc: "Long fuse bullets that linger.",
+      stats: "Explode After: 551-700 frames",
+      discovered: fuseHighDiscovered
+    },
+    {
+      name: "Maximum Fuse Ants",
+      desc: "Extremely delayed explosions.",
+      stats: "Explode After: 701-800 frames",
+      discovered: fuseMaxDiscovered,
+      category: 'exotic'
+    },
+
+    // 52-56: Explosion Proximity
+    {
+      name: "Minimum Proximity Ants",
+      desc: "Must be very close to beetle to detonate.",
+      stats: "Explosion Proximity: 0.1-150",
+      discovered: proxMinDiscovered
+    },
+    {
+      name: "Low Proximity Ants",
+      desc: "Modest trigger range for explosions.",
+      stats: "Explosion Proximity: 151-300",
+      discovered: proxLowDiscovered
+    },
+    {
+      name: "Medium Proximity Ants",
+      desc: "Standard proximity detection range.",
+      stats: "Explosion Proximity: 301-550",
+      discovered: proxMedDiscovered
+    },
+    {
+      name: "High Proximity Ants",
+      desc: "Wide trigger radius, hard to avoid.",
+      stats: "Explosion Proximity: 551-800",
+      discovered: proxHighDiscovered
+    },
+    {
+      name: "Maximum Proximity Ants",
+      desc: "Extreme range proximity detonation.",
+      stats: "Explosion Proximity: 801-1000",
+      discovered: proxMaxDiscovered,
+      category: 'exotic'
+    },
+
+    // 57-61: Explosion Radius
+    {
+      name: "Minimum Explosion Radius Ants",
+      desc: "Small blast radius, easier to dodge.",
+      stats: "Explosion Radius: 0.5-1.0x",
+      discovered: radiusMinDiscovered
+    },
+    {
+      name: "Low Explosion Radius Ants",
+      desc: "Modest blast area.",
+      stats: "Explosion Radius: 1.1-1.5x",
+      discovered: radiusLowDiscovered
+    },
+    {
+      name: "Medium Explosion Radius Ants",
+      desc: "Standard explosion size.",
+      stats: "Explosion Radius: 1.6-2.0x",
+      discovered: radiusMedDiscovered
+    },
+    {
+      name: "High Explosion Radius Ants",
+      desc: "Large blast zone.",
+      stats: "Explosion Radius: 2.1-2.5x",
+      discovered: radiusHighDiscovered
+    },
+    {
+      name: "Maximum Explosion Radius Ants",
+      desc: "Massive explosions covering huge areas.",
+      stats: "Explosion Radius: 2.6-3.0x",
+      discovered: radiusMaxDiscovered,
+      category: 'exotic'
+    },
+
+    // 62-66: Explosion Residue
+    {
+      name: "Minimum Explosion Residue Ants",
+      desc: "Clean explosions with minimal lingering.",
+      stats: "Explosion Residue: 0.5-1.0x",
+      discovered: residueMinDiscovered
+    },
+    {
+      name: "Low Explosion Residue Ants",
+      desc: "Brief residue duration.",
+      stats: "Explosion Residue: 1.1-1.5x",
+      discovered: residueLowDiscovered
+    },
+    {
+      name: "Medium Explosion Residue Ants",
+      desc: "Standard residue persistence.",
+      stats: "Explosion Residue: 1.6-2.0x",
+      discovered: residueMedDiscovered
+    },
+    {
+      name: "High Explosion Residue Ants",
+      desc: "Long-lasting explosion residue.",
+      stats: "Explosion Residue: 2.1-2.5x",
+      discovered: residueHighDiscovered
+    },
+    {
+      name: "Maximum Explosion Residue Ants",
+      desc: "Extremely persistent residue clutter.",
+      stats: "Explosion Residue: 2.6-3.0x",
+      discovered: residueMaxDiscovered,
+      category: 'exotic'
+    },
+
+    // 67: Knockback Special
+    {
+      name: "Knock back Bullet Ants",
+      desc: "Bullets push the beetle when hit.",
+      stats: "Special: Knockback",
+      discovered: knockbackDiscovered
+    },
+
+    // 68-72: Knockback Multiplier
+    {
+      name: "Minimum Knockback Ants",
+      desc: "Gentle push when hit.",
+      stats: "Knockback Multiplier: 0.5-1.5x",
+      discovered: knockbackMinDiscovered
+    },
+    {
+      name: "Low Knockback Ants",
+      desc: "Modest shove on impact.",
+      stats: "Knockback Multiplier: 1.6-2.5x",
+      discovered: knockbackLowDiscovered
+    },
+    {
+      name: "Medium Knockback Ants",
+      desc: "Standard knockback force.",
+      stats: "Knockback Multiplier: 2.6-3.5x",
+      discovered: knockbackMedDiscovered
+    },
+    {
+      name: "High Knockback Ants",
+      desc: "Strong push that disrupts movement.",
+      stats: "Knockback Multiplier: 3.6-4.5x",
+      discovered: knockbackHighDiscovered
+    },
+    {
+      name: "Maximum Knockback Ants",
+      desc: "Devastating knockback that launches beetle.",
+      stats: "Knockback Multiplier: 4.6-5.0x",
+      discovered: knockbackMaxDiscovered,
+      category: 'exotic'
+    },
+
+    // 73-74: Categorical Ant Size
+    {
+      name: "Small Ants",
+      desc: "Ants smaller than standard size.",
+      stats: "Ant Size: < 1.0",
+      discovered: smallAntsDiscovered
+    },
+    {
+      name: "Large Ants",
+      desc: "Ants larger than standard size.",
+      stats: "Ant Size: > 1.0",
+      discovered: largeAntsDiscovered
     },
   ].map(entry => ({
     ...entry,
