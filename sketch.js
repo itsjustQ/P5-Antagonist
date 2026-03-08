@@ -46,7 +46,6 @@ let customAntStats = [
     followValue: 0,
     autonomy: 0,
     distanceFromAnchor: 200,
-    bulletHasSpecial: 0,
     bulletSpecialType: 0,
     bulletExplosionTrigger: 0,
     bulletKnockbackMultiplier: 1,
@@ -57,7 +56,11 @@ let customAntStats = [
     explosionRadiusMultiplier: 1,
     explosionResidueMultiplier: 1,
     bulletExplodeAfter: 800,
-    antSize: 1
+    antSize: 1,
+    bulletFireType: 0,
+    bulletBurstCount: 2,
+    bulletBurstSpread: 2.0944,
+    bulletCooldownMultiplier: 2
   },
   // 2nd place ant (index 1)
   {
@@ -71,7 +74,6 @@ let customAntStats = [
     followValue: 0,
     autonomy: 0,
     distanceFromAnchor: 200,
-    bulletHasSpecial: 0,
     bulletSpecialType: 0,
     bulletExplosionTrigger: 0,
     bulletKnockbackMultiplier: 1,
@@ -82,7 +84,11 @@ let customAntStats = [
     explosionRadiusMultiplier: 1,
     explosionResidueMultiplier: 1,
     bulletExplodeAfter: 800,
-    antSize: 1
+    antSize: 1,
+    bulletFireType: 0,
+    bulletBurstCount: 2,
+    bulletBurstSpread: 2.0944,
+    bulletCooldownMultiplier: 2
   },
   // 3rd place ant (index 2)
   {
@@ -96,7 +102,6 @@ let customAntStats = [
     followValue: 0,
     autonomy: 0,
     distanceFromAnchor: 200,
-    bulletHasSpecial: 0,
     bulletSpecialType: 0,
     bulletExplosionTrigger: 0,
     bulletKnockbackMultiplier: 1,
@@ -107,7 +112,11 @@ let customAntStats = [
     explosionRadiusMultiplier: 1,
     explosionResidueMultiplier: 1,
     bulletExplodeAfter: 800,
-    antSize: 1
+    antSize: 1,
+    bulletFireType: 0,
+    bulletBurstCount: 2,
+    bulletBurstSpread: 2.0944,
+    bulletCooldownMultiplier: 2
   }
 ];
 
@@ -220,6 +229,12 @@ let timeExplosionDiscovered = false;   // Time-based explosion
 let proximityExplosionDiscovered = false; // Proximity explosion
 let knockbackDiscovered = false;       // Knockback bullets
 
+// Fire type discoveries
+let normalFireDiscovered = false;      // Normal fire mode
+let burstFireDiscovered = false;       // Burst fire mode
+let rapidFireDiscovered = false;       // Rapid fire mode
+let alternatingFireDiscovered = false; // Alternating cooldown fire mode
+
 // Explosion Fuse discoveries (100-800, Time Explosion only)
 let fuseMinDiscovered = false;         // 100-250
 let fuseLowDiscovered = false;         // 251-400
@@ -254,6 +269,30 @@ let knockbackLowDiscovered = false;    // 1.6-2.5
 let knockbackMedDiscovered = false;    // 2.6-3.5
 let knockbackHighDiscovered = false;   // 3.6-4.5
 let knockbackMaxDiscovered = false;    // 4.6-5.0
+
+// Bullet Burst Count discoveries (1.5-5.5)
+let burstCountMinDiscovered = false;   // 1.5-2.3
+let burstCountLowDiscovered = false;   // 2.4-3.2
+let burstCountMedDiscovered = false;   // 3.3-4.1
+let burstCountHighDiscovered = false;  // 4.2-4.9
+let burstCountMaxDiscovered = false;   // 5.0-5.5 (exotic)
+
+// Cooldown Multiplier discoveries (0.5-5.5)
+let cooldownMultiplierMinDiscovered = false; // 0.5-1.4
+let cooldownMultiplierLowDiscovered = false; // 1.5-2.4
+let cooldownMultiplierMedDiscovered = false; // 2.5-3.4
+let cooldownMultiplierHighDiscovered = false; // 3.5-4.4
+let cooldownMultiplierMaxDiscovered = false; // 4.5-5.5 (exotic)
+
+// Bullet Death Type discovery
+let landmineConversionDiscovered = false;  // Bullets convert to landmines (deathType === 1)
+
+// Burst Spread discoveries (PI/3 to PI = 60° to 180°, Burst Fire only)
+let burstSpreadMinDiscovered = false;     // 60-84°
+let burstSpreadLowDiscovered = false;     // 85-109°
+let burstSpreadMedDiscovered = false;     // 110-134°
+let burstSpreadHighDiscovered = false;    // 135-159°
+let burstSpreadMaxDiscovered = false;     // 160-180°
 
 let showDiscoveryPopup = false;
 let discoveryPopupTimer = 0;
@@ -327,11 +366,18 @@ let followValue = [];
 let keepDistance = [];
 let followTarget = [];
 let autonomy = [];
-let bulletHasSpecial = [];
 let bulletSpecialType = [];
 let bulletExplosionTrigger = [];
 let bulletKnockbackMultiplier = [];
 let bulletDeathType = [];
+let bulletFireType = [];
+let bulletBurstCount = [];
+let bulletBurstSpread = [];
+let bulletCooldownMultiplier = [];
+let antAlternatingCooldownState = []; // For alternating cooldown fire type: 0 = fast, 1 = slow
+let antRapidFireActive = []; // Tracks if ant is currently in rapid fire sequence
+let antRapidFireCount = []; // How many bullets left to fire in rapid fire sequence
+let antRapidFireNextFrame = []; // Frame when next rapid fire bullet should spawn
 let explodeOnTermination = [];
 let triggerExplodeViaProximity = [];
 let explosionProximity = [];
@@ -387,8 +433,12 @@ let health = 10;
 let playerLastDamageFrame = 0;  // Track when player last took damage for regeneration
 let playerKnockedBack = false;
 let playerKnockbackTimer = 0;
+let playerKnockbackInitialTimer = 0; // Store initial timer for halfway calculation
 let playerKnockbackVelX = 0;
 let playerKnockbackVelY = 0;
+let playerKnockbackTargetX = 0; // Target velocity for acceleration phase
+let playerKnockbackTargetY = 0;
+let playerKnockbackAccelerating = false; // Track if in acceleration phase
 let timeCount = 10;
 let highScore = 0;
 let end = false;
@@ -550,6 +600,7 @@ function setup() {
     antStunned[i] = false;
     antStunTimer[i] = 0;
     antLastShotFrame[i] = 0;
+    antAlternatingCooldownState[i] = 0;
     antAirHeight[i] = 0;
     bulletSplitCount[i] = 1;          // no split by default
     bulletSpread[i] = 0;              // 0° spread (all bullets same direction)
@@ -560,32 +611,41 @@ function setup() {
     shotOffsetY[i] = 0;
     followValue[i] = 0;
     autonomy[i] = 0;
-    bulletHasSpecial[i] = 0;
     bulletSpecialType[i] = 0;
     bulletExplosionTrigger[i] = 0;
     bulletKnockbackMultiplier[i] = 1;
     bulletDeathType[i] = 0;
+    bulletFireType[i] = 0;
+    bulletBurstCount[i] = 2;
+    bulletBurstSpread[i] = 2.0944;
+    bulletCooldownMultiplier[i] = 2;
+    antAlternatingCooldownState[i] = 0; // Start with fast cooldown
+    antRapidFireActive[i] = false;
+    antRapidFireCount[i] = 0;
+    antRapidFireNextFrame[i] = 0;
     explosionProximity[i] = 200;
     
     // Set explosion flags based on genetics
-    if (Math.round(bulletHasSpecial[i]) === 0){
+    const specialType = Math.round(bulletSpecialType[i]);
+    if (specialType === 0){
       // No special bullet behavior
       explodeOnTermination[i] = false;
       triggerExplodeViaProximity[i] = false;
-    } else if (Math.round(bulletHasSpecial[i]) === 1){
-      // Has special behavior - check what type
-      if (Math.round(bulletSpecialType[i]) === 0){
-        // Type 0 = Explosions - check trigger type
-        if (Math.round(bulletExplosionTrigger[i]) === 0){
-          // Time-based explosion
-          explodeOnTermination[i] = true;
-          triggerExplodeViaProximity[i] = false;
-        } else if (Math.round(bulletExplosionTrigger[i]) === 1){
-          // Proximity-based explosion
-          explodeOnTermination[i] = false;
-          triggerExplodeViaProximity[i] = true;
-        }
+    } else if (specialType === 1){
+      // Type 1 = Explosions - check trigger type
+      if (Math.round(bulletExplosionTrigger[i]) === 0){
+        // Time-based explosion
+        explodeOnTermination[i] = true;
+        triggerExplodeViaProximity[i] = false;
+      } else if (Math.round(bulletExplosionTrigger[i]) === 1){
+        // Proximity-based explosion
+        explodeOnTermination[i] = false;
+        triggerExplodeViaProximity[i] = true;
       }
+    } else if (specialType === -1){
+      // Type -1 = Knockback (no explosions)
+      explodeOnTermination[i] = false;
+      triggerExplodeViaProximity[i] = false;
     }
     
     standingPointX[i] = width / 2;
@@ -812,7 +872,6 @@ function draw() {
       enemyInteraction1(); // Beetle Eats Enemy
       enemyShoot1();
       drawEnemyExplosions();
-      handleLandMines(); // Handle land mine drawing and collisions
       detectKeyboardInput();
       // Beetle Moves
       beetleShoot();
@@ -1022,11 +1081,14 @@ function applyCustomAntsToInitialPopulation() {
     followValue[i] = s.followValue;
     autonomy[i] = s.autonomy;
     distanceFromAnchor[i] = s.distanceFromAnchor;
-    bulletHasSpecial[i] = s.bulletHasSpecial;
     bulletSpecialType[i] = s.bulletSpecialType;
     bulletExplosionTrigger[i] = s.bulletExplosionTrigger;
     bulletKnockbackMultiplier[i] = s.bulletKnockbackMultiplier;
     bulletDeathType[i] = s.bulletDeathType;
+    bulletFireType[i] = s.bulletFireType;
+    bulletBurstCount[i] = s.bulletBurstCount;
+    bulletBurstSpread[i] = s.bulletBurstSpread;
+    bulletCooldownMultiplier[i] = s.bulletCooldownMultiplier;
     explosionProximity[i] = s.explosionProximity;
     angleFromSpawn[i] = s.angleFromSpawn;
     bulletSize[i] = s.bulletSize;
@@ -1043,24 +1105,26 @@ function applyCustomAntsToInitialPopulation() {
       keepDistance[i] = true;
     }
     // Set explosion flags based on genetics
-    if (Math.round(bulletHasSpecial[i]) === 0){
+    const specialType = Math.round(bulletSpecialType[i]);
+    if (specialType === 0){
       // No special bullet behavior
       explodeOnTermination[i] = false;
       triggerExplodeViaProximity[i] = false;
-    } else if (Math.round(bulletHasSpecial[i]) === 1){
-      // Has special behavior - check what type
-      if (Math.round(bulletSpecialType[i]) === 0){
-        // Type 0 = Explosions - check trigger type
-        if (Math.round(bulletExplosionTrigger[i]) === 0){
-          // Time-based explosion
-          explodeOnTermination[i] = true;
-          triggerExplodeViaProximity[i] = false;
-        } else if (Math.round(bulletExplosionTrigger[i]) === 1){
-          // Proximity-based explosion
-          explodeOnTermination[i] = false;
-          triggerExplodeViaProximity[i] = true;
-        }
+    } else if (specialType === 1){
+      // Type 1 = Explosions - check trigger type
+      if (Math.round(bulletExplosionTrigger[i]) === 0){
+        // Time-based explosion
+        explodeOnTermination[i] = true;
+        triggerExplodeViaProximity[i] = false;
+      } else if (Math.round(bulletExplosionTrigger[i]) === 1){
+        // Proximity-based explosion
+        explodeOnTermination[i] = false;
+        triggerExplodeViaProximity[i] = true;
       }
+    } else if (specialType === -1){
+      // Type -1 = Knockback (no explosions)
+      explodeOnTermination[i] = false;
+      triggerExplodeViaProximity[i] = false;
     }
     if (Math.round(followValue[i]) === 0){
       followAnt[i] = false;
@@ -1107,11 +1171,14 @@ function syncActualWinnersToCustomStats(topAnts) {
         followValue: followValue[antId],
         autonomy: autonomy[antId],
         distanceFromAnchor: distanceFromAnchor[antId],
-        bulletHasSpecial: bulletHasSpecial[antId],
         bulletSpecialType: bulletSpecialType[antId],
         bulletExplosionTrigger: bulletExplosionTrigger[antId],
         bulletKnockbackMultiplier: bulletKnockbackMultiplier[antId],
         bulletDeathType: bulletDeathType[antId],
+        bulletFireType: bulletFireType[antId],
+        bulletBurstCount: bulletBurstCount[antId],
+        bulletBurstSpread: bulletBurstSpread[antId],
+        bulletCooldownMultiplier: bulletCooldownMultiplier[antId],
         explosionProximity: explosionProximity[antId],
         angleFromSpawn: angleFromSpawn[antId],
         bulletSize: bulletSize[antId],
@@ -1768,6 +1835,8 @@ function enemyInteraction1(){
         antStunned[i] = false;
         antStunTimer[i] = 0;
         antLastShotFrame[i] = 0;
+        antAlternatingCooldownState[i] = 0;
+        antRapidFireActive[i] = false;
         antAirHeight[i] = 0;
         antLives[i]++;
         console.log("Ant", i, "lives:", antLives[i]);
@@ -1807,6 +1876,7 @@ function enemyInteraction1(){
               antStunned[i] = true;
               antStunTimer[i] = 30;
               antLastShotFrame[i] = frameCount; // Reset shooting cooldown
+              antRapidFireActive[i] = false; // Cancel rapid fire
             }
             
             antKnockbackVelX[i] = (dx / distance) * pushSpeed;
@@ -1854,6 +1924,7 @@ function dashCollision() {
         antStunned[i] = true;
         antStunTimer[i] = 30;
         antLastShotFrame[i] = frameCount; // Reset shooting cooldown
+        antRapidFireActive[i] = false; // Cancel rapid fire
       }
       
       // Calculate knockback direction (away from player)
@@ -1863,7 +1934,9 @@ function dashCollision() {
       
       // Normalize and apply knockback velocity
       if (distance > 0) {
-        let knockbackSpeed = playerSpeed * 8 / antSize[i]; // Knockback inversely proportional to ant size
+        // Base knockback scales with Horns upgrade (1 + 0.25 per level)
+        let knockbackMultiplier = 1 + (upgrade12Level * 0.25);
+        let knockbackSpeed = (playerSpeed * 8 / antSize[i]) * knockbackMultiplier;
         antKnockbackVelX[i] = (dx / distance) * knockbackSpeed;
         antKnockbackVelY[i] = (dy / distance) * knockbackSpeed;
       }
@@ -1892,6 +1965,8 @@ function dashCollision() {
         antStunned[i] = false;
         antStunTimer[i] = 0;
         antLastShotFrame[i] = 0;
+        antAlternatingCooldownState[i] = 0;
+        antRapidFireActive[i] = false;
         antAirHeight[i] = 0;
         
         if(!sGetHit1.isPlaying() || !sGetHit2.isPlaying()) {
@@ -1968,12 +2043,77 @@ function handleAntKnockback() {
 function enemyShoot1() {
   if (end == false) {
     for (let i = 1; i < enemyCount + 1; i++) {
+      // Check if ant is in rapid fire sequence and ready to fire next bullet
+      if (antRapidFireActive[i] && frameCount >= antRapidFireNextFrame[i]) {
+        const fireType = Math.round(bulletFireType[i]);
+        const bulletsToFire = Math.round(bulletBurstCount[i]);
+        const sizeDivisor = 1 + (bulletsToFire - 1) / 4;
+        const actualBulletSize = bulletSize[i] / sizeDivisor;
+        
+        // Recalculate trajectory for THIS bullet based on current positions
+        let rapidVx = ((playerX + shotOffsetX[i]) - antX[i] + 1) /
+                     (bulletSpeed[i] * (actualBulletSize ** actualBulletSize));
+        let rapidVy = ((playerY + shotOffsetY[i]) - antY[i] + 1) /
+                     (bulletSpeed[i] * (actualBulletSize ** actualBulletSize));
+        let actualBulletSpeed = Math.sqrt(rapidVx * rapidVx + rapidVy * rapidVy);
+        let bulletAngle = atan2((playerY + shotOffsetY[i]) - antY[i],
+                                 (playerX + shotOffsetX[i]) - antX[i]);
+        
+        let bullet = {
+          x: antX[i],
+          y: antY[i],
+          speedX: rapidVx,
+          speedY: rapidVy,
+          angle: bulletAngle,
+          life: 0,
+          explodeAfter: bulletExplodeAfter[i],
+          maxLife: actualBulletSpeed * 100,
+          size: actualBulletSize,
+          trueSpeed: actualBulletSpeed,
+          knockbackBullet: (Math.round(bulletSpecialType[i]) === -1),
+          knockbackMultiplier: bulletKnockbackMultiplier[i],
+          delayFrames: 0
+        };
+        
+        enemyBullets[i].push(bullet);
+        
+        // Decrement count and schedule next bullet
+        antRapidFireCount[i]--;
+        if (antRapidFireCount[i] > 0) {
+          antRapidFireNextFrame[i] = frameCount + 15; // Next bullet in 15 frames
+        } else {
+          antRapidFireActive[i] = false; // Sequence complete
+        }
+      }
+      
       // Only skip shooting new bullets if ant is stunned, but still update existing bullets
       if (!antStunned[i]) {
+        // Determine cooldown based on fire type
+        let currentCooldown = bulletCooldown[i];
+        const fireType = Math.round(bulletFireType[i]);
+        
+        // Type -1: Alternating cooldown
+        if (fireType === -1) {
+          const multiplier = Math.round(bulletCooldownMultiplier[i]);
+          if (antAlternatingCooldownState[i] === 0) {
+            // Fast cooldown: cooldown / multiplier
+            currentCooldown = bulletCooldown[i] / Math.max(1, multiplier);
+          } else {
+            // Slow cooldown: cooldown * multiplier
+            currentCooldown = bulletCooldown[i] * Math.max(1, multiplier);
+          }
+        }
+        
         // Use cooldown tracking instead of modulo for proper reset capability
-        if (frameCount - antLastShotFrame[i] >= bulletCooldown[i]) {
+        if (frameCount - antLastShotFrame[i] >= currentCooldown) {
           antLastShotFrame[i] = frameCount;
+          
+          // Toggle alternating cooldown state for next shot
+          if (fireType === -1) {
+            antAlternatingCooldownState[i] = 1 - antAlternatingCooldownState[i];
+          }
 
+          // Calculate base bullet trajectory
           let vx = ((playerX + shotOffsetX[i]) - antX[i] + 1) /
                    (bulletSpeed[i] * (bulletSize[i] ** bulletSize[i]));
           let vy = ((playerY + shotOffsetY[i]) - antY[i] + 1) /
@@ -1981,29 +2121,130 @@ function enemyShoot1() {
 
           // Calculate true bullet speed (pixels per frame)
           let trueBulletSpeed = Math.sqrt(vx * vx + vy * vy);
-
-          let bullet = {
-            x: antX[i],
-            y: antY[i],
-            speedX: vx,
-            speedY: vy,
-            angle: atan2((playerY + shotOffsetY[i]) - antY[i],
-                         (playerX + shotOffsetX[i]) - antX[i]),
-            life: 0,
-            explodeAfter: bulletExplodeAfter[i], // per-ant timer
-            maxLife: trueBulletSpeed * 100,      // Bullet lifespan based on true speed
-
-            size: bulletSize[i],                  // 🔴 key: keep the bullet's size
-            trueSpeed: trueBulletSpeed,          // Store true bullet speed
-            knockbackBullet: (Math.round(bulletHasSpecial[i]) === 1 && Math.round(bulletSpecialType[i]) === 1), // Track knockback bullets
-            knockbackMultiplier: bulletKnockbackMultiplier[i] // Store the knockback multiplier
-          };
-
-          enemyBullets[i].push(bullet);
           
-          // Log bullet speed with tier categorization
-          let speedTier = getBulletSpeedTier(trueBulletSpeed);
-          console.log(`Ant ${i} fired ${speedTier.name} bullet - Speed: ${trueBulletSpeed.toFixed(3)} px/f, Damage multiplier: ${speedTier.damageMultiplier}x`);
+          // Calculate base angle to target (using p5.js atan2 which respects angleMode)
+          let baseAngle = atan2((playerY + shotOffsetY[i]) - antY[i],
+                                 (playerX + shotOffsetX[i]) - antX[i]);
+
+          // Determine number of bullets to fire
+          let bulletsToFire = 1;
+          if (fireType === 1 || fireType === 2) {
+            bulletsToFire = Math.round(bulletBurstCount[i]);
+            bulletsToFire = constrain(bulletsToFire, 2, 5);
+          }
+
+          // Type 2: Rapid fire - start sequence, create first bullet only
+          if (fireType === 2) {
+            // Adjust size for rapid fire with same scaling as burst
+            let sizeDivisor = 1 + (bulletsToFire - 1) / 4;
+            let actualBulletSize = bulletSize[i] / sizeDivisor;
+            
+            // Recalculate velocity with adjusted size
+            let rapidVx = ((playerX + shotOffsetX[i]) - antX[i] + 1) /
+                         (bulletSpeed[i] * (actualBulletSize ** actualBulletSize));
+            let rapidVy = ((playerY + shotOffsetY[i]) - antY[i] + 1) /
+                         (bulletSpeed[i] * (actualBulletSize ** actualBulletSize));
+            let actualBulletSpeed = Math.sqrt(rapidVx * rapidVx + rapidVy * rapidVy);
+            
+            let bullet = {
+              x: antX[i],
+              y: antY[i],
+              speedX: rapidVx,
+              speedY: rapidVy,
+              angle: baseAngle,
+              life: 0,
+              explodeAfter: bulletExplodeAfter[i],
+              maxLife: actualBulletSpeed * 100,
+              size: actualBulletSize,
+              trueSpeed: actualBulletSpeed,
+              knockbackBullet: (Math.round(bulletSpecialType[i]) === -1),
+              knockbackMultiplier: bulletKnockbackMultiplier[i],
+              delayFrames: 0
+            };
+            
+            enemyBullets[i].push(bullet);
+            
+            // Set up rapid fire sequence for remaining bullets
+            if (bulletsToFire > 1) {
+              antRapidFireActive[i] = true;
+              antRapidFireCount[i] = bulletsToFire - 1; // Remaining bullets
+              antRapidFireNextFrame[i] = frameCount + 15; // Next bullet in 15 frames
+            }
+            
+            // Log rapid fire start
+            let speedTier = getBulletSpeedTier(actualBulletSpeed);
+            console.log(`Ant ${i} started Rapid fire sequence: ${bulletsToFire} bullets - Speed: ${actualBulletSpeed.toFixed(3)} px/f`);
+          }
+          // Type 1 or default: Fire all bullets immediately
+          else {
+            // Fire bullets based on type
+            for (let b = 0; b < bulletsToFire; b++) {
+              let bulletVx = vx;
+              let bulletVy = vy;
+              let bulletAngle = baseAngle;
+              let actualBulletSize = bulletSize[i];
+              let actualBulletSpeed = trueBulletSpeed;
+              
+              // Type 1: Burst spread - each bullet shoots in a random direction within the cone
+              if (fireType === 1) {
+                // Adjust size for burst with scaled divisor
+                // Maps bulletsToFire (2-5) to divisor (1.25-2) so bullets don't get too small
+                let sizeDivisor = 1 + (bulletsToFire - 1) / 4;
+                actualBulletSize = bulletSize[i] / sizeDivisor;
+                
+                // Recalculate velocity with adjusted size
+                let burstVx = ((playerX + shotOffsetX[i]) - antX[i] + 1) /
+                             (bulletSpeed[i] * (actualBulletSize ** actualBulletSize));
+                let burstVy = ((playerY + shotOffsetY[i]) - antY[i] + 1) /
+                             (bulletSpeed[i] * (actualBulletSize ** actualBulletSize));
+                actualBulletSpeed = Math.sqrt(burstVx * burstVx + burstVy * burstVy);
+                
+                let spread = bulletBurstSpread[i];
+                // Convert spread from radians to degrees (spread is stored in radians)
+                let spreadDegrees = spread * 180 / PI;
+                // Each bullet picks a completely random angle within the full spread cone
+                let randomOffset = random(-spreadDegrees / 2, spreadDegrees / 2);
+                bulletAngle = baseAngle + randomOffset;
+                // Recalculate velocity using p5.js cos/sin (respects angleMode)
+                bulletVx = cos(bulletAngle) * actualBulletSpeed;
+                bulletVy = sin(bulletAngle) * actualBulletSpeed;
+              }
+              // Type 0 or -1: Calculate angle from velocity components
+              else {
+                bulletVx = vx;
+                bulletVy = vy;
+                bulletAngle = atan2(bulletVy, bulletVx);
+              }
+
+              let bullet = {
+                x: antX[i],
+                y: antY[i],
+                speedX: bulletVx,
+                speedY: bulletVy,
+                angle: bulletAngle,
+                life: 0,
+                explodeAfter: bulletExplodeAfter[i],
+                maxLife: actualBulletSpeed * 100,
+                size: actualBulletSize,
+                trueSpeed: actualBulletSpeed,
+                knockbackBullet: (Math.round(bulletSpecialType[i]) === -1),
+                knockbackMultiplier: bulletKnockbackMultiplier[i],
+                delayFrames: 0
+              };
+
+              enemyBullets[i].push(bullet);
+            }
+            
+            // Log bullet firing
+            let speedTier = getBulletSpeedTier(trueBulletSpeed);
+            let fireTypeName = ['Single', 'Burst', 'Rapid', 'Alt'][fireType + 1] || 'Unknown';
+            if (fireType === 1) {
+              let spreadDegrees = (bulletBurstSpread[i] * 180 / Math.PI).toFixed(1);
+              console.log(`Ant ${i} fired ${bulletsToFire} ${fireTypeName} bullets with ${spreadDegrees}° spread - Speed: ${trueBulletSpeed.toFixed(3)} px/f`);
+            } else {
+              console.log(`Ant ${i} fired ${bulletsToFire} ${fireTypeName} ${speedTier.name} bullet(s) - Speed: ${trueBulletSpeed.toFixed(3)} px/f`);
+            }
+          }
           
           // Play spit sound when bullet is created (not during update loop)
           if (!sSpit1.isPlaying() && !sSpit2.isPlaying()) {
@@ -2020,6 +2261,12 @@ function enemyShoot1() {
       // Update and draw bullets
       for (let b = enemyBullets[i].length - 1; b >= 0; b--) {
         let bullet = enemyBullets[i][b];
+
+        // Handle delay for rapid fire bullets
+        if (bullet.delayFrames > 0) {
+          bullet.delayFrames--;
+          continue; // Skip updating this bullet until delay is over
+        }
 
         bullet.x += bullet.speedX;
         bullet.y += bullet.speedY;
@@ -2067,7 +2314,8 @@ function enemyShoot1() {
                 explodeOnTermination: explodeOnTermination[i] || false,
                 triggerExplodeViaProximity: triggerExplodeViaProximity[i] || false,
                 explosionProximity: explosionProximity[i] || 0,
-                explodeAfter: bullet.explodeAfter || bulletExplodeAfter[i]
+                explodeAfter: bullet.explodeAfter || bulletExplodeAfter[i],
+                fusionCount: 1 // Track how many mines have been fused
             });
           }
           // Type 0: Just fade and remove (default behavior)
@@ -2108,7 +2356,7 @@ function enemyShoot1() {
           imageMode(CENTER);
           translate(bullet.x, bullet.y);
           rotate(bullet.angle);
-          image(bulletImage, 0, 0, (20 * bulletSize[i]), (20 * bulletSize[i]));
+          image(bulletImage, 0, 0, (20 * bullet.size), (20 * bullet.size));
           pop();
           
           // Draw knockback bullet aura on top of bullet
@@ -2118,7 +2366,7 @@ function enemyShoot1() {
             let flashSpeed = (bullet.knockbackMultiplier || 1) * 6; // Flash speed = multiplier × 3
             let flashAlpha = 83 + 70 * sin(bullet.life * flashSpeed); // Scale to reasonable speed
             fill(220, 220, 220, flashAlpha); // White/grey translucent solid circle
-            let auraSize = (25 * bulletSize[i]) + 5 * sin(bullet.life * 0.2);
+            let auraSize = (25 * bullet.size) + 5 * sin(bullet.life * 0.2);
             ellipse(bullet.x, bullet.y, auraSize, auraSize);
             pop();
           }
@@ -2137,30 +2385,16 @@ function enemyShoot1() {
           let knockbackMult = bullet.knockbackMultiplier || 1;
           let bulletSpeed = bullet.trueSpeed || 5; // Default to regular speed if not set
           enemyBullets[i].splice(b, 1);
-          handlePlayerHit(i, isKnockbackBullet, bullet.x, bullet.y, knockbackMult, bulletSpeed);
+          handlePlayerHit(i, isKnockbackBullet, bullet.x, bullet.y, knockbackMult, bulletSpeed, false, bullet.size);
         }
       }
     }
   }
-}
 
-// Categorize bullet speed into tiers and return damage multiplier
-function getBulletSpeedTier(speed) {
-  if (speed <= 2) {
-    return { name: "LOW SPEED", damageMultiplier: 0.5 };
-  } else if (speed <= 7) {
-    return { name: "REGULAR SPEED", damageMultiplier: 1.0 };
-  } else if (speed <= 10) {
-    return { name: "FAST SPEED", damageMultiplier: 1.5 };
-  } else if (speed <= 14) {
-    return { name: "SNIPER SPEED", damageMultiplier: 2.0 };
-  } else {
-    return { name: "GOD SPEED", damageMultiplier: 3.0 };
-  }
-}
-
-// Draw and handle land mines
-function handleLandMines() {
+  // Fuse landmines if there are too many (performance optimization)
+  fuseLandMines();
+  
+  // Draw and handle land mines
   for (let m = landMines.length - 1; m >= 0; m--) {
     let mine = landMines[m];
     // Track mine lifetime for time-based explosion fuses
@@ -2170,7 +2404,9 @@ function handleLandMines() {
     if (mine.explodeOnTermination && mine.life >= (mine.explodeAfter || 0)) {
       // If enemy-owned mine, spawn enemy explosion (damages player)
       if (!mine.isPlayerMine) {
-        spawnEnemyExplosion(mine.x, mine.y, mine.size, mine.owner);
+        // Pick a random owner for credit if this is a fused mine with multiple owners
+        let ownerId = Array.isArray(mine.owner) ? random(mine.owner) : mine.owner;
+        spawnEnemyExplosion(mine.x, mine.y, mine.size, ownerId);
       } else {
         // Player-owned mine: apply explosion damage to nearby ants
         const BASE_RADIUS = 20;
@@ -2211,6 +2447,7 @@ function handleLandMines() {
               antStunned[ai] = false;
               antStunTimer[ai] = 0;
               antLastShotFrame[ai] = 0;
+              antAlternatingCooldownState[ai] = 0;
               antAirHeight[ai] = 0;
             }
           }
@@ -2226,7 +2463,9 @@ function handleLandMines() {
       if (!mine.isPlayerMine) {
         let d = dist(playerX, playerY, mine.x, mine.y);
         if (d <= (mine.explosionProximity || 0)) {
-          spawnEnemyExplosion(mine.x, mine.y, mine.size, mine.owner);
+          // Pick a random owner for credit if this is a fused mine with multiple owners
+          let ownerId = Array.isArray(mine.owner) ? random(mine.owner) : mine.owner;
+          spawnEnemyExplosion(mine.x, mine.y, mine.size, ownerId);
           landMines.splice(m, 1);
           continue;
         }
@@ -2274,6 +2513,7 @@ function handleLandMines() {
                   antStunned[aj] = false;
                   antStunTimer[aj] = 0;
                   antLastShotFrame[aj] = 0;
+                  antAlternatingCooldownState[aj] = 0;
                   antAirHeight[aj] = 0;
                 }
               }
@@ -2291,24 +2531,47 @@ function handleLandMines() {
     
     // Draw land mine as a green circle
     push();
-    let mineSize = 15 * mine.size; // Size based on bullet size
-    fill(0, 200, 0, 180); // Green with transparency
-    stroke(0, 255, 0, 255); // Bright green outline
-    strokeWeight(2);
-    ellipse(mine.x, mine.y, mineSize, mineSize);
+    let mineSize = 15 * mine.size; // Size based on bullet size (includes fusion scaling)
+    let fusionCount = mine.fusionCount || 1;
+    
+    // Fused mines pulse and have enhanced visuals
+    let pulseFactor = 1;
+    if (fusionCount > 1) {
+      pulseFactor = 1 + 0.1 * sin(frameCount * 0.15);
+    }
+    
+    let finalSize = mineSize * pulseFactor;
+    
+    // Color intensity increases with fusion count
+    let greenIntensity = min(200 + fusionCount * 10, 255);
+    let outlineIntensity = 255;
+    
+    fill(0, greenIntensity, 0, 180); // Green with transparency
+    stroke(0, outlineIntensity, 0, 255); // Bright green outline
+    strokeWeight(fusionCount > 1 ? 3 : 2); // Thicker outline for fused mines
+    ellipse(mine.x, mine.y, finalSize, finalSize);
     
     // Draw a small warning symbol in the center
     fill(255, 255, 0);
     noStroke();
-    ellipse(mine.x, mine.y, mineSize * 0.3, mineSize * 0.3);
+    ellipse(mine.x, mine.y, finalSize * 0.3, finalSize * 0.3);
+    
+    // Display fusion count for fused mines
+    if (fusionCount > 1) {
+      fill(255, 255, 255);
+      textAlign(CENTER, CENTER);
+      textSize(finalSize * 0.25);
+      text(fusionCount, mine.x, mine.y);
+    }
     pop();
     
     // Check collision with player (for enemy mines)
     if (!mine.isPlayerMine) {
       let hitboxSize = (mineSize / 2) + 15; // Mine radius + player hitbox
       if (dist(playerX, playerY, mine.x, mine.y) < hitboxSize) {
-        // Trigger mine
-        handlePlayerHit(mine.owner, mine.knockbackBullet, mine.x, mine.y, mine.knockbackMultiplier, mine.trueSpeed, true);
+        // Trigger mine - pick a random owner for credit if this is a fused mine
+        let ownerId = Array.isArray(mine.owner) ? random(mine.owner) : mine.owner;
+        handlePlayerHit(ownerId, mine.knockbackBullet, mine.x, mine.y, mine.knockbackMultiplier, mine.trueSpeed, true, mine.size);
         landMines.splice(m, 1);
         continue;
       }
@@ -2358,6 +2621,8 @@ function handleLandMines() {
             antStunned[i] = false;
             antStunTimer[i] = 0;
             antLastShotFrame[i] = 0;
+            antAlternatingCooldownState[i] = 0;
+            antRapidFireActive[i] = false;
             antAirHeight[i] = 0;
           }
           
@@ -2369,15 +2634,32 @@ function handleLandMines() {
   }
 }
 
-function handlePlayerHit(i, isKnockbackBullet = false, bulletX = 0, bulletY = 0, knockbackMult = 1, bulletSpeed = 5, isMine = false){
+// Categorize bullet speed into tiers and return damage multiplier and knockback tier
+function getBulletSpeedTier(speed) {
+  if (speed <= 2) {
+    return { name: "LOW SPEED", damageMultiplier: 0.5, knockbackTier: 1 };
+  } else if (speed <= 7) {
+    return { name: "REGULAR SPEED", damageMultiplier: 1.0, knockbackTier: 2 };
+  } else if (speed <= 10) {
+    return { name: "FAST SPEED", damageMultiplier: 1.5, knockbackTier: 3 };
+  } else if (speed <= 14) {
+    return { name: "SNIPER SPEED", damageMultiplier: 2.0, knockbackTier: 4 };
+  } else {
+    return { name: "GOD SPEED", damageMultiplier: 3.0, knockbackTier: 5 };
+  }
+}
+
+function handlePlayerHit(i, isKnockbackBullet = false, bulletX = 0, bulletY = 0, knockbackMult = 1, bulletSpeed = 5, isMine = false, customBulletSize = null){
   if (end == false){
     // Calculate damage based on bullet speed tier and size (mines use size only)
+    // Use passed customBulletSize or fall back to bulletSize[i] for backwards compatibility
+    let actualBulletSize = customBulletSize !== null ? customBulletSize : bulletSize[i];
+    let speedTier = getBulletSpeedTier(bulletSpeed); // Calculate speed tier for both damage and knockback
     let damage;
     if (isMine) {
-      damage = bulletSize[i];
+      damage = actualBulletSize;
     } else {
-      let speedTier = getBulletSpeedTier(bulletSpeed);
-      damage = bulletSize[i] * speedTier.damageMultiplier;
+      damage = actualBulletSize * speedTier.damageMultiplier;
     }
     
     // Apply knockback if this is a knockback bullet
@@ -2386,11 +2668,20 @@ function handlePlayerHit(i, isKnockbackBullet = false, bulletX = 0, bulletY = 0,
       let dy = playerY - bulletY;
       let distance = dist(bulletX, bulletY, playerX, playerY);
       if (distance > 0) {
-        let knockbackSpeed = 8 * knockbackMult; // Knockback speed multiplied by genetic stat
-        playerKnockbackVelX = (dx / distance) * knockbackSpeed;
-        playerKnockbackVelY = (dy / distance) * knockbackSpeed;
+        // Calculate effective knockback: speedTier * knockbackStat / 5
+        let effectiveKnockbackMult = speedTier.knockbackTier * knockbackMult / 5;
+        let knockbackSpeed = 6 * effectiveKnockbackMult;
+        // Set target velocity instead of instant velocity
+        playerKnockbackTargetX = (dx / distance) * knockbackSpeed;
+        playerKnockbackTargetY = (dy / distance) * knockbackSpeed;
+        // Start from zero velocity and accelerate
+        playerKnockbackVelX = 0;
+        playerKnockbackVelY = 0;
         playerKnockedBack = true;
-        playerKnockbackTimer = 20; // Short knockback duration (ground-based)
+        playerKnockbackAccelerating = true;
+        // Scale timer with effective knockback multiplier for consistent feel at all levels
+        playerKnockbackTimer = 40 + (effectiveKnockbackMult - 1) * 10; // Base 40, +10 per multiplier level
+        playerKnockbackInitialTimer = playerKnockbackTimer; // Store for halfway calculation
       }
     }
     
@@ -2438,6 +2729,42 @@ function detectKeyboardInput(){
   // Update free aiming if enabled
   updateFreeAim();
   
+  // Apply player knockback if active (ONCE per frame, not per ant)
+  if (playerKnockedBack) {
+    if (playerKnockbackAccelerating) {
+      // Acceleration phase - gradually increase velocity toward target
+      let accelRate = 0.25; // Accelerate at 25% per frame
+      playerKnockbackVelX += (playerKnockbackTargetX - playerKnockbackVelX) * accelRate;
+      playerKnockbackVelY += (playerKnockbackTargetY - playerKnockbackVelY) * accelRate;
+      
+      // Switch to deceleration when velocity is close to target or timer is halfway
+      let velocityMagnitude = sqrt(playerKnockbackVelX * playerKnockbackVelX + playerKnockbackVelY * playerKnockbackVelY);
+      let targetMagnitude = sqrt(playerKnockbackTargetX * playerKnockbackTargetX + playerKnockbackTargetY * playerKnockbackTargetY);
+      if (velocityMagnitude >= targetMagnitude * 0.9 || playerKnockbackTimer <= playerKnockbackInitialTimer * 0.5) {
+        playerKnockbackAccelerating = false;
+      }
+    } else {
+      // Deceleration phase - gradually slow down
+      playerKnockbackVelX *= 0.92;
+      playerKnockbackVelY *= 0.92;
+    }
+    
+    playerX += playerKnockbackVelX;
+    playerY += playerKnockbackVelY;
+    playerKnockbackTimer--;
+    
+    // Keep player in bounds
+    playerX = constrain(playerX, sideBuffer, getGameplayWidth() - sideBuffer);
+    playerY = constrain(playerY, scoreBarHeight + 25, getGameplayHeight() - expBarHeight - expBarBuffer);
+    
+    if (playerKnockbackTimer <= 0) {
+      playerKnockedBack = false;
+      playerKnockbackVelX = 0;
+      playerKnockbackVelY = 0;
+      playerKnockbackAccelerating = false;
+    }
+  }
+  
   for (let i = 1; i < enemyCount + 1; i++) {
     if(end == false) {
 
@@ -2455,25 +2782,6 @@ function detectKeyboardInput(){
         isGamepadMoving = true;
         moveSpeedX = playerSpeed * Math.abs(gamepadXAxis);
         moveSpeedY = playerSpeed * Math.abs(gamepadYAxis);
-      }
-
-      // Apply player knockback if active
-      if (playerKnockedBack) {
-        playerX += playerKnockbackVelX;
-        playerY += playerKnockbackVelY;
-        playerKnockbackVelX *= 0.85; // Deceleration
-        playerKnockbackVelY *= 0.85;
-        playerKnockbackTimer--;
-        
-        // Keep player in bounds
-        playerX = constrain(playerX, sideBuffer, getGameplayWidth() - sideBuffer);
-        playerY = constrain(playerY, scoreBarHeight + 25, getGameplayHeight() - expBarHeight - expBarBuffer);
-        
-        if (playerKnockbackTimer <= 0) {
-          playerKnockedBack = false;
-          playerKnockbackVelX = 0;
-          playerKnockbackVelY = 0;
-        }
       }
 
       //left
@@ -2743,6 +3051,7 @@ function beetleShoot() {
           antStunned[j] = true;
           antStunTimer[j] = 30;
           antLastShotFrame[j] = frameCount; // Reset shooting cooldown
+          antRapidFireActive[j] = false; // Cancel rapid fire
         }
         
         // Only kill ant if health drops to 0 or below
@@ -2912,7 +3221,7 @@ function handleWindAttack() {
       
       // Deal damage when radius reaches max
       let windDamage = 0.5 + (upgrade16Level * 0.14); // 0.5 to 1.2 in 5 steps
-      let knockbackMultiplier = 4 + (upgrade18Level * 2); // 4, 6, 8, 10 in 3 steps
+      let knockbackMultiplier = 4; // 4, 6, 8, 10 in 3 steps
       
       for (let i = 1; i <= enemyCount; i++) {
         // Skip if ant is airborne (in the air, not just knocked back)
@@ -2928,11 +3237,12 @@ function handleWindAttack() {
             antStunned[i] = true;
             antStunTimer[i] = 30;
             antLastShotFrame[i] = frameCount; // Reset shooting cooldown
+            antRapidFireActive[i] = false; // Cancel rapid fire
           }
           
           // Apply knockback
           let angle = atan2(antY[i] - playerY, antX[i] - playerX);
-          let knockbackSpeed = (movementSpeed / enemyCount) * knockbackMultiplier / antSize[i];
+          let knockbackSpeed = movementSpeed * knockbackMultiplier / antSize[i];
           antKnockbackVelX[i] = cos(angle) * knockbackSpeed;
           antKnockbackVelY[i] = sin(angle) * knockbackSpeed;
           antKnockedBack[i] = true;
@@ -2958,6 +3268,8 @@ function handleWindAttack() {
             antStunned[i] = false;
             antStunTimer[i] = 0;
             antLastShotFrame[i] = 0;
+            antAlternatingCooldownState[i] = 0;
+            antRapidFireActive[i] = false;
             antAirHeight[i] = 0;
           }
         }
@@ -3051,6 +3363,86 @@ function addDeathEffect(x, y, points = 100) {
     opacity: 255,
     riseSpeed: 1.5,
   });
+}
+
+function fuseLandMines() {
+  // Performance optimization: fuse closest landmines when there are too many
+  if (landMines.length <= 50) return;
+  
+  // Find the two closest mines to each other
+  let minDistance = Infinity;
+  let mine1Index = -1;
+  let mine2Index = -1;
+  
+  for (let i = 0; i < landMines.length; i++) {
+    for (let j = i + 1; j < landMines.length; j++) {
+      let d = dist(landMines[i].x, landMines[i].y, landMines[j].x, landMines[j].y);
+      if (d < minDistance) {
+        minDistance = d;
+        mine1Index = i;
+        mine2Index = j;
+      }
+    }
+  }
+  
+  if (mine1Index === -1 || mine2Index === -1) return;
+  
+  let mine1 = landMines[mine1Index];
+  let mine2 = landMines[mine2Index];
+  
+  // Create owners array from both mines
+  let fusedOwners = [];
+  if (Array.isArray(mine1.owner)) {
+    fusedOwners = fusedOwners.concat(mine1.owner);
+  } else {
+    fusedOwners.push(mine1.owner);
+  }
+  if (Array.isArray(mine2.owner)) {
+    fusedOwners = fusedOwners.concat(mine2.owner);
+  } else {
+    fusedOwners.push(mine2.owner);
+  }
+  
+  // Calculate combined fusion count
+  let newFusionCount = (mine1.fusionCount || 1) + (mine2.fusionCount || 1);
+  
+  // Size scales with fusion count (using square root for balanced growth)
+  let newSize = (mine1.size + mine2.size) / 2 * Math.pow(newFusionCount, 0.35);
+  
+  // Position at the weighted average based on size
+  let totalSize = mine1.size + mine2.size;
+  let newX = (mine1.x * mine1.size + mine2.x * mine2.size) / totalSize;
+  let newY = (mine1.y * mine1.size + mine2.y * mine2.size) / totalSize;
+  
+  // Create fused mine with combined properties
+  let fusedMine = {
+    x: newX,
+    y: newY,
+    size: newSize,
+    owner: fusedOwners, // Now an array of all contributing ants
+    isPlayerMine: mine1.isPlayerMine || mine2.isPlayerMine, // Player mine if either is
+    knockbackBullet: mine1.knockbackBullet || mine2.knockbackBullet,
+    knockbackMultiplier: Math.max(mine1.knockbackMultiplier || 1, mine2.knockbackMultiplier || 1),
+    trueSpeed: (mine1.trueSpeed + mine2.trueSpeed) / 2,
+    life: Math.min(mine1.life || 0, mine2.life || 0), // Use minimum life (newer mine)
+    explodeOnTermination: mine1.explodeOnTermination || mine2.explodeOnTermination,
+    triggerExplodeViaProximity: mine1.triggerExplodeViaProximity || mine2.triggerExplodeViaProximity,
+    explosionProximity: Math.max(mine1.explosionProximity || 0, mine2.explosionProximity || 0),
+    explodeAfter: Math.min(mine1.explodeAfter || Infinity, mine2.explodeAfter || Infinity),
+    fusionCount: newFusionCount
+  };
+  
+  // Remove the two original mines (remove higher index first to avoid index shifting)
+  if (mine2Index > mine1Index) {
+    landMines.splice(mine2Index, 1);
+    landMines.splice(mine1Index, 1);
+  } else {
+    landMines.splice(mine1Index, 1);
+    landMines.splice(mine2Index, 1);
+  }
+  
+  // Add the fused mine
+  landMines.push(fusedMine);
 }
 
 function spawnEnemyExplosion(x, y, size, ownerId) {
@@ -3684,7 +4076,7 @@ if (timeCount < 0) {
           if (i === 14 && upgrade14Level === 0) continue;  // Shockwave Radius requires Shockwave Unlock
           if (i === 15 && upgrade14Level === 0) continue;  // Shockwave Damage requires Shockwave Unlock
           if (i === 16 && upgrade14Level === 0) continue;  // Shockwave Cooldown requires Shockwave Unlock
-          if (i === 17 && upgrade14Level === 0) continue;  // Shockwave Knockback requires Shockwave Unlock
+          if (i === 17) continue;  // Shockwave Knockback removed (now constant)
           if (i === 18 && upgrade14Level === 0) continue;  // Shockwave Deflection requires Shockwave Unlock
           availableUpgrades.push(i);
         }
@@ -4454,7 +4846,7 @@ function applyUpgrade(upgradeIndex) {
         if (i === 14 && upgrade14Level === 0) continue;  // Shockwave Radius requires Shockwave Unlock
         if (i === 15 && upgrade14Level === 0) continue;  // Shockwave Damage requires Shockwave Unlock
         if (i === 16 && upgrade14Level === 0) continue;  // Shockwave Cooldown requires Shockwave Unlock
-        if (i === 17 && upgrade14Level === 0) continue;  // Shockwave Knockback requires Shockwave Unlock
+        if (i === 17) continue;  // Shockwave Knockback removed (now constant)
         if (i === 18 && upgrade14Level === 0) continue;  // Bullet Deflection requires Shockwave Unlock
         availableUpgrades.push(i);
       }
@@ -4883,11 +5275,14 @@ function nextRound(){
         followValue[i]    = constrain(s.followValue    + random(-movementMutationRate, movementMutationRate), -0.5, 3.49);
         autonomy[i]    = constrain(s.autonomy    + random(-movementMutationRate, movementMutationRate), -0.5, 1.5);
         distanceFromAnchor[i]    = constrain(s.distanceFromAnchor    + random(-100, 100), 0.1, 1000);
-        bulletHasSpecial[i]    = constrain(s.bulletHasSpecial    + random(-movementMutationRate, movementMutationRate), -0.5, 1.5);
-        bulletSpecialType[i]    = constrain(s.bulletSpecialType    + random(-movementMutationRate, movementMutationRate), -0.5, 1.5);
+        bulletSpecialType[i]    = constrain(s.bulletSpecialType    + random(-movementMutationRate, movementMutationRate), -1.5, 1.5);
         bulletExplosionTrigger[i]    = constrain(s.bulletExplosionTrigger    + random(-movementMutationRate, movementMutationRate), -0.5, 1.5);
         bulletKnockbackMultiplier[i]    = constrain(s.bulletKnockbackMultiplier    + random(-0.5, 0.5), 0.5, 5);
         bulletDeathType[i]    = constrain(s.bulletDeathType    + random(-(movementMutationRate/2), (movementMutationRate/2)), -0.5, 1.5);
+        bulletFireType[i]    = constrain(s.bulletFireType    + random(-movementMutationRate, movementMutationRate), -1.5, 2.5);
+        bulletBurstCount[i]    = constrain(s.bulletBurstCount    + random(-movementMutationRate, movementMutationRate), 1.5, 5.5);
+        bulletBurstSpread[i]    = constrain(s.bulletBurstSpread    + random(-movementMutationRate, movementMutationRate), PI/3, PI);
+        bulletCooldownMultiplier[i]    = constrain(s.bulletCooldownMultiplier    + random(-movementMutationRate, movementMutationRate), 0.5, 5.5);
         explosionProximity[i]    = constrain(s.explosionProximity    + random(-100, 100), 0.1, 1000);
         angleFromSpawn[i]    = constrain(s.angleFromSpawn    + random((-PI / 3), (PI / 3)), 0, TWO_PI);
         bulletSize[i]    = constrain(s.bulletSize    + random(-(movementMutationRate / 2), (movementMutationRate / 2)), 1, 3);
@@ -4905,6 +5300,8 @@ function nextRound(){
         antStunned[i] = false;
         antStunTimer[i] = 0;
         antLastShotFrame[i] = 0;
+        antAlternatingCooldownState[i] = 0;
+        antRapidFireActive[i] = false;
         antAirHeight[i] = 0;
       } else {
         // Regular ant from game performance
@@ -4919,11 +5316,14 @@ function nextRound(){
         followValue[i]    = constrain(followValue[parent.id]    + random(-movementMutationRate, movementMutationRate), -0.5, 3.49);
         autonomy[i]    = constrain(autonomy[parent.id]    + random(-movementMutationRate, movementMutationRate), -0.5, 1.5);
         distanceFromAnchor[i]    = constrain(distanceFromAnchor[parent.id]    + random(-100, 100), 0.1, 1000);
-        bulletHasSpecial[i]    = constrain(bulletHasSpecial[parent.id]    + random(-movementMutationRate, movementMutationRate), -0.5, 1.5);
-        bulletSpecialType[i]    = constrain(bulletSpecialType[parent.id]    + random(-movementMutationRate, movementMutationRate), -0.5, 1.5);
+        bulletSpecialType[i]    = constrain(bulletSpecialType[parent.id]    + random(-movementMutationRate, movementMutationRate), -1.5, 1.5);
         bulletExplosionTrigger[i]    = constrain(bulletExplosionTrigger[parent.id]    + random(-movementMutationRate, movementMutationRate), -0.5, 1.5);
         bulletKnockbackMultiplier[i]    = constrain(bulletKnockbackMultiplier[parent.id]    + random(-0.5, 0.5), 0.5, 5);
         bulletDeathType[i]    = constrain(bulletDeathType[parent.id]    + random(-(movementMutationRate/2), (movementMutationRate/2)), -0.5, 1.5);
+        bulletFireType[i]    = constrain(bulletFireType[parent.id]    + random(-movementMutationRate, movementMutationRate), -1.5, 2.5);
+        bulletBurstCount[i]    = constrain(bulletBurstCount[parent.id]    + random(-movementMutationRate, movementMutationRate), 1.5, 5.5);
+        bulletBurstSpread[i]    = constrain(bulletBurstSpread[parent.id]    + random(-movementMutationRate, movementMutationRate), PI/3, PI);
+        bulletCooldownMultiplier[i]    = constrain(bulletCooldownMultiplier[parent.id]    + random(-movementMutationRate, movementMutationRate), 0.5, 5.5);
         explosionProximity[i]    = constrain(explosionProximity[parent.id]    + random(-100, 100), 0.1, 1000);
         angleFromSpawn[i]    = constrain(angleFromSpawn[parent.id]    + random((-PI / 3), (PI / 3)), 0, TWO_PI);
         bulletSize[i]    = constrain(bulletSize[parent.id]    + random(-(movementMutationRate / 2), (movementMutationRate / 2)), 1, 3);
@@ -4941,6 +5341,8 @@ function nextRound(){
         antStunned[i] = false;
         antStunTimer[i] = 0;
         antLastShotFrame[i] = 0;
+        antAlternatingCooldownState[i] = 0;
+        antRapidFireActive[i] = false;
         antAirHeight[i] = 0;
       }
 
@@ -4952,24 +5354,26 @@ function nextRound(){
         keepDistance[i] = true;
       }
       // Set explosion flags based on genetics
-      if (Math.round(bulletHasSpecial[i]) === 0){
+      const specialType = Math.round(bulletSpecialType[i]);
+      if (specialType === 0){
         // No special bullet behavior
         explodeOnTermination[i] = false;
         triggerExplodeViaProximity[i] = false;
-      } else if (Math.round(bulletHasSpecial[i]) === 1){
-        // Has special behavior - check what type
-        if (Math.round(bulletSpecialType[i]) === 0){
-          // Type 0 = Explosions - check trigger type
-          if (Math.round(bulletExplosionTrigger[i]) === 0){
-            // Time-based explosion
-            explodeOnTermination[i] = true;
-            triggerExplodeViaProximity[i] = false;
-          } else if (Math.round(bulletExplosionTrigger[i]) === 1){
-            // Proximity-based explosion
-            explodeOnTermination[i] = false;
-            triggerExplodeViaProximity[i] = true;
-          }
+      } else if (specialType === 1){
+        // Type 1 = Explosions - check trigger type
+        if (Math.round(bulletExplosionTrigger[i]) === 0){
+          // Time-based explosion
+          explodeOnTermination[i] = true;
+          triggerExplodeViaProximity[i] = false;
+        } else if (Math.round(bulletExplosionTrigger[i]) === 1){
+          // Proximity-based explosion
+          explodeOnTermination[i] = false;
+          triggerExplodeViaProximity[i] = true;
         }
+      } else if (specialType === -1){
+        // Type -1 = Knockback (no explosions)
+        explodeOnTermination[i] = false;
+        triggerExplodeViaProximity[i] = false;
       }
       if (Math.round(followValue[i]) === 0){
         followAnt[i] = false;
@@ -5034,13 +5438,9 @@ function nextRound(){
         ? constrain(distanceFromAnchor[winner.id] + random(-100, 100), 0.1, 1000)
         : random(0.1, 1000);
       
-      bulletHasSpecial[i] = winner
-        ? constrain(bulletHasSpecial[winner.id] + random(-movementMutationRate, movementMutationRate), -0.5, 1.5)
-        : random(-0.5, 1.5);
-      
       bulletSpecialType[i] = winner
-        ? constrain(bulletSpecialType[winner.id] + random(-movementMutationRate, movementMutationRate), -0.5, 1.5)
-        : random(-0.5, 1.5);
+        ? constrain(bulletSpecialType[winner.id] + random(-movementMutationRate, movementMutationRate), -1.5, 1.5)
+        : random(-1.5, 1.5);
       
       bulletExplosionTrigger[i] = winner
         ? constrain(bulletExplosionTrigger[winner.id] + random(-movementMutationRate, movementMutationRate), -0.5, 1.5)
@@ -5053,6 +5453,22 @@ function nextRound(){
       explosionProximity[i] = winner
         ? constrain(explosionProximity[winner.id] + random(-100, 100), 0.1, 1000)
         : random(0.1, 1000);
+      
+      bulletFireType[i] = winner
+        ? constrain(bulletFireType[winner.id] + random(-movementMutationRate, movementMutationRate), -1.5, 2.5)
+        : random(-1.5, 2.5);
+      
+      bulletBurstCount[i] = winner
+        ? constrain(bulletBurstCount[winner.id] + random(-1, 1), 1.5, 5.5)
+        : random(1.5, 5.5);
+      
+      bulletBurstSpread[i] = winner
+        ? constrain(bulletBurstSpread[winner.id] + random(-0.2, 0.2), PI/3, PI)
+        : random(PI/3, PI);
+      
+      bulletCooldownMultiplier[i] = winner
+        ? constrain(bulletCooldownMultiplier[winner.id] + random(-1, 1), 0.5, 5.5)
+        : random(0.5, 5.5);
       
       angleFromSpawn[i] = winner 
         ? constrain(angleFromSpawn[winner.id] + random((-PI / 3), (PI / 3)), 0, TWO_PI)
@@ -5089,6 +5505,8 @@ function nextRound(){
       antStunned[i] = false;
       antStunTimer[i] = 0;
       antLastShotFrame[i] = 0;
+      antAlternatingCooldownState[i] = 0;
+      antRapidFireActive[i] = false;
       antAirHeight[i] = 0;
 
       if (Math.round(autonomy[i]) === 0){
@@ -5096,24 +5514,26 @@ function nextRound(){
         keepDistance[i] = true;
       }
       // Set explosion flags based on genetics
-      if (Math.round(bulletHasSpecial[i]) === 0){
+      const specialType2 = Math.round(bulletSpecialType[i]);
+      if (specialType2 === 0){
         // No special bullet behavior
         explodeOnTermination[i] = false;
         triggerExplodeViaProximity[i] = false;
-      } else if (Math.round(bulletHasSpecial[i]) === 1){
-        // Has special behavior - check what type
-        if (Math.round(bulletSpecialType[i]) === 0){
-          // Type 0 = Explosions - check trigger type
-          if (Math.round(bulletExplosionTrigger[i]) === 0){
-            // Time-based explosion
-            explodeOnTermination[i] = true;
-            triggerExplodeViaProximity[i] = false;
-          } else if (Math.round(bulletExplosionTrigger[i]) === 1){
-            // Proximity-based explosion
-            explodeOnTermination[i] = false;
-            triggerExplodeViaProximity[i] = true;
-          }
+      } else if (specialType2 === 1){
+        // Type 1 = Explosions - check trigger type
+        if (Math.round(bulletExplosionTrigger[i]) === 0){
+          // Time-based explosion
+          explodeOnTermination[i] = true;
+          triggerExplodeViaProximity[i] = false;
+        } else if (Math.round(bulletExplosionTrigger[i]) === 1){
+          // Proximity-based explosion
+          explodeOnTermination[i] = false;
+          triggerExplodeViaProximity[i] = true;
         }
+      } else if (specialType2 === -1){
+        // Type -1 = Knockback (no explosions)
+        explodeOnTermination[i] = false;
+        triggerExplodeViaProximity[i] = false;
       }
       if (Math.round(followValue[i]) === 0){
         followAnt[i] = false;
@@ -6037,6 +6457,19 @@ function updateAntDexEntries() {
   if (knockbackDiscovered === true) storeItem('knockbackPreviouslyDiscovered', knockbackDiscovered);
   if (getItem('knockbackPreviouslyDiscovered') === true) knockbackDiscovered = getItem('knockbackPreviouslyDiscovered');
 
+  // Fire Types
+  if (alternatingFireDiscovered === true) storeItem('alternatingFirePreviouslyDiscovered', alternatingFireDiscovered);
+  if (getItem('alternatingFirePreviouslyDiscovered') === true) alternatingFireDiscovered = getItem('alternatingFirePreviouslyDiscovered');
+
+  if (normalFireDiscovered === true) storeItem('normalFirePreviouslyDiscovered', normalFireDiscovered);
+  if (getItem('normalFirePreviouslyDiscovered') === true) normalFireDiscovered = getItem('normalFirePreviouslyDiscovered');
+
+  if (burstFireDiscovered === true) storeItem('burstFirePreviouslyDiscovered', burstFireDiscovered);
+  if (getItem('burstFirePreviouslyDiscovered') === true) burstFireDiscovered = getItem('burstFirePreviouslyDiscovered');
+  
+  if (rapidFireDiscovered === true) storeItem('rapidFirePreviouslyDiscovered', rapidFireDiscovered);
+  if (getItem('rapidFirePreviouslyDiscovered') === true) rapidFireDiscovered = getItem('rapidFirePreviouslyDiscovered');
+
   // Explosion Fuse (47-51)
   if (fuseMinDiscovered === true) storeItem('fuseMinPreviouslyDiscovered', fuseMinDiscovered);
   if (getItem('fuseMinPreviouslyDiscovered') === true) fuseMinDiscovered = getItem('fuseMinPreviouslyDiscovered');
@@ -6116,6 +6549,58 @@ function updateAntDexEntries() {
   
   if (knockbackMaxDiscovered === true) storeItem('knockbackMaxPreviouslyDiscovered', knockbackMaxDiscovered);
   if (getItem('knockbackMaxPreviouslyDiscovered') === true) knockbackMaxDiscovered = getItem('knockbackMaxPreviouslyDiscovered');
+
+  // Burst Count (1.5-5.5)
+  if (burstCountMinDiscovered === true) storeItem('burstCountMinPreviouslyDiscovered', burstCountMinDiscovered);
+  if (getItem('burstCountMinPreviouslyDiscovered') === true) burstCountMinDiscovered = getItem('burstCountMinPreviouslyDiscovered');
+  
+  if (burstCountLowDiscovered === true) storeItem('burstCountLowPreviouslyDiscovered', burstCountLowDiscovered);
+  if (getItem('burstCountLowPreviouslyDiscovered') === true) burstCountLowDiscovered = getItem('burstCountLowPreviouslyDiscovered');
+  
+  if (burstCountMedDiscovered === true) storeItem('burstCountMedPreviouslyDiscovered', burstCountMedDiscovered);
+  if (getItem('burstCountMedPreviouslyDiscovered') === true) burstCountMedDiscovered = getItem('burstCountMedPreviouslyDiscovered');
+  
+  if (burstCountHighDiscovered === true) storeItem('burstCountHighPreviouslyDiscovered', burstCountHighDiscovered);
+  if (getItem('burstCountHighPreviouslyDiscovered') === true) burstCountHighDiscovered = getItem('burstCountHighPreviouslyDiscovered');
+  
+  if (burstCountMaxDiscovered === true) storeItem('burstCountMaxPreviouslyDiscovered', burstCountMaxDiscovered);
+  if (getItem('burstCountMaxPreviouslyDiscovered') === true) burstCountMaxDiscovered = getItem('burstCountMaxPreviouslyDiscovered');
+
+  // Cooldown Multiplier (0.5-5.5)
+  if (cooldownMultiplierMinDiscovered === true) storeItem('cooldownMultiplierMinPreviouslyDiscovered', cooldownMultiplierMinDiscovered);
+  if (getItem('cooldownMultiplierMinPreviouslyDiscovered') === true) cooldownMultiplierMinDiscovered = getItem('cooldownMultiplierMinPreviouslyDiscovered');
+  
+  if (cooldownMultiplierLowDiscovered === true) storeItem('cooldownMultiplierLowPreviouslyDiscovered', cooldownMultiplierLowDiscovered);
+  if (getItem('cooldownMultiplierLowPreviouslyDiscovered') === true) cooldownMultiplierLowDiscovered = getItem('cooldownMultiplierLowPreviouslyDiscovered');
+  
+  if (cooldownMultiplierMedDiscovered === true) storeItem('cooldownMultiplierMedPreviouslyDiscovered', cooldownMultiplierMedDiscovered);
+  if (getItem('cooldownMultiplierMedPreviouslyDiscovered') === true) cooldownMultiplierMedDiscovered = getItem('cooldownMultiplierMedPreviouslyDiscovered');
+  
+  if (cooldownMultiplierHighDiscovered === true) storeItem('cooldownMultiplierHighPreviouslyDiscovered', cooldownMultiplierHighDiscovered);
+  if (getItem('cooldownMultiplierHighPreviouslyDiscovered') === true) cooldownMultiplierHighDiscovered = getItem('cooldownMultiplierHighPreviouslyDiscovered');
+  
+  if (cooldownMultiplierMaxDiscovered === true) storeItem('cooldownMultiplierMaxPreviouslyDiscovered', cooldownMultiplierMaxDiscovered);
+  if (getItem('cooldownMultiplierMaxPreviouslyDiscovered') === true) cooldownMultiplierMaxDiscovered = getItem('cooldownMultiplierMaxPreviouslyDiscovered');
+
+  // Bullet Death Type: Landmine Conversion
+  if (landmineConversionDiscovered === true) storeItem('landmineConversionPreviouslyDiscovered', landmineConversionDiscovered);
+  if (getItem('landmineConversionPreviouslyDiscovered') === true) landmineConversionDiscovered = getItem('landmineConversionPreviouslyDiscovered');
+
+  // Burst Spread (88-92)
+  if (burstSpreadMinDiscovered === true) storeItem('burstSpreadMinPreviouslyDiscovered', burstSpreadMinDiscovered);
+  if (getItem('burstSpreadMinPreviouslyDiscovered') === true) burstSpreadMinDiscovered = getItem('burstSpreadMinPreviouslyDiscovered');
+  
+  if (burstSpreadLowDiscovered === true) storeItem('burstSpreadLowPreviouslyDiscovered', burstSpreadLowDiscovered);
+  if (getItem('burstSpreadLowPreviouslyDiscovered') === true) burstSpreadLowDiscovered = getItem('burstSpreadLowPreviouslyDiscovered');
+  
+  if (burstSpreadMedDiscovered === true) storeItem('burstSpreadMedPreviouslyDiscovered', burstSpreadMedDiscovered);
+  if (getItem('burstSpreadMedPreviouslyDiscovered') === true) burstSpreadMedDiscovered = getItem('burstSpreadMedPreviouslyDiscovered');
+  
+  if (burstSpreadHighDiscovered === true) storeItem('burstSpreadHighPreviouslyDiscovered', burstSpreadHighDiscovered);
+  if (getItem('burstSpreadHighPreviouslyDiscovered') === true) burstSpreadHighDiscovered = getItem('burstSpreadHighPreviouslyDiscovered');
+  
+  if (burstSpreadMaxDiscovered === true) storeItem('burstSpreadMaxPreviouslyDiscovered', burstSpreadMaxDiscovered);
+  if (getItem('burstSpreadMaxPreviouslyDiscovered') === true) burstSpreadMaxDiscovered = getItem('burstSpreadMaxPreviouslyDiscovered');
 
   
   //checks for new discoveries
@@ -6270,7 +6755,7 @@ function updateAntDexEntries() {
         triggerDiscoveryPopup();
       }
 
-      // 34-38: Ant Size (exact values) + 73-74: Small/Large Ants
+      // 34-38: Ant Size (exact values) + 83-84: Small/Large Ants
       const aSize = antSize[i];
       if (!antSizeMinDiscovered && aSize === 0.3) {
         antSizeMinDiscovered = true;
@@ -6328,29 +6813,47 @@ function updateAntDexEntries() {
       }
 
       // 44-46 + 67: Special Abilities
-      const hasSpecial = Math.round(bulletHasSpecial[i]);
       const specialType = Math.round(bulletSpecialType[i]);
       const expTrigger = Math.round(bulletExplosionTrigger[i]);
 
-      if (!noSpecialDiscovered && hasSpecial === 0) {
+      if (!noSpecialDiscovered && specialType === 0) {
         noSpecialDiscovered = true;
         triggerDiscoveryPopup();
       }
-      if (!timeExplosionDiscovered && hasSpecial === 1 && specialType === 0 && expTrigger === 0) {
+      if (!timeExplosionDiscovered && specialType === 1 && expTrigger === 0) {
         timeExplosionDiscovered = true;
         triggerDiscoveryPopup();
       }
-      if (!proximityExplosionDiscovered && hasSpecial === 1 && specialType === 0 && expTrigger === 1) {
+      if (!proximityExplosionDiscovered && specialType === 1 && expTrigger === 1) {
         proximityExplosionDiscovered = true;
         triggerDiscoveryPopup();
       }
-      if (!knockbackDiscovered && hasSpecial === 1 && specialType === 1) {
+      if (!knockbackDiscovered && specialType === -1) {
         knockbackDiscovered = true;
         triggerDiscoveryPopup();
       }
 
+      // Fire Type discoveries
+      const fireType = Math.round(bulletFireType[i]);
+      if (!alternatingFireDiscovered && fireType === -1) {
+        alternatingFireDiscovered = true;
+        triggerDiscoveryPopup();
+      }
+      if (!normalFireDiscovered && fireType === 0) {
+        normalFireDiscovered = true;
+        triggerDiscoveryPopup();
+      }
+      if (!burstFireDiscovered && fireType === 1) {
+        burstFireDiscovered = true;
+        triggerDiscoveryPopup();
+      }
+      if (!rapidFireDiscovered && fireType === 2) {
+        rapidFireDiscovered = true;
+        triggerDiscoveryPopup();
+      }
+
       // 47-51: Explosion Fuse (Time Explosion only)
-      if (hasSpecial === 1 && specialType === 0 && expTrigger === 0) {
+      if (specialType === 1 && expTrigger === 0) {
         const fuse = bulletExplodeAfter[i];
         if (!fuseMinDiscovered && fuse >= 100 && fuse <= 250) {
           fuseMinDiscovered = true;
@@ -6375,7 +6878,7 @@ function updateAntDexEntries() {
       }
 
       // 52-56: Explosion Proximity (Proximity Explosion only)
-      if (hasSpecial === 1 && specialType === 0 && expTrigger === 1) {
+      if (specialType === 1 && expTrigger === 1) {
         const prox = explosionProximity[i];
         if (!proxMinDiscovered && prox >= 0.1 && prox <= 150) {
           proxMinDiscovered = true;
@@ -6400,7 +6903,7 @@ function updateAntDexEntries() {
       }
 
       // 57-61: Explosion Radius (Any Explosion type)
-      if (hasSpecial === 1 && specialType === 0) {
+      if (specialType === 1) {
         const rad = explosionRadiusMultiplier[i];
         if (!radiusMinDiscovered && rad >= 0.5 && rad <= 1.0) {
           radiusMinDiscovered = true;
@@ -6425,7 +6928,7 @@ function updateAntDexEntries() {
       }
 
       // 62-66: Explosion Residue (Any Explosion type)
-      if (hasSpecial === 1 && specialType === 0) {
+      if (specialType === 1) {
         const res = explosionResidueMultiplier[i];
         if (!residueMinDiscovered && res >= 0.5 && res <= 1.0) {
           residueMinDiscovered = true;
@@ -6450,7 +6953,7 @@ function updateAntDexEntries() {
       }
 
       // 68-72: Knockback Multiplier (Knockback type only)
-      if (hasSpecial === 1 && specialType === 1) {
+      if (specialType === -1) {
         const kb = bulletKnockbackMultiplier[i];
         if (!knockbackMinDiscovered && kb >= 0.5 && kb <= 1.5) {
           knockbackMinDiscovered = true;
@@ -6470,6 +6973,88 @@ function updateAntDexEntries() {
         }
         if (!knockbackMaxDiscovered && kb > 4.5 && kb <= 5.0) {
           knockbackMaxDiscovered = true;
+          triggerDiscoveryPopup();
+        }
+      }
+
+      // 73-82: Bullet Burst Count (1.5-5.5, Burst Fire only)
+      if (fireType === 1) {
+        const burstCount = bulletBurstCount[i];
+        if (!burstCountMinDiscovered && burstCount >= 1.5 && burstCount <= 2.3) {
+          burstCountMinDiscovered = true;
+          triggerDiscoveryPopup();
+        }
+        if (!burstCountLowDiscovered && burstCount > 2.3 && burstCount <= 3.2) {
+          burstCountLowDiscovered = true;
+          triggerDiscoveryPopup();
+        }
+        if (!burstCountMedDiscovered && burstCount > 3.2 && burstCount <= 4.1) {
+          burstCountMedDiscovered = true;
+          triggerDiscoveryPopup();
+        }
+        if (!burstCountHighDiscovered && burstCount > 4.1 && burstCount < 5.0) {
+          burstCountHighDiscovered = true;
+          triggerDiscoveryPopup();
+        }
+        if (!burstCountMaxDiscovered && burstCount >= 5.0 && burstCount <= 5.5) {
+          burstCountMaxDiscovered = true;
+          triggerDiscoveryPopup();
+        }
+      }
+
+      // 83-87: Cooldown Multiplier (0.5-5.5, Alternating/Burst/Rapid Fire)
+      if (fireType === -1 || fireType === 1 || fireType === 2) {
+        const cdMultiplier = bulletCooldownMultiplier[i];
+        if (!cooldownMultiplierMinDiscovered && cdMultiplier >= 0.5 && cdMultiplier <= 1.4) {
+          cooldownMultiplierMinDiscovered = true;
+          triggerDiscoveryPopup();
+        }
+        if (!cooldownMultiplierLowDiscovered && cdMultiplier > 1.4 && cdMultiplier <= 2.4) {
+          cooldownMultiplierLowDiscovered = true;
+          triggerDiscoveryPopup();
+        }
+        if (!cooldownMultiplierMedDiscovered && cdMultiplier > 2.4 && cdMultiplier <= 3.4) {
+          cooldownMultiplierMedDiscovered = true;
+          triggerDiscoveryPopup();
+        }
+        if (!cooldownMultiplierHighDiscovered && cdMultiplier > 3.4 && cdMultiplier < 4.5) {
+          cooldownMultiplierHighDiscovered = true;
+          triggerDiscoveryPopup();
+        }
+        if (!cooldownMultiplierMaxDiscovered && cdMultiplier >= 4.5 && cdMultiplier <= 5.5) {
+          cooldownMultiplierMaxDiscovered = true;
+          triggerDiscoveryPopup();
+        }
+      }
+
+      // Bullet Death Type: Landmine Conversion
+      const deathType = Math.round(bulletDeathType[i]);
+      if (!landmineConversionDiscovered && deathType === 1) {
+        landmineConversionDiscovered = true;
+        triggerDiscoveryPopup();
+      }
+
+      // 88-92: Burst Spread (60°-180°, Burst Fire only)
+      if (fireType === 1) {
+        const spreadDegrees = bulletBurstSpread[i] * 180 / PI;
+        if (!burstSpreadMinDiscovered && spreadDegrees >= 60 && spreadDegrees <= 84) {
+          burstSpreadMinDiscovered = true;
+          triggerDiscoveryPopup();
+        }
+        if (!burstSpreadLowDiscovered && spreadDegrees > 84 && spreadDegrees <= 109) {
+          burstSpreadLowDiscovered = true;
+          triggerDiscoveryPopup();
+        }
+        if (!burstSpreadMedDiscovered && spreadDegrees > 109 && spreadDegrees <= 134) {
+          burstSpreadMedDiscovered = true;
+          triggerDiscoveryPopup();
+        }
+        if (!burstSpreadHighDiscovered && spreadDegrees > 134 && spreadDegrees <= 159) {
+          burstSpreadHighDiscovered = true;
+          triggerDiscoveryPopup();
+        }
+        if (!burstSpreadMaxDiscovered && spreadDegrees > 159 && spreadDegrees <= 180) {
+          burstSpreadMaxDiscovered = true;
           triggerDiscoveryPopup();
         }
       }
@@ -6952,7 +7537,140 @@ function updateAntDexEntries() {
       category: 'exotic'
     },
 
-    // 73-74: Categorical Ant Size
+    // Fire Types
+    {
+      name: "Alternating Fire Ants",
+      desc: "Alternate between fast and slow shots. Each shot toggles cooldown speed. Affected by cooldown multiplier.",
+      stats: "Fire Type: Alternating",
+      discovered: alternatingFireDiscovered
+    },
+    {
+      name: "Normal Fire Ants",
+      desc: "Fire one bullet at a time with standard timing.",
+      stats: "Fire Type: Normal",
+      discovered: normalFireDiscovered
+    },
+    {
+      name: "Burst Fire Ants",
+      desc: "Fire multiple bullets in rapid succession with each trigger. Affected by burst count.",
+      stats: "Fire Type: Burst",
+      discovered: burstFireDiscovered
+    },
+    {
+      name: "Rapid Fire Ants",
+      desc: "Vary their firing rate with unpredictable timing. Affected by cooldown multiplier.",
+      stats: "Fire Type: Rapid",
+      discovered: rapidFireDiscovered
+    },
+
+    // 73-77: Bullet Burst Count
+    {
+      name: "Minimum Burst Count Ants",
+      desc: "Fire 1-2 bullets per burst. Nearly single-shot behavior.",
+      stats: "Bullet Burst Count: 1.5-2.3",
+      discovered: burstCountMinDiscovered
+    },
+    {
+      name: "Low Burst Count Ants",
+      desc: "Fire 2-3 bullets per burst. Controlled volleys.",
+      stats: "Bullet Burst Count: 2.4-3.2",
+      discovered: burstCountLowDiscovered
+    },
+    {
+      name: "Medium Burst Count Ants",
+      desc: "Fire 3-4 bullets per burst. Balanced pressure.",
+      stats: "Bullet Burst Count: 3.3-4.1",
+      discovered: burstCountMedDiscovered
+    },
+    {
+      name: "High Burst Count Ants",
+      desc: "Fire 4-5 bullets per burst. Heavy barrages.",
+      stats: "Bullet Burst Count: 4.2-4.9",
+      discovered: burstCountHighDiscovered
+    },
+    {
+      name: "Maximum Burst Count Ants",
+      desc: "Fire 5-6 bullets per burst. Overwhelming volleys.",
+      stats: "Bullet Burst Count: 5.0-5.5",
+      discovered: burstCountMaxDiscovered,
+      category: 'exotic'
+    },
+
+    // 78-82: Cooldown Multiplier
+    {
+      name: "Minimum Cooldown Multiplier Ants",
+      desc: "Faster shooting with 0.5-1.4x time between shots.",
+      stats: "Cooldown Multiplier: 0.5-1.4x",
+      discovered: cooldownMultiplierMinDiscovered
+    },
+    {
+      name: "Low Cooldown Multiplier Ants",
+      desc: "Moderate firing with 1.5-2.4x time between shots.",
+      stats: "Cooldown Multiplier: 1.5-2.4x",
+      discovered: cooldownMultiplierLowDiscovered
+    },
+    {
+      name: "Medium Cooldown Multiplier Ants",
+      desc: "Slower firing with 2.5-3.4x time between shots.",
+      stats: "Cooldown Multiplier: 2.5-3.4x",
+      discovered: cooldownMultiplierMedDiscovered
+    },
+    {
+      name: "High Cooldown Multiplier Ants",
+      desc: "Much slower firing with 3.5-4.4x time between shots.",
+      stats: "Cooldown Multiplier: 3.5-4.4x",
+      discovered: cooldownMultiplierHighDiscovered
+    },
+    {
+      name: "Maximum Cooldown Multiplier Ants",
+      desc: "Extremely slow firing with 4.5-5.5x time between shots.",
+      stats: "Cooldown Multiplier: 4.5-5.5x",
+      discovered: cooldownMultiplierMaxDiscovered,
+      category: 'exotic'
+    },
+
+    // 83: Bullet Death Type - Landmine Conversion
+    {
+      name: "Landmine Conversion Ants",
+      desc: "Bullets transform into landmines when they expire instead of fading.",
+      stats: "Death Type: Landmine Conversion",
+      discovered: landmineConversionDiscovered
+    },
+
+    // 84-88: Burst Spread (60°-180°, Burst Fire only)
+    {
+      name: "Minimum Burst Spread Ants",
+      desc: "Tight burst spread of 60-84°. Concentrated fire pattern.",
+      stats: "Burst Spread: 60-84°",
+      discovered: burstSpreadMinDiscovered
+    },
+    {
+      name: "Low Burst Spread Ants",
+      desc: "Narrow burst spread of 85-109°. Focused volleys.",
+      stats: "Burst Spread: 85-109°",
+      discovered: burstSpreadLowDiscovered
+    },
+    {
+      name: "Medium Burst Spread Ants",
+      desc: "Moderate burst spread of 110-134°. Balanced coverage.",
+      stats: "Burst Spread: 110-134°",
+      discovered: burstSpreadMedDiscovered
+    },
+    {
+      name: "High Burst Spread Ants",
+      desc: "Wide burst spread of 135-159°. Area denial pattern.",
+      stats: "Burst Spread: 135-159°",
+      discovered: burstSpreadHighDiscovered
+    },
+    {
+      name: "Maximum Burst Spread Ants",
+      desc: "Extreme burst spread of 160-180°. Full hemisphere coverage.",
+      stats: "Burst Spread: 160-180°",
+      discovered: burstSpreadMaxDiscovered,
+      category: 'exotic'
+    },
+
+    // 89-90: Categorical Ant Size
     {
       name: "Small Ants",
       desc: "Ants smaller than standard size.",
@@ -7476,6 +8194,8 @@ function advanceToNextAlivePlayer() {
     antStunned[i] = false;
     antStunTimer[i] = 0;
     antLastShotFrame[i] = 0;
+    antAlternatingCooldownState[i] = 0;
+    antRapidFireActive[i] = false;
     antAirHeight[i] = 0;
     strikeX[i] = 0;
     strikeY[i] = 0;
@@ -7673,16 +8393,22 @@ function drawAntsTab(fadeAlpha) {
     { name: 'Autonomy', key: 'autonomy', min: -0.5, max: 1.5, step: 0.01,
       help: '0=FollowTarget, 1=KeepDistance' },
     { name: 'Distance From Anchor', key: 'distanceFromAnchor', min: 0.1, max: 1000, step: 1 },
-    { name: 'Bullet Has Special', key: 'bulletHasSpecial', min: -0.5, max: 1.5, step: 0.01,
-      help: '0=Normal, 1=Special' },
-    { name: 'Bullet Special Type', key: 'bulletSpecialType', min: -0.5, max: 1.5, step: 0.01,
-      help: '0=Explosions, 1=Knockback' },
+    { name: 'Bullet Special Type', key: 'bulletSpecialType', min: -1.5, max: 1.5, step: 0.01,
+      help: '-1=Knockback, 0=None, 1=Explosions' },
     { name: 'Bullet Explosion Trigger', key: 'bulletExplosionTrigger', min: -0.5, max: 1.5, step: 0.01,
       help: '0=Time, 1=Proximity' },
     { name: 'Knockback Multiplier', key: 'bulletKnockbackMultiplier', min: 0.5, max: 5, step: 0.1,
       help: 'Multiplies knockback strength (0.5-5)' },
     { name: 'Bullet Death Type', key: 'bulletDeathType', min: -0.5, max: 1.5, step: 0.01,
       help: '0=Fade out, 1=Land mine' },
+    { name: 'Bullet Fire Type', key: 'bulletFireType', min: -1.5, max: 2.5, step: 0.01,
+      help: '-1=Alt Cooldown, 0=Single, 1=Burst, 2=Rapid' },
+    { name: 'Bullet Burst Count', key: 'bulletBurstCount', min: 1.5, max: 5.5, step: 0.01,
+      help: 'Number of bullets in burst/rapid (2-5)' },
+    { name: 'Bullet Burst Spread', key: 'bulletBurstSpread', min: 1.047, max: 3.14, step: 0.01,
+      help: 'Spread angle 60-180° (π/3 to π radians)' },
+    { name: 'Cooldown Multiplier', key: 'bulletCooldownMultiplier', min: 0.5, max: 5.5, step: 0.1,
+      help: 'Alternating cooldown multiplier (1-5)' },
     { name: 'Explosion Proximity', key: 'explosionProximity', min: 0.1, max: 1000, step: 1 },
     { name: 'Angle From Spawn', key: 'angleFromSpawn', min: 0, max: 6.28, step: 0.01,
       help: 'Radians (0-2π)' },
