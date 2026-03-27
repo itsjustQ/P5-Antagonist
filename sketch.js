@@ -58,6 +58,9 @@ let customAntStats = [
     bulletExplodeAfter: 800,
     antSize: 1,
     bulletFireType: 0,
+    bulletPathType: 0,
+    bulletArcDuration: 200,
+    bulletCurveStrength: 0.015,
     bulletBurstCount: 2,
     bulletBurstSpread: 2.0944,
     bulletCooldownMultiplier: 2
@@ -86,6 +89,9 @@ let customAntStats = [
     bulletExplodeAfter: 800,
     antSize: 1,
     bulletFireType: 0,
+    bulletPathType: 0,
+    bulletArcDuration: 200,
+    bulletCurveStrength: 0.015,
     bulletBurstCount: 2,
     bulletBurstSpread: 2.0944,
     bulletCooldownMultiplier: 2
@@ -114,6 +120,9 @@ let customAntStats = [
     bulletExplodeAfter: 800,
     antSize: 1,
     bulletFireType: 0,
+    bulletPathType: 0,
+    bulletArcDuration: 200,
+    bulletCurveStrength: 0.015,
     bulletBurstCount: 2,
     bulletBurstSpread: 2.0944,
     bulletCooldownMultiplier: 2
@@ -287,6 +296,11 @@ let cooldownMultiplierMaxDiscovered = false; // 4.5-5.5 (exotic)
 // Bullet Death Type discovery
 let landmineConversionDiscovered = false;  // Bullets convert to landmines (deathType === 1)
 
+// Bullet Path Type discoveries
+let clockwiseCurveDiscovered = false;      // Bullets curve clockwise (pathType === -1)
+let homingCurveDiscovered = false;         // Bullets curve toward player (pathType === -2)
+let highArcDiscovered = false;             // Bullets arc high and land (pathType === 1)
+
 // Burst Spread discoveries (PI/3 to PI = 60° to 180°, Burst Fire only)
 let burstSpreadMinDiscovered = false;     // 60-84°
 let burstSpreadLowDiscovered = false;     // 85-109°
@@ -371,6 +385,9 @@ let bulletExplosionTrigger = [];
 let bulletKnockbackMultiplier = [];
 let bulletDeathType = [];
 let bulletFireType = [];
+let bulletPathType = [];
+let bulletArcDuration = [];
+let bulletCurveStrength = [];
 let bulletBurstCount = [];
 let bulletBurstSpread = [];
 let bulletCooldownMultiplier = [];
@@ -556,8 +573,8 @@ function setup() {
   console.log('Window Height:', windowHeight);
   //enemyCount = windowWidth/150 + windowHeight/150;
   //Beetle
-  playerX = width / 2;
-  playerY = height / 2;
+  playerX = getGameplayWidth() / 2;
+  playerY = (scoreBarHeight + getGameplayHeight() - expBarHeight) / 2;
   playerPrevX = playerX;
   playerPrevY = playerY;
   flashingEntities = [];
@@ -616,6 +633,9 @@ function setup() {
     bulletKnockbackMultiplier[i] = 1;
     bulletDeathType[i] = 0;
     bulletFireType[i] = 0;
+    bulletPathType[i] = 0;
+    bulletArcDuration[i] = 200;
+    bulletCurveStrength[i] = 0.015;
     bulletBurstCount[i] = 2;
     bulletBurstSpread[i] = 2.0944;
     bulletCooldownMultiplier[i] = 2;
@@ -698,6 +718,24 @@ function setup() {
   buttons.shoot = {x: windowWidth - 50, y: windowHeight - 100, w: 80, h: 80};
   
   updateAntDexEntries();
+}
+
+function windowResized() {
+  resizeCanvas(windowWidth, windowHeight);
+  
+  // Keep beetle centered in playable area when window resizes
+  playerX = getGameplayWidth() / 2;
+  playerY = (scoreBarHeight + getGameplayHeight() - expBarHeight) / 2;
+  playerPrevX = playerX;
+  playerPrevY = playerY;
+  
+  // Update button positions for mobile controls
+  buttons.up = {x: 80, y: windowHeight - 140, w: 60, h: 60};
+  buttons.down = {x: 80, y: windowHeight - 60, w: 60, h: 60};
+  buttons.left = {x: 20, y: windowHeight - 100, w: 60, h: 60};
+  buttons.right = {x: 140, y: windowHeight - 100, w: 60, h: 60};
+  buttons.dash = {x: windowWidth - 140, y: windowHeight - 100, w: 80, h: 80};
+  buttons.shoot = {x: windowWidth - 50, y: windowHeight - 100, w: 80, h: 80};
 }
 
 function triggerDiscoveryPopup() {
@@ -980,8 +1018,8 @@ function resetRunState() {
   playerRotationValue = 0;
   bulletShot[enemyIndex] = 0;
   bulletSpeed[enemyIndex] = 100;
-  playerX = width / 2;
-  playerY = height / 2;
+  playerX = getGameplayWidth() / 2;
+  playerY = (scoreBarHeight + getGameplayHeight() - expBarHeight) / 2;
   playerPrevX = playerX;
   playerPrevY = playerY;
   tigerBeetleMoving = false;
@@ -1086,6 +1124,9 @@ function applyCustomAntsToInitialPopulation() {
     bulletKnockbackMultiplier[i] = s.bulletKnockbackMultiplier;
     bulletDeathType[i] = s.bulletDeathType;
     bulletFireType[i] = s.bulletFireType;
+    bulletPathType[i] = s.bulletPathType;
+    bulletArcDuration[i] = s.bulletArcDuration;
+    bulletCurveStrength[i] = s.bulletCurveStrength;
     bulletBurstCount[i] = s.bulletBurstCount;
     bulletBurstSpread[i] = s.bulletBurstSpread;
     bulletCooldownMultiplier[i] = s.bulletCooldownMultiplier;
@@ -1095,6 +1136,18 @@ function applyCustomAntsToInitialPopulation() {
     explosionRadiusMultiplier[i] = s.explosionRadiusMultiplier;
     explosionResidueMultiplier[i] = s.explosionResidueMultiplier;
     bulletExplodeAfter[i] = s.bulletExplodeAfter;
+    antSize[i] = s.antSize;
+    
+    // Apply ant speed cap based on ant size (small ants = faster, large ants = slower)
+    let maxAntSpeedCap = 4.5 - antSize[i];
+    antSpeed[i] = min(antSpeed[i], maxAntSpeedCap);
+    
+    // Cap bullet size based on ant size (small ants can't have huge bullets)
+    let maxBulletSize = min(3, antSize[i] + 1.0);
+    bulletSize[i] = min(bulletSize[i], maxBulletSize);
+    
+    antMaxHealth[i] = antSize[i];
+    antHealth[i] = antMaxHealth[i];
     
     // Set derived boolean values
     if (Math.round(autonomy[i]) === 0){
@@ -2059,6 +2112,19 @@ function enemyShoot1() {
         let bulletAngle = atan2((playerY + shotOffsetY[i]) - antY[i],
                                  (playerX + shotOffsetX[i]) - antX[i]);
         
+        // Adjust velocity for high arc bullets to land at target
+        const pathType = Math.round(bulletPathType[i]);
+        let targetX = playerX + shotOffsetX[i];
+        let targetY = playerY + shotOffsetY[i];
+        if (pathType === 1) {
+          // Calculate velocity needed to reach target in arcDuration frames
+          const arcDuration = bulletArcDuration[i];
+          rapidVx = (targetX - antX[i]) / arcDuration;
+          rapidVy = (targetY - antY[i]) / arcDuration;
+          bulletAngle = atan2(rapidVy, rapidVx);
+          actualBulletSpeed = Math.sqrt(rapidVx * rapidVx + rapidVy * rapidVy);
+        }
+        
         let bullet = {
           x: antX[i],
           y: antY[i],
@@ -2072,7 +2138,15 @@ function enemyShoot1() {
           trueSpeed: actualBulletSpeed,
           knockbackBullet: (Math.round(bulletSpecialType[i]) === -1),
           knockbackMultiplier: bulletKnockbackMultiplier[i],
-          delayFrames: 0
+          delayFrames: 0,
+          airHeight: 0,
+          airProgress: 0,
+          pathType: Math.round(bulletPathType[i]),
+          arcDuration: bulletArcDuration[i],
+          curveStrength: bulletCurveStrength[i],
+          targetX: playerX + shotOffsetX[i],
+          targetY: playerY + shotOffsetY[i],
+          owner: i
         };
         
         enemyBullets[i].push(bullet);
@@ -2146,12 +2220,26 @@ function enemyShoot1() {
                          (bulletSpeed[i] * (actualBulletSize ** actualBulletSize));
             let actualBulletSpeed = Math.sqrt(rapidVx * rapidVx + rapidVy * rapidVy);
             
+            // Adjust velocity for high arc bullets to land at target
+            const pathType = Math.round(bulletPathType[i]);
+            let targetX = playerX + shotOffsetX[i];
+            let targetY = playerY + shotOffsetY[i];
+            if (pathType === 1) {
+              // Calculate velocity needed to reach target in arcDuration frames
+              const arcDuration = bulletArcDuration[i];
+              rapidVx = (targetX - antX[i]) / arcDuration;
+              rapidVy = (targetY - antY[i]) / arcDuration;
+              actualBulletSpeed = Math.sqrt(rapidVx * rapidVx + rapidVy * rapidVy);
+            }
+            
+            let bulletAngle = atan2(rapidVy, rapidVx);
+            
             let bullet = {
               x: antX[i],
               y: antY[i],
               speedX: rapidVx,
               speedY: rapidVy,
-              angle: baseAngle,
+              angle: bulletAngle,
               life: 0,
               explodeAfter: bulletExplodeAfter[i],
               maxLife: actualBulletSpeed * 100,
@@ -2159,7 +2247,15 @@ function enemyShoot1() {
               trueSpeed: actualBulletSpeed,
               knockbackBullet: (Math.round(bulletSpecialType[i]) === -1),
               knockbackMultiplier: bulletKnockbackMultiplier[i],
-              delayFrames: 0
+              delayFrames: 0,
+              airHeight: 0,
+              airProgress: 0,
+              pathType: Math.round(bulletPathType[i]),
+              arcDuration: bulletArcDuration[i],
+              curveStrength: bulletCurveStrength[i],
+              targetX: playerX + shotOffsetX[i],
+              targetY: playerY + shotOffsetY[i],
+              owner: i
             };
             
             enemyBullets[i].push(bullet);
@@ -2216,6 +2312,19 @@ function enemyShoot1() {
                 bulletAngle = atan2(bulletVy, bulletVx);
               }
 
+              // Adjust velocity for high arc bullets to land at target
+              const pathType = Math.round(bulletPathType[i]);
+              let targetX = playerX + shotOffsetX[i];
+              let targetY = playerY + shotOffsetY[i];
+              if (pathType === 1) {
+                // Calculate velocity needed to reach target in arcDuration frames
+                const arcDuration = bulletArcDuration[i];
+                bulletVx = (targetX - antX[i]) / arcDuration;
+                bulletVy = (targetY - antY[i]) / arcDuration;
+                bulletAngle = atan2(bulletVy, bulletVx);
+                actualBulletSpeed = Math.sqrt(bulletVx * bulletVx + bulletVy * bulletVy);
+              }
+
               let bullet = {
                 x: antX[i],
                 y: antY[i],
@@ -2229,7 +2338,15 @@ function enemyShoot1() {
                 trueSpeed: actualBulletSpeed,
                 knockbackBullet: (Math.round(bulletSpecialType[i]) === -1),
                 knockbackMultiplier: bulletKnockbackMultiplier[i],
-                delayFrames: 0
+                delayFrames: 0,
+                airHeight: 0,
+                airProgress: 0,
+                pathType: Math.round(bulletPathType[i]),
+                arcDuration: bulletArcDuration[i],
+                curveStrength: bulletCurveStrength[i],
+                targetX: playerX + shotOffsetX[i],
+                targetY: playerY + shotOffsetY[i],
+                owner: i
               };
 
               enemyBullets[i].push(bullet);
@@ -2271,6 +2388,63 @@ function enemyShoot1() {
         bullet.x += bullet.speedX;
         bullet.y += bullet.speedY;
         bullet.life++;
+        
+        // Apply path type effects
+        const pathType = bullet.pathType || 0;
+        
+        // Clockwise/Counter-clockwise curve (-1): Add perpendicular velocity component
+        if (pathType === -1) {
+          const baseCurveStrength = bullet.curveStrength || 0.08;
+          // Gradually increase curve: 100% at 50% life, 150% at 100% life
+          const progress = Math.min(bullet.life / bullet.maxLife, 1);
+          const curveMultiplier = progress <= 0.5 ? progress * 2 : 1.0 + (progress - 0.5);
+          const curveStrength = baseCurveStrength * curveMultiplier;
+          // Perpendicular to current velocity
+          // Positive = clockwise (rotate 90° clockwise), Negative = counter-clockwise (rotate 90° counter-clockwise)
+          const perpX = bullet.speedY * Math.sign(curveStrength);
+          const perpY = -bullet.speedX * Math.sign(curveStrength);
+          bullet.speedX += perpX * Math.abs(curveStrength);
+          bullet.speedY += perpY * Math.abs(curveStrength);
+        }
+        
+        // Homing curve (-2): Gradually turn toward player
+        if (pathType === -2) {
+          const homingStrength = 0.04; // How much it homes per frame
+          const toPlayerX = playerX - bullet.x;
+          const toPlayerY = playerY - bullet.y;
+          const distToPlayer = Math.sqrt(toPlayerX * toPlayerX + toPlayerY * toPlayerY);
+          if (distToPlayer > 0) {
+            const targetVelX = (toPlayerX / distToPlayer) * bullet.trueSpeed;
+            const targetVelY = (toPlayerY / distToPlayer) * bullet.trueSpeed;
+            bullet.speedX += (targetVelX - bullet.speedX) * homingStrength;
+            bullet.speedY += (targetVelY - bullet.speedY) * homingStrength;
+          }
+        }
+        
+        // Store previous air height for velocity calculation
+        let previousAirHeight = bullet.airHeight || 0;
+        
+        // Update air height for arc trajectory
+        if (pathType === 1) {
+          // High arc mode: Use arcDuration and scale height with duration
+          bullet.airProgress = Math.min(bullet.life / bullet.arcDuration, 1);
+          // Arc height scales with arcDuration (60-600 frames -> 30-300px peak)
+          let arcHeight = bullet.arcDuration * 0.5; // 0.5 pixels per frame of duration
+          bullet.airHeight = Math.sin(bullet.airProgress * Math.PI) * arcHeight;
+        } else {
+          // Normal arc mode: Arc completes over the bullet's lifetime
+          bullet.airProgress = Math.min(bullet.life / (bullet.maxLife + 30), 1);
+          bullet.airHeight = Math.sin(bullet.airProgress * Math.PI) * 12; // Max height of 12px
+        }
+        
+        // Calculate visual velocity (direction bullet appears to move on screen)
+        // The bullet's visual position is (x, y - airHeight), so we need to account for airHeight change
+        let deltaAirHeight = bullet.airHeight - previousAirHeight;
+        let visualVelocityX = bullet.speedX;
+        let visualVelocityY = bullet.speedY - deltaAirHeight; // Subtract because y decreases upward
+        
+        // Calculate angle based on actual movement direction
+        bullet.visualAngle = Math.atan2(visualVelocityY, visualVelocityX) * 180 / Math.PI;
 
         // --- EXPLOSION TRIGGER ---
         let shouldExplode = false;
@@ -2295,8 +2469,9 @@ function enemyShoot1() {
         }
 
         // Check if bullet has exceeded its lifespan and should fade/disappear
+        // High arc bullets (pathType === 1) only die when landing, not from lifespan
         const FADE_DURATION = 30; // Frames to fade out
-        if (bullet.life > bullet.maxLife + FADE_DURATION) {
+        if (bullet.pathType !== 1 && bullet.life > bullet.maxLife + FADE_DURATION) {
           // Check bullet death type
           if (Math.round(bulletDeathType[i]) === 1) {
             // Type 1: Convert to land mine
@@ -2327,8 +2502,8 @@ function enemyShoot1() {
         let shouldDrawBullet = true;
         let bulletFadeAmount = 255;
         
-        // Calculate fade based on bullet lifespan
-        if (bullet.life >= bullet.maxLife) {
+        // Calculate fade based on bullet lifespan (not for high arc bullets)
+        if (bullet.pathType !== 1 && bullet.life >= bullet.maxLife) {
           let fadeProgress = (bullet.life - bullet.maxLife) / FADE_DURATION;
           bulletFadeAmount = Math.floor(255 * (1 - fadeProgress));
         }
@@ -2347,6 +2522,22 @@ function enemyShoot1() {
         }
         
         if (shouldDrawBullet) {
+          // Draw shadow when bullet is airborne
+          if (bullet.airHeight > 0) {
+            push();
+            ellipseMode(CENTER);
+            noSmooth();
+            noStroke();
+            // Shadow darkness based on height (higher = lighter shadow)
+            let maxHeight = bullet.pathType === 1 ? (bullet.arcDuration * 0.5) : 12;
+            let shadowAlpha = map(bullet.airHeight, 0, maxHeight, 150, 30);
+            fill(0, 0, 0, shadowAlpha);
+            let shadowSize = (20 * bullet.size) * 0.6; // Shadow slightly smaller than bullet
+            ellipse(bullet.x, bullet.y, shadowSize, shadowSize);
+            smooth();
+            pop();
+          }
+          
           push();
           // Apply fade (either from Tiger Beetle or bullet lifespan)
           if (tigerBeetleActive && tigerBeetleMoving || bullet.life >= bullet.maxLife) {
@@ -2354,12 +2545,14 @@ function enemyShoot1() {
           }
           angleMode(DEGREES);
           imageMode(CENTER);
-          translate(bullet.x, bullet.y);
-          rotate(bullet.angle);
+          // Offset bullet visual position upward when airborne
+          translate(bullet.x, bullet.y - bullet.airHeight);
+          // Rotate to face the direction of actual movement (accounts for arc trajectory)
+          rotate(bullet.visualAngle || bullet.angle);
           image(bulletImage, 0, 0, (20 * bullet.size), (20 * bullet.size));
           pop();
           
-          // Draw knockback bullet aura on top of bullet
+          // Draw knockback bullet aura on top of bullet (offset by air height)
           if (bullet.knockbackBullet) {
             push();
             noStroke();
@@ -2367,7 +2560,7 @@ function enemyShoot1() {
             let flashAlpha = 83 + 70 * sin(bullet.life * flashSpeed); // Scale to reasonable speed
             fill(220, 220, 220, flashAlpha); // White/grey translucent solid circle
             let auraSize = (25 * bullet.size) + 5 * sin(bullet.life * 0.2);
-            ellipse(bullet.x, bullet.y, auraSize, auraSize);
+            ellipse(bullet.x, bullet.y - bullet.airHeight, auraSize, auraSize);
             pop();
           }
         }
@@ -2381,11 +2574,52 @@ function enemyShoot1() {
           bullet.x > playerX - 25 && bullet.x < playerX + 25 &&
           bullet.y > playerY - 25 && bullet.y < playerY + 25
         ) {
+          // High arc bullets (pathType === 1) can only hit when on the ground
+          if (bullet.pathType === 1 && bullet.airHeight > 1) {
+            // Bullet is still in the air, can't hit yet
+            continue;
+          }
+          
           let isKnockbackBullet = bullet.knockbackBullet || false;
           let knockbackMult = bullet.knockbackMultiplier || 1;
-          let bulletSpeed = bullet.trueSpeed || 5; // Default to regular speed if not set
+          // Calculate bullet speed for damage
+          let bulletSpeed;
+          if (bullet.pathType === 1) {
+            // High arc bullets always deal damage as high-speed bullets (FAST tier)
+            bulletSpeed = 10;
+          } else if (bullet.pathType === -1) {
+            // Curved bullets: recalculate speed based on current velocity (they accelerate as they curve)
+            bulletSpeed = Math.sqrt(bullet.speedX * bullet.speedX + bullet.speedY * bullet.speedY);
+          } else {
+            // Normal bullets use initial speed
+            bulletSpeed = bullet.trueSpeed || 5;
+          }
           enemyBullets[i].splice(b, 1);
           handlePlayerHit(i, isKnockbackBullet, bullet.x, bullet.y, knockbackMult, bulletSpeed, false, bullet.size);
+        } else if (bullet.pathType === 1 && bullet.airProgress >= 1 && bullet.airHeight <= 1) {
+          // High arc bullet has landed without hitting player - trigger death effect
+          const deathType = Math.round(bulletDeathType[bullet.owner]);
+          if (deathType === 1) {
+            // Convert to land mine
+            landMines.push({
+              x: bullet.x,
+              y: bullet.y,
+              size: bullet.size,
+              owner: bullet.owner,
+              isPlayerMine: false,
+              knockbackBullet: bullet.knockbackBullet || false,
+              knockbackMultiplier: bullet.knockbackMultiplier || 1,
+              trueSpeed: bullet.trueSpeed || 5,
+              life: 0,
+              explodeOnTermination: explodeOnTermination[bullet.owner] || false,
+              triggerExplodeViaProximity: triggerExplodeViaProximity[bullet.owner] || false,
+              explosionProximity: explosionProximity[bullet.owner] || 0,
+              explodeAfter: bullet.explodeAfter || bulletExplodeAfter[bullet.owner],
+              fusionCount: 1
+            });
+          }
+          // Type 0 or other: Just disappear
+          enemyBullets[i].splice(b, 1);
         }
       }
     }
@@ -5280,6 +5514,9 @@ function nextRound(){
         bulletKnockbackMultiplier[i]    = constrain(s.bulletKnockbackMultiplier    + random(-0.5, 0.5), 0.5, 5);
         bulletDeathType[i]    = constrain(s.bulletDeathType    + random(-(movementMutationRate/2), (movementMutationRate/2)), -0.5, 1.5);
         bulletFireType[i]    = constrain(s.bulletFireType    + random(-movementMutationRate, movementMutationRate), -1.5, 2.5);
+        bulletPathType[i]    = constrain(s.bulletPathType    + random(-movementMutationRate, movementMutationRate), -2.5, 1.5);
+        bulletArcDuration[i]    = constrain(s.bulletArcDuration    + random(-50, 50), 60, 600);
+        bulletCurveStrength[i]    = constrain(s.bulletCurveStrength    + random(-0.005, 0.005), -0.1, 0.1);
         bulletBurstCount[i]    = constrain(s.bulletBurstCount    + random(-movementMutationRate, movementMutationRate), 1.5, 5.5);
         bulletBurstSpread[i]    = constrain(s.bulletBurstSpread    + random(-movementMutationRate, movementMutationRate), PI/3, PI);
         bulletCooldownMultiplier[i]    = constrain(s.bulletCooldownMultiplier    + random(-movementMutationRate, movementMutationRate), 0.5, 5.5);
@@ -5290,6 +5527,9 @@ function nextRound(){
         explosionResidueMultiplier[i] = constrain(s.explosionResidueMultiplier + random(-0.2, 0.2), 0.5, 3);
         bulletExplodeAfter[i] = constrain(s.bulletExplodeAfter + random(-50, 50), 100, 800);
         antSize[i] = constrain(s.antSize + random(-antSizeMutationRate, antSizeMutationRate), 0.3, 3);
+        // Cap ant speed based on ant size (small ants can be faster, large ants slower)
+        let maxAntSpeed1 = 4.5 - antSize[i];
+        antSpeed[i] = min(antSpeed[i], maxAntSpeed1);
         // Cap bullet size based on ant size (small ants can't have huge bullets)
         let maxBulletSize = min(3, antSize[i] + 1.0);
         bulletSize[i] = min(bulletSize[i], maxBulletSize);
@@ -5321,6 +5561,9 @@ function nextRound(){
         bulletKnockbackMultiplier[i]    = constrain(bulletKnockbackMultiplier[parent.id]    + random(-0.5, 0.5), 0.5, 5);
         bulletDeathType[i]    = constrain(bulletDeathType[parent.id]    + random(-(movementMutationRate/2), (movementMutationRate/2)), -0.5, 1.5);
         bulletFireType[i]    = constrain(bulletFireType[parent.id]    + random(-movementMutationRate, movementMutationRate), -1.5, 2.5);
+        bulletPathType[i]    = constrain(bulletPathType[parent.id]    + random(-movementMutationRate, movementMutationRate), -2.5, 1.5);
+        bulletArcDuration[i]    = constrain(bulletArcDuration[parent.id]    + random(-50, 50), 60, 600);
+        bulletCurveStrength[i]    = constrain(bulletCurveStrength[parent.id]    + random(-0.005, 0.005), -0.1, 0.1);
         bulletBurstCount[i]    = constrain(bulletBurstCount[parent.id]    + random(-movementMutationRate, movementMutationRate), 1.5, 5.5);
         bulletBurstSpread[i]    = constrain(bulletBurstSpread[parent.id]    + random(-movementMutationRate, movementMutationRate), PI/3, PI);
         bulletCooldownMultiplier[i]    = constrain(bulletCooldownMultiplier[parent.id]    + random(-movementMutationRate, movementMutationRate), 0.5, 5.5);
@@ -5331,6 +5574,9 @@ function nextRound(){
         explosionResidueMultiplier[i] = constrain(explosionResidueMultiplier[parent.id] + random(-0.2, 0.2), 0.5, 3);
         bulletExplodeAfter[i] = constrain(bulletExplodeAfter[parent.id] + random(-50, 50), 100, 800);
         antSize[i] = constrain(antSize[parent.id] + random(-antSizeMutationRate, antSizeMutationRate), 0.3, 3);
+        // Cap ant speed based on ant size (small ants can be faster, large ants slower)
+        let maxAntSpeed2 = 4.5 - antSize[i];
+        antSpeed[i] = min(antSpeed[i], maxAntSpeed2);
         // Cap bullet size based on ant size (small ants can't have huge bullets)
         let maxBulletSize = min(3, antSize[i] + 1.0);
         bulletSize[i] = min(bulletSize[i], maxBulletSize);
@@ -5491,6 +5737,10 @@ function nextRound(){
       antSize[i] = winner 
         ? constrain(antSize[winner.id] + random(-antSizeMutationRate, antSizeMutationRate), 0.3, 3)
         : 1;  // Start at 1 if no winner
+      
+      // Cap ant speed based on ant size (small ants can be faster, large ants slower)
+      let maxAntSpeed = 4.5 - antSize[i];
+      antSpeed[i] = min(antSpeed[i], maxAntSpeed);
       
       // Cap bullet size based on ant size (small ants can't have huge bullets)
       let maxBulletSize = min(3, antSize[i] + 1.0);
@@ -6586,6 +6836,16 @@ function updateAntDexEntries() {
   if (landmineConversionDiscovered === true) storeItem('landmineConversionPreviouslyDiscovered', landmineConversionDiscovered);
   if (getItem('landmineConversionPreviouslyDiscovered') === true) landmineConversionDiscovered = getItem('landmineConversionPreviouslyDiscovered');
 
+  // Bullet Path Type
+  if (clockwiseCurveDiscovered === true) storeItem('clockwiseCurvePreviouslyDiscovered', clockwiseCurveDiscovered);
+  if (getItem('clockwiseCurvePreviouslyDiscovered') === true) clockwiseCurveDiscovered = getItem('clockwiseCurvePreviouslyDiscovered');
+  
+  if (homingCurveDiscovered === true) storeItem('homingCurvePreviouslyDiscovered', homingCurveDiscovered);
+  if (getItem('homingCurvePreviouslyDiscovered') === true) homingCurveDiscovered = getItem('homingCurvePreviouslyDiscovered');
+  
+  if (highArcDiscovered === true) storeItem('highArcPreviouslyDiscovered', highArcDiscovered);
+  if (getItem('highArcPreviouslyDiscovered') === true) highArcDiscovered = getItem('highArcPreviouslyDiscovered');
+
   // Burst Spread (88-92)
   if (burstSpreadMinDiscovered === true) storeItem('burstSpreadMinPreviouslyDiscovered', burstSpreadMinDiscovered);
   if (getItem('burstSpreadMinPreviouslyDiscovered') === true) burstSpreadMinDiscovered = getItem('burstSpreadMinPreviouslyDiscovered');
@@ -7034,6 +7294,21 @@ function updateAntDexEntries() {
         triggerDiscoveryPopup();
       }
 
+      // Bullet Path Type discoveries
+      const pathType = Math.round(bulletPathType[i]);
+      if (!clockwiseCurveDiscovered && pathType === -1) {
+        clockwiseCurveDiscovered = true;
+        triggerDiscoveryPopup();
+      }
+      if (!homingCurveDiscovered && pathType === -2) {
+        homingCurveDiscovered = true;
+        triggerDiscoveryPopup();
+      }
+      if (!highArcDiscovered && pathType === 1) {
+        highArcDiscovered = true;
+        triggerDiscoveryPopup();
+      }
+
       // 88-92: Burst Spread (60°-180°, Burst Fire only)
       if (fireType === 1) {
         const spreadDegrees = bulletBurstSpread[i] * 180 / PI;
@@ -7141,8 +7416,8 @@ function updateAntDexEntries() {
     },
     {
       name: "Maximum Speed Ants",
-      desc: "Sprinters moving at beetle-threatening pace.",
-      stats: "Ant Speed: 3.1-3.5",
+      desc: "Sprinters moving at beetle-threatening pace. Small ants can reach even higher speeds (max = 4.5 - Ant Size).",
+      stats: "Ant Speed: 3.1-4.2 (size dependent)",
       discovered: antSpeedMaxDiscovered
     },
 
@@ -7637,7 +7912,27 @@ function updateAntDexEntries() {
       discovered: landmineConversionDiscovered
     },
 
-    // 84-88: Burst Spread (60°-180°, Burst Fire only)
+    // 84-86: Bullet Path Types
+    {
+      name: "Clockwise Curve Ants",
+      desc: "Bullets curve in a clockwise spiral as they travel. Creates unpredictable arcing shots. Curve intensifies over bullet lifetime.",
+      stats: "Path Type: Clockwise Curve • Curve Strength: -0.1 to 0.1",
+      discovered: clockwiseCurveDiscovered
+    },
+    {
+      name: "Homing Curve Ants",
+      desc: "Bullets gradually turn toward the beetle mid-flight. Difficult to dodge.",
+      stats: "Path Type: Homing",
+      discovered: homingCurveDiscovered
+    },
+    {
+      name: "High Arc Ants",
+      desc: "Bullets launch in a high arc and land like artillery. Cannot be touched until they hit the ground. Deal high-speed damage on impact.",
+      stats: "Path Type: High Arc • Arc Duration: 60-600 frames",
+      discovered: highArcDiscovered
+    },
+
+    // 87-91: Burst Spread (60°-180°, Burst Fire only)
     {
       name: "Minimum Burst Spread Ants",
       desc: "Tight burst spread of 60-84°. Concentrated fire pattern.",
@@ -8383,7 +8678,8 @@ function drawAntsTab(fadeAlpha) {
   let antStatDefinitions = [
     { name: 'Bullet Speed', key: 'bulletSpeed', min: 60, max: 300, step: 1 },
     { name: 'Bullet Cooldown', key: 'bulletCooldown', min: 79, max: 200, step: 1, integer: true },
-    { name: 'Ant Speed', key: 'antSpeed', min: 0.9, max: 3.5, step: 0.01 },
+    { name: 'Ant Speed', key: 'antSpeed', min: 0.9, max: 3.5, step: 0.01,
+      help: 'Max = 4.5 - Ant Size (small=fast, large=slow)' },
     { name: 'Shot Offset X', key: 'shotOffsetX', min: -500, max: 500, step: 1 },
     { name: 'Shot Offset Y', key: 'shotOffsetY', min: -500, max: 500, step: 1 },
     { name: 'Standing Point X', key: 'standingPointX', min: 0, max: 1280, step: 1 },
@@ -8403,6 +8699,12 @@ function drawAntsTab(fadeAlpha) {
       help: '0=Fade out, 1=Land mine' },
     { name: 'Bullet Fire Type', key: 'bulletFireType', min: -1.5, max: 2.5, step: 0.01,
       help: '-1=Alt Cooldown, 0=Single, 1=Burst, 2=Rapid' },
+    { name: 'Bullet Path Type', key: 'bulletPathType', min: -2.5, max: 1.5, step: 0.01,
+      help: '-2=Homing, -1=Curve CW, 0=Normal, 1=High Arc' },
+    { name: 'Bullet Arc Duration', key: 'bulletArcDuration', min: 60, max: 600, step: 1,
+      help: 'Frames in air for High Arc (60-600)' },
+    { name: 'Bullet Curve Strength', key: 'bulletCurveStrength', min: -0.1, max: 0.1, step: 0.001,
+      help: 'Curve tightness (+ = clockwise, - = counter-clockwise)' },
     { name: 'Bullet Burst Count', key: 'bulletBurstCount', min: 1.5, max: 5.5, step: 0.01,
       help: 'Number of bullets in burst/rapid (2-5)' },
     { name: 'Bullet Burst Spread', key: 'bulletBurstSpread', min: 1.047, max: 3.14, step: 0.01,
@@ -8538,7 +8840,9 @@ function drawAntsTab(fadeAlpha) {
     rect(barX, barY, barWidth, barHeight, 4);
     
     // Slider filled portion
-    let fillRatio = (value - stat.min) / (stat.max - stat.min);
+    // Use dynamic max for ant speed based on ant size
+    let effectiveMax = (stat.key === 'antSpeed') ? (4.5 - currentAnt.antSize) : stat.max;
+    let fillRatio = (value - stat.min) / (effectiveMax - stat.min);
     if (!devToolsUseCustomAnts) {
       // Read-only mode - showing actual winners with cyan/gray
       if (isSelected) {
@@ -8626,13 +8930,22 @@ function drawAntsTab(fadeAlpha) {
       changed = true;
     } else if ((keyIsDown(65) || keyIsDown(37)) && devToolsUseCustomAnts) {  // A or Left - decrease value (only if custom mode enabled)
       let stat = antStatDefinitions[devToolsAntStatIndex];
-      currentAnt[stat.key] = constrain(currentAnt[stat.key] - stat.step * 5, stat.min, stat.max);
+      // Use dynamic max for ant speed based on ant size
+      let effectiveMax = (stat.key === 'antSpeed') ? (4.5 - currentAnt.antSize) : stat.max;
+      currentAnt[stat.key] = constrain(currentAnt[stat.key] - stat.step * 5, stat.min, effectiveMax);
       if (stat.integer) currentAnt[stat.key] = Math.floor(currentAnt[stat.key]);
       changed = true;
     } else if ((keyIsDown(68) || keyIsDown(39)) && devToolsUseCustomAnts) {  // D or Right - increase value (only if custom mode enabled)
       let stat = antStatDefinitions[devToolsAntStatIndex];
-      currentAnt[stat.key] = constrain(currentAnt[stat.key] + stat.step * 5, stat.min, stat.max);
+      // Use dynamic max for ant speed based on ant size
+      let effectiveMax = (stat.key === 'antSpeed') ? (4.5 - currentAnt.antSize) : stat.max;
+      currentAnt[stat.key] = constrain(currentAnt[stat.key] + stat.step * 5, stat.min, effectiveMax);
       if (stat.integer) currentAnt[stat.key] = Math.floor(currentAnt[stat.key]);
+      // If ant size changed, clamp ant speed to new max
+      if (stat.key === 'antSize') {
+        let maxAntSpeedDev = 4.5 - currentAnt.antSize;
+        currentAnt.antSpeed = min(currentAnt.antSpeed, maxAntSpeedDev);
+      }
       changed = true;
     }
     
