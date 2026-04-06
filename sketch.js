@@ -46,8 +46,7 @@ function applyHardModeRandomInitialAbility(antIndex) {
     { target: 'fireAlternating', category: 'fire', potential: 'firePotential' },
     { target: 'deathLandmine', category: 'death', potential: 'deathPotential' },
     { target: 'pathHighArc', category: 'path', potential: 'pathPotential' },
-    { target: 'pathClockwise', category: 'path', potential: 'pathPotential' },
-    { target: 'pathHoming', category: 'path', potential: 'pathPotential' }
+    { target: 'pathCurve', category: 'path', potential: 'pathPotential' }
   ];
 
   const trait = random(randomTraits);
@@ -57,8 +56,14 @@ function applyHardModeRandomInitialAbility(antIndex) {
 
   // Ensure the category can express abilities.
   eval(trait.potential + '[' + antIndex + '] = max(' + trait.potential + '[' + antIndex + '], 0.6)');
+  
   // Nudge the selected trait to win its category for expression.
-  eval(trait.target + '[' + antIndex + '] = max(' + trait.target + '[' + antIndex + '], 0.9)');
+  // For tiered stats (specialExplosion, pathCurve), cap at 0.9 to prevent unlocking tier 2 without cap investment
+  let initialValue = 0.9;
+  if (trait.target === 'specialExplosion' || trait.target === 'pathCurve') {
+    initialValue = 0.9; // Start with tier 1 (stays <1 for timed explosions or curved bullets)
+  }
+  eval(trait.target + '[' + antIndex + '] = max(' + trait.target + '[' + antIndex + '], ' + initialValue + ')');
 
   geneTokenInvestments[antIndex].push({
     target: trait.target,
@@ -104,8 +109,7 @@ let customAntStats = [
     specialExplosion: 0.2,
     specialKnockback: 0.2,
     specialPotential: 0.3,
-    bulletExplosionTrigger: 0,
-    bulletKnockbackMultiplier: 1,
+    bulletKnockbackMultiplier: 2,
     // Fire category (mutation-based)
     fireBurst: 0.1,
     fireRapid: 0.1,
@@ -119,8 +123,7 @@ let customAntStats = [
     deathPotential: 0.3,
     // Path category (mutation-based)
     pathHighArc: 0.1,
-    pathClockwise: 0.1,
-    pathHoming: 0.1,
+    pathCurve: 0.1,
     pathPotential: 0.3,
     bulletArcDuration: 200,
     bulletCurveStrength: 0.015,
@@ -152,8 +155,7 @@ let customAntStats = [
     specialExplosion: 0.2,
     specialKnockback: 0.2,
     specialPotential: 0.3,
-    bulletExplosionTrigger: 0,
-    bulletKnockbackMultiplier: 1,
+    bulletKnockbackMultiplier: 2,
     // Fire category (mutation-based)
     fireBurst: 0.1,
     fireRapid: 0.1,
@@ -167,8 +169,7 @@ let customAntStats = [
     deathPotential: 0.3,
     // Path category (mutation-based)
     pathHighArc: 0.1,
-    pathClockwise: 0.1,
-    pathHoming: 0.1,
+    pathCurve: 0.1,
     pathPotential: 0.3,
     bulletArcDuration: 200,
     bulletCurveStrength: 0.015,
@@ -200,8 +201,7 @@ let customAntStats = [
     specialExplosion: 0.2,
     specialKnockback: 0.2,
     specialPotential: 0.3,
-    bulletExplosionTrigger: 0,
-    bulletKnockbackMultiplier: 1,
+    bulletKnockbackMultiplier: 2,
     // Fire category (mutation-based)
     fireBurst: 0.1,
     fireRapid: 0.1,
@@ -215,8 +215,7 @@ let customAntStats = [
     deathPotential: 0.3,
     // Path category (mutation-based)
     pathHighArc: 0.1,
-    pathClockwise: 0.1,
-    pathHoming: 0.1,
+    pathCurve: 0.1,
     pathPotential: 0.3,
     bulletArcDuration: 200,
     bulletCurveStrength: 0.015,
@@ -377,11 +376,11 @@ let residueMedDiscovered = false;      // 1.6-2.0
 let residueHighDiscovered = false;     // 2.1-2.5
 let residueMaxDiscovered = false;      // 2.6-3.0
 
-// Knockback Multiplier discoveries (0.5-5, Knockback only)
-let knockbackMinDiscovered = false;    // 0.5-1.5
-let knockbackLowDiscovered = false;    // 1.6-2.5
-let knockbackMedDiscovered = false;    // 2.6-3.5
-let knockbackHighDiscovered = false;   // 3.6-4.5
+// Knockback Multiplier discoveries (2-5, Knockback only)
+let knockbackMinDiscovered = false;    // 2.0-2.5
+let knockbackLowDiscovered = false;    // 2.6-3.1
+let knockbackMedDiscovered = false;    // 3.2-3.8
+let knockbackHighDiscovered = false;   // 3.9-4.5
 let knockbackMaxDiscovered = false;    // 4.6-5.0
 
 // Bullet Burst Count discoveries (1.5-5.5)
@@ -490,7 +489,6 @@ let autonomy = [];
 let specialExplosion = [];
 let specialKnockback = [];
 let specialPotential = [];
-let bulletExplosionTrigger = [];
 let bulletKnockbackMultiplier = [];
 
 // Fire category (mutation-based)
@@ -512,8 +510,7 @@ let deathPotential = [];
 
 // Path category (mutation-based)
 let pathHighArc = [];
-let pathClockwise = [];
-let pathHoming = [];
+let pathCurve = [];  // <1 = curved, >=1 = homing (heat-seeking)
 let pathPotential = [];
 let bulletArcDuration = [];
 let bulletCurveStrength = [];
@@ -810,8 +807,7 @@ function setup() {
     specialExplosion[i] = 0.2;
     specialKnockback[i] = 0.2;
     specialPotential[i] = 0.3;
-    bulletExplosionTrigger[i] = 0;
-    bulletKnockbackMultiplier[i] = 1;
+    bulletKnockbackMultiplier[i] = 2;
     // Fire category (mutation-based)
     fireBurst[i] = 0.1;
     fireRapid[i] = 0.1;
@@ -825,8 +821,7 @@ function setup() {
     deathPotential[i] = 0.3;
     // Path category (mutation-based)
     pathHighArc[i] = 0.1;
-    pathClockwise[i] = 0.1;
-    pathHoming[i] = 0.1;
+    pathCurve[i] = 0.1;
     pathPotential[i] = 0.3;
     bulletArcDuration[i] = 200;
     bulletCurveStrength[i] = 0.015;
@@ -851,13 +846,13 @@ function setup() {
       explodeOnTermination[i] = false;
       triggerExplodeViaProximity[i] = false;
     } else if (specialType === 1){
-      // Type 1 = Explosions - check trigger type
-      if (Math.round(bulletExplosionTrigger[i]) === 0){
-        // Time-based explosion
+      // Type 1 = Explosions - check trigger type via specialExplosion value
+      if (specialExplosion[i] < 1){
+        // Time-based explosion (specialExplosion < 1)
         explodeOnTermination[i] = true;
         triggerExplodeViaProximity[i] = false;
-      } else if (Math.round(bulletExplosionTrigger[i]) === 1){
-        // Proximity-based explosion
+      } else {
+        // Proximity-based explosion (specialExplosion >= 1)
         explodeOnTermination[i] = false;
         triggerExplodeViaProximity[i] = true;
       }
@@ -1506,7 +1501,6 @@ function applyCustomAntsToInitialPopulation() {
     specialExplosion[i] = s.specialExplosion;
     specialKnockback[i] = s.specialKnockback;
     specialPotential[i] = s.specialPotential;
-    bulletExplosionTrigger[i] = s.bulletExplosionTrigger;
     bulletKnockbackMultiplier[i] = s.bulletKnockbackMultiplier;
     // Fire category (mutation-based)
     fireBurst[i] = s.fireBurst;
@@ -1521,8 +1515,7 @@ function applyCustomAntsToInitialPopulation() {
     deathPotential[i] = s.deathPotential;
     // Path category (mutation-based)
     pathHighArc[i] = s.pathHighArc;
-    pathClockwise[i] = s.pathClockwise;
-    pathHoming[i] = s.pathHoming;
+    pathCurve[i] = s.pathCurve;
     pathPotential[i] = s.pathPotential;
     bulletArcDuration[i] = s.bulletArcDuration;
     bulletCurveStrength[i] = s.bulletCurveStrength;
@@ -1560,13 +1553,13 @@ function applyCustomAntsToInitialPopulation() {
       explodeOnTermination[i] = false;
       triggerExplodeViaProximity[i] = false;
     } else if (specialType === 1){
-      // Type 1 = Explosions - check trigger type
-      if (Math.round(bulletExplosionTrigger[i]) === 0){
-        // Time-based explosion
+      // Type 1 = Explosions - check trigger type via specialExplosion value
+      if (specialExplosion[i] < 1){
+        // Time-based explosion (specialExplosion < 1)
         explodeOnTermination[i] = true;
         triggerExplodeViaProximity[i] = false;
-      } else if (Math.round(bulletExplosionTrigger[i]) === 1){
-        // Proximity-based explosion
+      } else {
+        // Proximity-based explosion (specialExplosion >= 1)
         explodeOnTermination[i] = false;
         triggerExplodeViaProximity[i] = true;
       }
@@ -1670,7 +1663,6 @@ function applyDifficultyToInitialPopulation() {
     if (antAlternatingCooldownState[i] === undefined) antAlternatingCooldownState[i] = 0;
     if (antRapidFireActive[i] === undefined) antRapidFireActive[i] = false;
     if (antAirHeight[i] === undefined) antAirHeight[i] = 0;
-    if (bulletExplosionTrigger[i] === undefined) bulletExplosionTrigger[i] = 0;
     if (explosionProximity[i] === undefined) explosionProximity[i] = 200;
     if (bulletExplodeAfter[i] === undefined) bulletExplodeAfter[i] = 800;
     if (bulletBurstCount[i] === undefined) bulletBurstCount[i] = 2;
@@ -1688,10 +1680,9 @@ function applyDifficultyToInitialPopulation() {
     if (deathLandmine[i] === undefined) deathLandmine[i] = 0.3;
     if (deathPotential[i] === undefined) deathPotential[i] = 0.3;
     if (pathHighArc[i] === undefined) pathHighArc[i] = 0.1;
-    if (pathClockwise[i] === undefined) pathClockwise[i] = 0.1;
-    if (pathHoming[i] === undefined) pathHoming[i] = 0.1;
+    if (pathCurve[i] === undefined) pathCurve[i] = 0.1;
     if (pathPotential[i] === undefined) pathPotential[i] = 0.3;
-    if (bulletKnockbackMultiplier[i] === undefined) bulletKnockbackMultiplier[i] = 1;
+    if (bulletKnockbackMultiplier[i] === undefined) bulletKnockbackMultiplier[i] = 2;
     if (explosionRadiusMultiplier[i] === undefined) explosionRadiusMultiplier[i] = 1;
     if (explosionResidueMultiplier[i] === undefined) explosionResidueMultiplier[i] = 1;
     if (bulletSpread[i] === undefined) bulletSpread[i] = 0;
@@ -1786,7 +1777,6 @@ function syncActualWinnersToCustomStats(topAnts) {
         specialExplosion: specialExplosion[antId],
         specialKnockback: specialKnockback[antId],
         specialPotential: specialPotential[antId],
-        bulletExplosionTrigger: bulletExplosionTrigger[antId],
         bulletKnockbackMultiplier: bulletKnockbackMultiplier[antId],
         // Fire category (mutation-based)
         fireBurst: fireBurst[antId],
@@ -1801,8 +1791,7 @@ function syncActualWinnersToCustomStats(topAnts) {
         deathPotential: deathPotential[antId],
         // Path category (mutation-based)
         pathHighArc: pathHighArc[antId],
-        pathClockwise: pathClockwise[antId],
-        pathHoming: pathHoming[antId],
+        pathCurve: pathCurve[antId],
         pathPotential: pathPotential[antId],
         bulletArcDuration: bulletArcDuration[antId],
         bulletCurveStrength: bulletCurveStrength[antId],
@@ -1995,7 +1984,7 @@ function drawScoreboard() {
   // Combo (colored - fades yellow → red → white)
   let comboText = `Combo: ${combo}`;
   if (streakPoints > 0) {
-    comboText += ` +${streakPoints}`;
+    comboText += ` +${streakPoints.toFixed(1).replace(/\.0$/, '')}`;
   }
   // Color transition: Yellow (60) → Red (30) → White (0)
   let r, g, b;
@@ -2030,13 +2019,13 @@ function drawScoreboard() {
   text(`Health: ${health.toFixed(2)}`, startX + sectionWidth * 3, yPos);
 
   // Score
-  text(`Score: ${score}`, startX + sectionWidth * 4, yPos);
+  text(`Score: ${score.toFixed(1).replace(/\.0$/, '')}`, startX + sectionWidth * 4, yPos);
 
   // Total
-  text(`Total: ${currentRunScore}`, startX + sectionWidth * 5, yPos);
+  text(`Total: ${currentRunScore.toFixed(1).replace(/\.0$/, '')}`, startX + sectionWidth * 5, yPos);
 
   // High Score
-  text(`High Score: ${highScore}`, startX + sectionWidth * 6, yPos);
+  text(`High Score: ${highScore.toFixed(1).replace(/\.0$/, '')}`, startX + sectionWidth * 6, yPos);
 
   // EXP Progress Bar
   drawExpBar();
@@ -2083,11 +2072,13 @@ function drawExpBar() {
     strokeWeight(3);
     textSize(14);
     textAlign(CENTER);
-    text(`EXP Level: ${expLevel} | ${expProgress}/${expRequired}`, windowWidth / 2, barY + barHeight / 2 + 5);
+    text(`EXP Level: ${expLevel} | ${expProgress.toFixed(1).replace(/\.0$/, '')}/${expRequired.toFixed(1).replace(/\.0$/, '')}`, windowWidth / 2, barY + barHeight / 2 + 5);
   }
 }
 
 function addScore(points) {
+  // Round points to nearest tenth
+  points = Math.round(points * 10) / 10;
   score += points;
   expProgress += points;
   
@@ -2437,9 +2428,9 @@ function enemyInteraction1(){
         comboTime = 60;
         combo = combo + 1;
         calculateBonus();
-        streakPoints = streakPoints + comboPoints;
-        addScore(100 + comboPoints);
-        health = health + 1;
+        streakPoints = streakPoints + (comboPoints * antSize[i]);
+        addScore((100 + comboPoints) * antSize[i]);
+        health = health + antSize[i];
         
         // Oogpister Beetle: 20% chance to instantly reload 1 bullet when eating an ant
         if (upgrade11Level === 1 && random() < 0.2) {
@@ -2457,7 +2448,7 @@ function enemyInteraction1(){
           }
         }
         
-        addDeathEffect(antX[i], antY[i], 100 + comboPoints);
+        addDeathEffect(antX[i], antY[i], (100 + comboPoints) * antSize[i]);
         antX[i] = random(0, getGameplayWidth());
         antY[i] = random(scoreBarHeight + ANT_SPAWN_BUFFER, getGameplayHeight() - expBarHeight - expBarBuffer - ANT_SPAWN_BUFFER);
         spawnX[i] = antX[i] + cos(angleFromSpawn[i]);
@@ -2588,10 +2579,10 @@ function dashCollision() {
           comboTime = 60;
           combo++;
           calculateBonus();
-          streakPoints += comboPoints;
-          addScore(100 + comboPoints);
-          health++;
-          addDeathEffect(antX[i], antY[i], 100 + comboPoints);
+          streakPoints += (comboPoints * antSize[i]);
+          addScore((100 + comboPoints) * antSize[i]);
+          health += antSize[i];
+          addDeathEffect(antX[i], antY[i], (100 + comboPoints) * antSize[i]);
           antX[i] = random(0, getGameplayWidth());
           antY[i] = random(scoreBarHeight + ANT_SPAWN_BUFFER, getGameplayHeight() - expBarHeight - expBarBuffer - ANT_SPAWN_BUFFER);
           spawnX[i] = antX[i] + cos(angleFromSpawn[i]);
@@ -3216,6 +3207,13 @@ function enemyShoot1() {
   // Draw and handle land mines
   for (let m = landMines.length - 1; m >= 0; m--) {
     let mine = landMines[m];
+    
+    // Remove mines that were deflected by shockwave
+    if (mine.deflected) {
+      landMines.splice(m, 1);
+      continue;
+    }
+    
     // Track mine lifetime for time-based explosion fuses
     mine.life = (mine.life || 0) + 1;
 
@@ -3252,10 +3250,10 @@ function enemyShoot1() {
               comboTime = 60;
               combo++;
               calculateBonus();
-              streakPoints += comboPoints;
-              addScore(100 + comboPoints);
-              health++;
-              addDeathEffect(antX[ai], antY[ai], 100 + comboPoints);
+              streakPoints += (comboPoints * antSize[ai]);
+              addScore((100 + comboPoints) * antSize[ai]);
+              health += antSize[ai];
+              addDeathEffect(antX[ai], antY[ai], (100 + comboPoints) * antSize[ai]);
               antX[ai] = random(0, getGameplayWidth());
               antY[ai] = random(scoreBarHeight + ANT_SPAWN_BUFFER, getGameplayHeight() - expBarHeight - expBarBuffer - ANT_SPAWN_BUFFER);
               spawnX[ai] = antX[ai] + cos(angleFromSpawn[ai]);
@@ -3318,10 +3316,10 @@ function enemyShoot1() {
                   comboTime = 60;
                   combo++;
                   calculateBonus();
-                  streakPoints += comboPoints;
-                  addScore(100 + comboPoints);
-                  health++;
-                  addDeathEffect(antX[aj], antY[aj], 100 + comboPoints);
+                  streakPoints += (comboPoints * antSize[aj]);
+                  addScore((100 + comboPoints) * antSize[aj]);
+                  health += antSize[aj];
+                  addDeathEffect(antX[aj], antY[aj], (100 + comboPoints) * antSize[aj]);
                   antX[aj] = random(0, getGameplayWidth());
                   antY[aj] = random(scoreBarHeight + ANT_SPAWN_BUFFER, getGameplayHeight() - expBarHeight - expBarBuffer - ANT_SPAWN_BUFFER);
                   spawnX[aj] = antX[aj] + cos(angleFromSpawn[aj]);
@@ -3430,10 +3428,10 @@ function enemyShoot1() {
               comboTime = 60;
               combo++;
               calculateBonus();
-              streakPoints += comboPoints;
-              addScore(100 + comboPoints);
-              health++;
-              addDeathEffect(antX[i], antY[i], 100 + comboPoints);
+              streakPoints += (comboPoints * antSize[i]);
+              addScore((100 + comboPoints) * antSize[i]);
+              health += antSize[i];
+              addDeathEffect(antX[i], antY[i], (100 + comboPoints) * antSize[i]);
               antX[i] = random(0, getGameplayWidth());
               antY[i] = random(scoreBarHeight + ANT_SPAWN_BUFFER, getGameplayHeight() - expBarHeight - expBarBuffer - ANT_SPAWN_BUFFER);
               spawnX[i] = antX[i] + cos(angleFromSpawn[i]);
@@ -3894,13 +3892,13 @@ function beetleShoot() {
             comboTime = 60;
             combo++;
             calculateBonus();
-            streakPoints += comboPoints;
-            addScore(100 + comboPoints);
+            streakPoints += (comboPoints * antSize[j]);
+            addScore((100 + comboPoints) * antSize[j]);
             // Only restore health if round is active and player is alive
             if (end == false && health > 0) {
-              health++;
+              health += antSize[j];
             }
-            addDeathEffect(antX[j], antY[j], 100 + comboPoints);
+            addDeathEffect(antX[j], antY[j], (100 + comboPoints) * antSize[j]);
             antX[j] = random(0, getGameplayWidth());
             antY[j] = random(scoreBarHeight + ANT_SPAWN_BUFFER, getGameplayHeight() - expBarHeight - expBarBuffer - ANT_SPAWN_BUFFER);
             spawnX[j] = antX[j] + cos(angleFromSpawn[j]);
@@ -4058,8 +4056,8 @@ function handleWindAttack() {
                 rotation: targetAngle
               });
 
-              // Remove the mine once converted to a bullet
-              landMines.splice(m, 1);
+              // Mark the mine for removal (will be removed in main landMines loop)
+              mine.deflected = true;
             }
           }
         }
@@ -4101,10 +4099,10 @@ function handleWindAttack() {
               comboTime = 60;
               combo++;
               calculateBonus();
-              streakPoints += comboPoints;
-              addScore(100 + comboPoints);
-              health++;
-              addDeathEffect(antX[i], antY[i], 100 + comboPoints);
+              streakPoints += (comboPoints * antSize[i]);
+              addScore((100 + comboPoints) * antSize[i]);
+              health += antSize[i];
+              addDeathEffect(antX[i], antY[i], (100 + comboPoints) * antSize[i]);
               antX[i] = random(0, getGameplayWidth());
               antY[i] = random(scoreBarHeight + ANT_SPAWN_BUFFER, getGameplayHeight() - expBarHeight - expBarBuffer - ANT_SPAWN_BUFFER);
               spawnX[i] = antX[i] + cos(angleFromSpawn[i]);
@@ -4273,12 +4271,20 @@ function getPathType(antIndex) {
   // Find the highest value among the non-default options
   let maxVal = Math.max(
     pathHighArc[antIndex],
-    pathClockwise[antIndex],
-    pathHoming[antIndex]
+    pathCurve[antIndex]
   );
   if (pathHighArc[antIndex] === maxVal) return 1; // High Arc
-  if (pathClockwise[antIndex] === maxVal) return -1; // Clockwise
-  if (pathHoming[antIndex] === maxVal) return -2; // Homing
+  
+  // For curve types, use pathCurve value to determine tier
+  if (pathCurve[antIndex] === maxVal) {
+    // pathCurve: <1 = Curved, >=1 = Homing (heat-seeking)
+    if (pathCurve[antIndex] >= 1) {
+      return -2; // Homing (tier 2)
+    } else {
+      return -1; // Curved (tier 1, base)
+    }
+  }
+  
   return 0; // Straight (fallback)
 }
 
@@ -4330,8 +4336,8 @@ function evaluateAndAllocateTokens(antIndex, currentRound, isInitialSetup = fals
     // Normal stats (higher is better, unlock upward from starting min)
     antSpeed: { caps: [2, 2.5, 3, 3.5], inverse: false },
     
-    // Special category supporting stats
-    bulletExplosionTrigger: { caps: [0.5, 1.0, 1.5], inverse: false },
+    // Special category mutation stats (can be capped)
+    specialExplosion: { caps: [1.0, 2.0], inverse: false },  // <1 = timed, >=1 = proximity
     bulletKnockbackMultiplier: { caps: [2, 3, 4, 5], inverse: false },
     
     // Fire category supporting stats
@@ -4339,9 +4345,10 @@ function evaluateAndAllocateTokens(antIndex, currentRound, isInitialSetup = fals
     bulletBurstSpread: { caps: [2.0, 2.5, 3.0, 3.14], inverse: false },
     bulletCooldownMultiplier: { caps: [3, 4, 5, 5.5], inverse: false },
     
-    // Path category supporting stats
+    // Path category mutation stats (can be capped)
     bulletArcDuration: { caps: [300, 400, 500, 600], inverse: false },
     bulletCurveStrength: { caps: [0.05, 0.075, 0.1], inverse: false },
+    pathCurve: { caps: [1.0, 2.0], inverse: false },  // <1 = curved, >=1 = homing
     
     // Explosion stats
     explosionProximity: { caps: [400, 600, 800, 1000], inverse: false },
@@ -4367,7 +4374,7 @@ function evaluateAndAllocateTokens(antIndex, currentRound, isInitialSetup = fals
     }
     
     // Special category stats
-    if (statName === 'bulletExplosionTrigger' && specialType === 1) return true; // Explosion
+    if (statName === 'specialExplosion' && specialType === 1) return true; // Explosion (mutation stat)
     if (statName === 'bulletKnockbackMultiplier' && specialType === -1) return true; // Knockback
     if (statName === 'explosionProximity' && specialType === 1) return true; // Explosion
     if (statName === 'explosionRadiusMultiplier' && specialType === 1) return true; // Explosion
@@ -4382,9 +4389,14 @@ function evaluateAndAllocateTokens(antIndex, currentRound, isInitialSetup = fals
     // Path category stats
     if (statName === 'bulletArcDuration' && pathType === 1) return true; // High Arc
     if (statName === 'bulletCurveStrength' && (pathType === -1 || pathType === -2)) return true; // Clockwise or Homing
+    if (statName === 'pathCurve' && (pathType === -1 || pathType === -2)) return true; // Curve (mutation stat)
     
-    // Ant size only after round 10
-    if (statName === 'antSize' && currentRound >= 10) return true;
+    // Ant size unlock varies by difficulty
+    if (statName === 'antSize') {
+      if (difficulty === 'hard' && currentRound >= 2) return true;
+      if (difficulty === 'medium' && currentRound >= 5) return true;
+      if (currentRound >= 10) return true; // Easy mode
+    }
     
     return false;
   }
@@ -4522,13 +4534,9 @@ function evaluateAndAllocateTokens(antIndex, currentRound, isInitialSetup = fals
           bestMutationValue = pathHighArc[antIndex];
           bestMutation = 'pathHighArc';
         }
-        if (pathClockwise[antIndex] > bestMutationValue) {
-          bestMutationValue = pathClockwise[antIndex];
-          bestMutation = 'pathClockwise';
-        }
-        if (pathHoming[antIndex] > bestMutationValue) {
-          bestMutationValue = pathHoming[antIndex];
-          bestMutation = 'pathHoming';
+        if (pathCurve[antIndex] > bestMutationValue) {
+          bestMutationValue = pathCurve[antIndex];
+          bestMutation = 'pathCurve';
         }
       }
       
@@ -4609,8 +4617,7 @@ function updateTokenInvestments(antIndex, currentRound) {
         } else if (investment.category === 'path') {
           maxOtherValue = Math.max(
             investment.target !== 'pathHighArc' ? pathHighArc[antIndex] : 0,
-            investment.target !== 'pathClockwise' ? pathClockwise[antIndex] : 0,
-            investment.target !== 'pathHoming' ? pathHoming[antIndex] : 0
+            investment.target !== 'pathCurve' ? pathCurve[antIndex] : 0
           );
         }
         
@@ -4659,8 +4666,8 @@ function getStatCapForAnt(antIndex, statName) {
     // Normal stats (higher is better, unlock upward from starting min)
     antSpeed: { caps: [2, 2.5, 3, 3.5], inverse: false },
     
-    // Special category supporting stats
-    bulletExplosionTrigger: { caps: [0.5, 1.0, 1.5], inverse: false },
+    // Special category mutation stats (can be capped)
+    specialExplosion: { caps: [1.0, 2.0], inverse: false },  // <1 = timed, >=1 = proximity
     bulletKnockbackMultiplier: { caps: [2, 3, 4, 5], inverse: false },
     
     // Fire category supporting stats
@@ -4668,9 +4675,10 @@ function getStatCapForAnt(antIndex, statName) {
     bulletBurstSpread: { caps: [2.0, 2.5, 3.0, 3.14], inverse: false },
     bulletCooldownMultiplier: { caps: [3, 4, 5, 5.5], inverse: false },
     
-    // Path category supporting stats
+    // Path category mutation stats (can be capped)
     bulletArcDuration: { caps: [300, 400, 500, 600], inverse: false },
     bulletCurveStrength: { caps: [0.05, 0.075, 0.1], inverse: false },
+    pathCurve: { caps: [1.0, 2.0], inverse: false },  // <1 = curved, >=1 = homing
     
     // Explosion stats
     explosionProximity: { caps: [400, 600, 800, 1000], inverse: false },
@@ -4720,7 +4728,7 @@ function addDeathEffect(x, y, points = 100) {
   floatingTexts.push({
     x: x,
     y: y - 10,
-    text: `+${points}`,
+    text: `+${points.toFixed(1).replace(/\.0$/, '')}`,
     opacity: 255,
     riseSpeed: 1.5,
   });
@@ -4730,26 +4738,28 @@ function fuseLandMines() {
   // Performance optimization: fuse closest landmines when there are too many
   if (landMines.length <= 50) return;
   
-  // Find the two closest mines to each other
-  let minDistance = Infinity;
-  let mine1Index = -1;
-  let mine2Index = -1;
-  
-  for (let i = 0; i < landMines.length; i++) {
-    for (let j = i + 1; j < landMines.length; j++) {
-      let d = dist(landMines[i].x, landMines[i].y, landMines[j].x, landMines[j].y);
-      if (d < minDistance) {
-        minDistance = d;
-        mine1Index = i;
-        mine2Index = j;
+  // Keep fusing until we're back below the threshold
+  while (landMines.length > 50) {
+    // Find the two closest mines to each other
+    let minDistance = Infinity;
+    let mine1Index = -1;
+    let mine2Index = -1;
+    
+    for (let i = 0; i < landMines.length; i++) {
+      for (let j = i + 1; j < landMines.length; j++) {
+        let d = dist(landMines[i].x, landMines[i].y, landMines[j].x, landMines[j].y);
+        if (d < minDistance) {
+          minDistance = d;
+          mine1Index = i;
+          mine2Index = j;
+        }
       }
     }
-  }
-  
-  if (mine1Index === -1 || mine2Index === -1) return;
-  
-  let mine1 = landMines[mine1Index];
-  let mine2 = landMines[mine2Index];
+    
+    if (mine1Index === -1 || mine2Index === -1) break;
+    
+    let mine1 = landMines[mine1Index];
+    let mine2 = landMines[mine2Index];
   
   // Create owners array from both mines
   let fusedOwners = [];
@@ -4767,8 +4777,8 @@ function fuseLandMines() {
   // Calculate combined fusion count
   let newFusionCount = (mine1.fusionCount || 1) + (mine2.fusionCount || 1);
   
-  // Size scales with fusion count (using square root for balanced growth)
-  let newSize = (mine1.size + mine2.size) / 2 * Math.pow(newFusionCount, 0.35);
+  // Size growth slows down as fusion count increases (diminishing returns)
+  let newSize = (mine1.size + mine2.size) / 2 * (1 + 0.5 / Math.sqrt(newFusionCount));
   
   // Position at the weighted average based on size
   let totalSize = mine1.size + mine2.size;
@@ -4804,6 +4814,7 @@ function fuseLandMines() {
   
   // Add the fused mine
   landMines.push(fusedMine);
+  } // End of while loop
 }
 
 function spawnEnemyExplosion(x, y, size, ownerId) {
@@ -5113,7 +5124,7 @@ function endGame(){
       textSize(48);
       fill(255, 220, 120);
       text(level, getMenuWidth() / 2 - getMenuWidth() * 0.18, getMenuHeight() * 0.46);
-      text(highScore, getMenuWidth() / 2 + getMenuWidth() * 0.18, getMenuHeight() * 0.46);
+      text(highScore.toFixed(1).replace(/\.0$/, ''), getMenuWidth() / 2 + getMenuWidth() * 0.18, getMenuHeight() * 0.46);
 
       textSize(24);
       fill(180, 220, 255);
@@ -5122,10 +5133,10 @@ function endGame(){
 
       textSize(42);
       fill(240, 164, 0);
-      text(intermissionScore, getMenuWidth() / 2 - getMenuWidth() * 0.20, getMenuHeight() * 0.61);
+      text(intermissionScore.toFixed(1).replace(/\.0$/, ''), getMenuWidth() / 2 - getMenuWidth() * 0.20, getMenuHeight() * 0.61);
 
       fill(240, 164, 0);
-      text(totalScore, getMenuWidth() / 2 + getMenuWidth() * 0.20, getMenuHeight() * 0.61);
+      text(totalScore.toFixed(1).replace(/\.0$/, ''), getMenuWidth() / 2 + getMenuWidth() * 0.20, getMenuHeight() * 0.61);
 
       if (!gameOverMenu) {
         push();
@@ -5370,8 +5381,8 @@ if (timeCount < 0) {
 
       textSize(46);
       fill(240, 164, 0);
-      text(displayScore, getMenuWidth() / 2 - getMenuWidth() * 0.15, getMenuHeight() * 0.46);
-      text(displayTotal, getMenuWidth() / 2 + getMenuWidth() * 0.15, getMenuHeight() * 0.46);
+      text(displayScore.toFixed(1).replace(/\.0$/, ''), getMenuWidth() / 2 - getMenuWidth() * 0.15, getMenuHeight() * 0.46);
+      text(displayTotal.toFixed(1).replace(/\.0$/, ''), getMenuWidth() / 2 + getMenuWidth() * 0.15, getMenuHeight() * 0.46);
 
       textSize(24);
       fill(160, 220, 255);
@@ -5387,7 +5398,7 @@ if (timeCount < 0) {
       text(intermissionHealth.toFixed(2), getMenuWidth() / 2 - getMenuWidth() * 0.20, getMenuHeight() * 0.61);
 
       fill(255, 210, 120);
-      text(highScore, getMenuWidth() / 2 + getMenuWidth() * 0.20, getMenuHeight() * 0.61);
+      text(highScore.toFixed(1).replace(/\.0$/, ''), getMenuWidth() / 2 + getMenuWidth() * 0.20, getMenuHeight() * 0.61);
 
       if (intermissionHealth < 10) {
         const pulsePhase = sin(frameCount * 10);
@@ -5433,12 +5444,16 @@ if (timeCount < 0) {
           if (i === 8 && (upgrade5Level === 0 || upgrade7Level === 0 || upgrade8Level === 0)) continue;  // Free-Angle Aiming requires Add Bullets, Bullet Reload, and Bullet Speed
           if (i === 9 && upgrade3Level < 5) continue;  // Tiger Beetle requires Dash Cooldown maxed
           if (i === 10 && upgrade7Level < 3) continue;  // Oogpister Beetle requires Bullet Reload level 3+
+          if (i === 11 && level <= 5) continue;  // Horns unlocks after round 5
           if (i === 12 && upgrade5Level === 0) continue;  // Potent Acid requires Add Bullets
+          if (i === 12 && level <= 5) continue;  // Potent Acid unlocks after round 5
+          if (i === 13 && level <= 5) continue;  // Shockwave unlocks after round 5
           if (i === 14 && upgrade14Level === 0) continue;  // Shockwave Radius requires Shockwave Unlock
           if (i === 15 && upgrade14Level === 0) continue;  // Shockwave Damage requires Shockwave Unlock
           if (i === 16 && upgrade14Level === 0) continue;  // Shockwave Cooldown requires Shockwave Unlock
           if (i === 17) continue;  // Shockwave Knockback removed (now constant)
           if (i === 18 && upgrade14Level === 0) continue;  // Shockwave Deflection requires Shockwave Unlock
+          if (i === 19 && level <= 5) continue;  // Health Regeneration unlocks after round 5
           availableUpgrades.push(i);
         }
       }
@@ -5777,19 +5792,19 @@ function drawUpgradeScreen() {
     },
     {
       title: 'Horns',
-      description: 'Increase dash damage. Each level adds 0.2 damage.',
+      description: 'Increase dash damage. Each level adds 0.2 damage. Unlocks after round 5.',
       level: upgrade12Level,
       maxLevel: 4
     },
     {
       title: 'Potent Acid',
-      description: 'Increase bullet damage. Each level adds 20% damage (doubles at max level). Requires Add Bullets.',
+      description: 'Increase bullet damage. Each level adds 20% damage (doubles at max level). Requires Add Bullets. Unlocks after round 5.',
       level: upgrade13Level,
       maxLevel: 4
     },
     {
       title: 'Shockwave',
-      description: 'Unlock a circular AOE shockwave attack (E key / RB). Deals knockback and 0.5 damage.',
+      description: 'Unlock a circular AOE shockwave attack (E key / RB). Deals knockback and 0.5 damage. Unlocks after round 5.',
       level: upgrade14Level,
       maxLevel: 1
     },
@@ -5825,7 +5840,7 @@ function drawUpgradeScreen() {
     },
     {
       title: 'Health Regeneration',
-      description: 'Regenerate health after 200 frames without taking damage. Can exceed 10 health but slows down, stopping at 30. Rates: 0.001→0.1/frame.',
+      description: 'Regenerate health after 200 frames without taking damage. Can exceed 10 health but slows down, stopping at 30. Rates: 0.001→0.1/frame. Unlocks after round 5.',
       level: upgrade20Level,
       maxLevel: 5
     }
@@ -6203,12 +6218,16 @@ function applyUpgrade(upgradeIndex) {
         if (i === 8 && (upgrade5Level === 0 || upgrade7Level === 0 || upgrade8Level === 0)) continue;  // Free-Angle Aiming requires Add Bullets, Bullet Reload, and Bullet Speed
         if (i === 9 && upgrade3Level < 5) continue;  // Tiger Beetle requires Dash Cooldown maxed
         if (i === 10 && upgrade7Level < 3) continue;  // Oogpister Beetle requires Bullet Reload level 3+
+        if (i === 11 && level <= 5) continue;  // Horns unlocks after round 5
         if (i === 12 && upgrade5Level === 0) continue;  // Potent Acid requires Add Bullets
+        if (i === 12 && level <= 5) continue;  // Potent Acid unlocks after round 5
+        if (i === 13 && level <= 5) continue;  // Shockwave unlocks after round 5
         if (i === 14 && upgrade14Level === 0) continue;  // Shockwave Radius requires Shockwave Unlock
         if (i === 15 && upgrade14Level === 0) continue;  // Shockwave Damage requires Shockwave Unlock
         if (i === 16 && upgrade14Level === 0) continue;  // Shockwave Cooldown requires Shockwave Unlock
         if (i === 17) continue;  // Shockwave Knockback removed (now constant)
         if (i === 18 && upgrade14Level === 0) continue;  // Bullet Deflection requires Shockwave Unlock
+        if (i === 19 && level <= 5) continue;  // Health Regeneration unlocks after round 5
         availableUpgrades.push(i);
       }
     }
@@ -6562,8 +6581,15 @@ function nextRound(){
       timeCount = 60; 
   }
   
-  // antSize mutation rate: 0 until round 10, then 0.2
-  let antSizeMutationRate = (level >= 10) ? 0.2 : 0;
+  // antSize mutation rate: varies by difficulty (hard: round 2+, medium: round 5+, easy: round 10+)
+  let antSizeMutationRate = 0;
+  if (difficulty === 'hard' && level >= 2) {
+    antSizeMutationRate = 0.2;
+  } else if (difficulty === 'medium' && level >= 5) {
+    antSizeMutationRate = 0.2;
+  } else if (level >= 10) {
+    antSizeMutationRate = 0.2;
+  }
 
   // Gene Token System - Grant tokens every 5 rounds, then evaluate/allocate
   grantTokensForRound(level);
@@ -6655,18 +6681,16 @@ function nextRound(){
           distanceFromAnchor[i] = s.distanceFromAnchor;
         }
         // Special category (mutation-based)
-        specialExplosion[i]    = constrain(s.specialExplosion    + random(-movementMutationRate, movementMutationRate), 0, 1);
+        specialExplosion[i]    = constrain(s.specialExplosion    + random(-movementMutationRate, movementMutationRate), 0, 2);
         specialKnockback[i]    = constrain(s.specialKnockback    + random(-movementMutationRate, movementMutationRate), 0, 1);
         specialPotential[i]    = constrain(s.specialPotential    + random(-movementMutationRate, movementMutationRate), 0, 1);
         // Only mutate explosion stats if parent has specialPotential > 0.5 AND uses explosion
         if (s.specialPotential > 0.5 && s.specialExplosion >= Math.max(s.specialKnockback)) {
-          bulletExplosionTrigger[i] = constrain(s.bulletExplosionTrigger + random(-movementMutationRate, movementMutationRate), -0.5, 1.5);
           explosionProximity[i] = constrain(s.explosionProximity + random(-100, 100), 0.1, 1000);
           explosionRadiusMultiplier[i] = constrain(s.explosionRadiusMultiplier + random(-0.2, 0.2), 0.5, 3);
           explosionResidueMultiplier[i] = constrain(s.explosionResidueMultiplier + random(-0.2, 0.2), 0.5, 3);
           bulletExplodeAfter[i] = constrain(s.bulletExplodeAfter + random(-50, 50), 100, 800);
         } else {
-          bulletExplosionTrigger[i] = s.bulletExplosionTrigger;
           explosionProximity[i] = s.explosionProximity;
           explosionRadiusMultiplier[i] = s.explosionRadiusMultiplier;
           explosionResidueMultiplier[i] = s.explosionResidueMultiplier;
@@ -6674,7 +6698,7 @@ function nextRound(){
         }
         // Only mutate knockback multiplier if parent uses knockback
         if (s.specialPotential > 0.5 && s.specialKnockback > Math.max(s.specialExplosion)) {
-          bulletKnockbackMultiplier[i] = constrain(s.bulletKnockbackMultiplier + random(-0.5, 0.5), 0.5, 5);
+          bulletKnockbackMultiplier[i] = constrain(s.bulletKnockbackMultiplier + random(-0.5, 0.5), 2, 5);
         } else {
           bulletKnockbackMultiplier[i] = s.bulletKnockbackMultiplier;
         }
@@ -6702,17 +6726,16 @@ function nextRound(){
         deathPotential[i]    = constrain(s.deathPotential    + random(-(movementMutationRate/2), (movementMutationRate/2)), 0, 1);
         // Path category (mutation-based)
         pathHighArc[i]    = constrain(s.pathHighArc    + random(-movementMutationRate, movementMutationRate), 0, 1);
-        pathClockwise[i]    = constrain(s.pathClockwise    + random(-movementMutationRate, movementMutationRate), 0, 1);
-        pathHoming[i]    = constrain(s.pathHoming    + random(-movementMutationRate, movementMutationRate), 0, 1);
+        pathCurve[i]    = constrain(s.pathCurve    + random(-movementMutationRate, movementMutationRate), 0, 2);
         pathPotential[i]    = constrain(s.pathPotential    + random(-movementMutationRate, movementMutationRate), 0, 1);
         // Only mutate arc duration if parent uses high arc
-        if (s.pathPotential > 0.5 && s.pathHighArc >= Math.max(s.pathClockwise, s.pathHoming)) {
+        if (s.pathPotential > 0.5 && s.pathHighArc >= s.pathCurve) {
           bulletArcDuration[i] = constrain(s.bulletArcDuration + random(-50, 50), 60, 600);
         } else {
           bulletArcDuration[i] = s.bulletArcDuration;
         }
-        // Only mutate curve strength if parent uses clockwise path
-        if (s.pathPotential > 0.5 && s.pathClockwise >= Math.max(s.pathHighArc, s.pathHoming)) {
+        // Only mutate curve strength if parent uses curve/homing path
+        if (s.pathPotential > 0.5 && s.pathCurve >= s.pathHighArc) {
           bulletCurveStrength[i] = constrain(s.bulletCurveStrength + random(-0.005, 0.005), -0.1, 0.1);
         } else {
           bulletCurveStrength[i] = s.bulletCurveStrength;
@@ -6768,18 +6791,16 @@ function nextRound(){
           distanceFromAnchor[i] = distanceFromAnchor[parent.id];
         }
         // Special category (mutation-based)
-        specialExplosion[i]    = constrain(specialExplosion[parent.id]    + random(-movementMutationRate, movementMutationRate), 0, 1);
+        specialExplosion[i]    = constrain(specialExplosion[parent.id]    + random(-movementMutationRate, movementMutationRate), 0, 2);
         specialKnockback[i]    = constrain(specialKnockback[parent.id]    + random(-movementMutationRate, movementMutationRate), 0, 1);
         specialPotential[i]    = constrain(specialPotential[parent.id]    + random(-movementMutationRate, movementMutationRate), 0, 1);
         // Only mutate explosion stats if parent has specialPotential > 0.5 AND uses explosion
         if (specialPotential[parent.id] > 0.5 && specialExplosion[parent.id] >= Math.max(specialKnockback[parent.id])) {
-          bulletExplosionTrigger[i] = constrain(bulletExplosionTrigger[parent.id] + random(-movementMutationRate, movementMutationRate), -0.5, 1.5);
           explosionProximity[i] = constrain(explosionProximity[parent.id] + random(-100, 100), 0.1, 1000);
           explosionRadiusMultiplier[i] = constrain(explosionRadiusMultiplier[parent.id] + random(-0.2, 0.2), 0.5, 3);
           explosionResidueMultiplier[i] = constrain(explosionResidueMultiplier[parent.id] + random(-0.2, 0.2), 0.5, 3);
           bulletExplodeAfter[i] = constrain(bulletExplodeAfter[parent.id] + random(-50, 50), 100, 800);
         } else {
-          bulletExplosionTrigger[i] = bulletExplosionTrigger[parent.id];
           explosionProximity[i] = explosionProximity[parent.id];
           explosionRadiusMultiplier[i] = explosionRadiusMultiplier[parent.id];
           explosionResidueMultiplier[i] = explosionResidueMultiplier[parent.id];
@@ -6787,7 +6808,7 @@ function nextRound(){
         }
         // Only mutate knockback multiplier if parent uses knockback
         if (specialPotential[parent.id] > 0.5 && specialKnockback[parent.id] > Math.max(specialExplosion[parent.id])) {
-          bulletKnockbackMultiplier[i] = constrain(bulletKnockbackMultiplier[parent.id] + random(-0.5, 0.5), 0.5, 5);
+          bulletKnockbackMultiplier[i] = constrain(bulletKnockbackMultiplier[parent.id] + random(-0.5, 0.5), 2, 5);
         } else {
           bulletKnockbackMultiplier[i] = bulletKnockbackMultiplier[parent.id];
         }
@@ -6815,17 +6836,17 @@ function nextRound(){
         deathPotential[i]    = constrain(deathPotential[parent.id]    + random(-(movementMutationRate/2), (movementMutationRate/2)), 0, 1);
         // Path category (mutation-based)
         pathHighArc[i]    = constrain(pathHighArc[parent.id]    + random(-movementMutationRate, movementMutationRate), 0, 1);
-        pathClockwise[i]    = constrain(pathClockwise[parent.id]    + random(-movementMutationRate, movementMutationRate), 0, 1);
-        pathHoming[i]    = constrain(pathHoming[parent.id]    + random(-movementMutationRate, movementMutationRate), 0, 1);
+        pathHighArc[i]    = constrain(pathHighArc[parent.id]    + random(-movementMutationRate, movementMutationRate), 0, 1);
+        pathCurve[i]    = constrain(pathCurve[parent.id]    + random(-movementMutationRate, movementMutationRate), 0, 2);
         pathPotential[i]    = constrain(pathPotential[parent.id]    + random(-movementMutationRate, movementMutationRate), 0, 1);
         // Only mutate arc duration if parent uses high arc
-        if (pathPotential[parent.id] > 0.5 && pathHighArc[parent.id] >= Math.max(pathClockwise[parent.id], pathHoming[parent.id])) {
+        if (pathPotential[parent.id] > 0.5 && pathHighArc[parent.id] >= pathCurve[parent.id]) {
           bulletArcDuration[i] = constrain(bulletArcDuration[parent.id] + random(-50, 50), 60, 600);
         } else {
           bulletArcDuration[i] = bulletArcDuration[parent.id];
         }
-        // Only mutate curve strength if parent uses clockwise path
-        if (pathPotential[parent.id] > 0.5 && pathClockwise[parent.id] >= Math.max(pathHighArc[parent.id], pathHoming[parent.id])) {
+        // Only mutate curve strength if parent uses curve/homing path
+        if (pathPotential[parent.id] > 0.5 && pathCurve[parent.id] >= pathHighArc[parent.id]) {
           bulletCurveStrength[i] = constrain(bulletCurveStrength[parent.id] + random(-0.005, 0.005), -0.1, 0.1);
         } else {
           bulletCurveStrength[i] = bulletCurveStrength[parent.id];
@@ -6870,13 +6891,13 @@ function nextRound(){
         explodeOnTermination[i] = false;
         triggerExplodeViaProximity[i] = false;
       } else if (specialType === 1){
-        // Type 1 = Explosions - check trigger type
-        if (Math.round(bulletExplosionTrigger[i]) === 0){
-          // Time-based explosion
+        // Type 1 = Explosions - check trigger type via specialExplosion value
+        if (specialExplosion[i] < 1){
+          // Time-based explosion (specialExplosion < 1)
           explodeOnTermination[i] = true;
           triggerExplodeViaProximity[i] = false;
-        } else if (Math.round(bulletExplosionTrigger[i]) === 1){
-          // Proximity-based explosion
+        } else {
+          // Proximity-based explosion (specialExplosion >= 1)
           explodeOnTermination[i] = false;
           triggerExplodeViaProximity[i] = true;
         }
@@ -6972,23 +6993,20 @@ function nextRound(){
       
       // Only mutate explosion stats if winner has specialPotential > 0.5 AND uses explosion
       if (winner && specialPotential[winner.id] > 0.5 && specialExplosion[winner.id] >= Math.max(specialKnockback[winner.id])) {
-        bulletExplosionTrigger[i] = constrain(bulletExplosionTrigger[winner.id] + random(-movementMutationRate, movementMutationRate), -0.5, 1.5);
         explosionProximity[i] = constrain(explosionProximity[winner.id] + random(-100, 100), 0.1, 1000);
       } else if (winner) {
-        bulletExplosionTrigger[i] = bulletExplosionTrigger[winner.id];
         explosionProximity[i] = explosionProximity[winner.id];
       } else {
-        bulletExplosionTrigger[i] = random(-0.5, 1.5);
         explosionProximity[i] = random(0.1, 1000);
       }
       
       // Only mutate knockback multiplier if winner uses knockback
       if (winner && specialPotential[winner.id] > 0.5 && specialKnockback[winner.id] > Math.max(specialExplosion[winner.id])) {
-        bulletKnockbackMultiplier[i] = constrain(bulletKnockbackMultiplier[winner.id] + random(-0.5, 0.5), 0.5, 5);
+        bulletKnockbackMultiplier[i] = constrain(bulletKnockbackMultiplier[winner.id] + random(-0.5, 0.5), 2, 5);
       } else if (winner) {
         bulletKnockbackMultiplier[i] = bulletKnockbackMultiplier[winner.id];
       } else {
-        bulletKnockbackMultiplier[i] = random(0.5, 5);
+        bulletKnockbackMultiplier[i] = random(2, 5);
       }
       
       // Fire category (mutation-based)
@@ -7043,20 +7061,16 @@ function nextRound(){
         ? constrain(pathHighArc[winner.id] + random(-movementMutationRate, movementMutationRate), 0, 1)
         : random(0, 1);
       
-      pathClockwise[i] = winner
-        ? constrain(pathClockwise[winner.id] + random(-movementMutationRate, movementMutationRate), 0, 1)
-        : random(0, 1);
-      
-      pathHoming[i] = winner
-        ? constrain(pathHoming[winner.id] + random(-movementMutationRate, movementMutationRate), 0, 1)
-        : random(0, 1);
+      pathCurve[i] = winner
+        ? constrain(pathCurve[winner.id] + random(-movementMutationRate, movementMutationRate), 0, 2)
+        : random(0, 2);
       
       pathPotential[i] = winner
         ? constrain(pathPotential[winner.id] + random(-movementMutationRate, movementMutationRate), 0, 1)
         : random(0, 1);
       
       // Only mutate arc duration if winner uses high arc
-      if (winner && pathPotential[winner.id] > 0.5 && pathHighArc[winner.id] >= Math.max(pathClockwise[winner.id], pathHoming[winner.id])) {
+      if (winner && pathPotential[winner.id] > 0.5 && pathHighArc[winner.id] >= pathCurve[winner.id]) {
         bulletArcDuration[i] = constrain(bulletArcDuration[winner.id] + random(-50, 50), 60, 600);
       } else if (winner) {
         bulletArcDuration[i] = bulletArcDuration[winner.id];
@@ -7064,8 +7078,8 @@ function nextRound(){
         bulletArcDuration[i] = random(60, 600);
       }
       
-      // Only mutate curve strength if winner uses clockwise path
-      if (winner && pathPotential[winner.id] > 0.5 && pathClockwise[winner.id] >= Math.max(pathHighArc[winner.id], pathHoming[winner.id])) {
+      // Only mutate curve strength if winner uses curve/homing path
+      if (winner && pathPotential[winner.id] > 0.5 && pathCurve[winner.id] >= pathHighArc[winner.id]) {
         bulletCurveStrength[i] = constrain(bulletCurveStrength[winner.id] + random(-0.005, 0.005), -0.1, 0.1);
       } else if (winner) {
         bulletCurveStrength[i] = bulletCurveStrength[winner.id];
@@ -7143,13 +7157,13 @@ function nextRound(){
         explodeOnTermination[i] = false;
         triggerExplodeViaProximity[i] = false;
       } else if (specialType2 === 1){
-        // Type 1 = Explosions - check trigger type
-        if (Math.round(bulletExplosionTrigger[i]) === 0){
-          // Time-based explosion
+        // Type 1 = Explosions - check trigger type via specialExplosion value
+        if (specialExplosion[i] < 1){
+          // Time-based explosion (specialExplosion < 1)
           explodeOnTermination[i] = true;
           triggerExplodeViaProximity[i] = false;
-        } else if (Math.round(bulletExplosionTrigger[i]) === 1){
-          // Proximity-based explosion
+        } else {
+          // Proximity-based explosion (specialExplosion >= 1)
           explodeOnTermination[i] = false;
           triggerExplodeViaProximity[i] = true;
         }
@@ -8576,17 +8590,16 @@ function updateAntDexEntries() {
 
       // 44-46 + 67: Special Abilities
       const specialType = getSpecialType(i);
-      const expTrigger = Math.round(bulletExplosionTrigger[i]);
 
       if (!noSpecialDiscovered && specialType === 0) {
         noSpecialDiscovered = true;
         triggerDiscoveryPopup();
       }
-      if (!timeExplosionDiscovered && specialType === 1 && expTrigger === 0) {
+      if (!timeExplosionDiscovered && specialType === 1 && specialExplosion[i] < 1) {
         timeExplosionDiscovered = true;
         triggerDiscoveryPopup();
       }
-      if (!proximityExplosionDiscovered && specialType === 1 && expTrigger === 1) {
+      if (!proximityExplosionDiscovered && specialType === 1 && specialExplosion[i] >= 1) {
         proximityExplosionDiscovered = true;
         triggerDiscoveryPopup();
       }
@@ -8717,19 +8730,19 @@ function updateAntDexEntries() {
       // 68-72: Knockback Multiplier (Knockback type only)
       if (specialType === -1) {
         const kb = bulletKnockbackMultiplier[i];
-        if (!knockbackMinDiscovered && kb >= 0.5 && kb <= 1.5) {
+        if (!knockbackMinDiscovered && kb >= 2.0 && kb <= 2.5) {
           knockbackMinDiscovered = true;
           triggerDiscoveryPopup();
         }
-        if (!knockbackLowDiscovered && kb > 1.5 && kb <= 2.5) {
+        if (!knockbackLowDiscovered && kb > 2.5 && kb <= 3.1) {
           knockbackLowDiscovered = true;
           triggerDiscoveryPopup();
         }
-        if (!knockbackMedDiscovered && kb > 2.5 && kb <= 3.5) {
+        if (!knockbackMedDiscovered && kb > 3.1 && kb <= 3.8) {
           knockbackMedDiscovered = true;
           triggerDiscoveryPopup();
         }
-        if (!knockbackHighDiscovered && kb > 3.5 && kb <= 4.5) {
+        if (!knockbackHighDiscovered && kb > 3.8 && kb <= 4.5) {
           knockbackHighDiscovered = true;
           triggerDiscoveryPopup();
         }
@@ -9284,26 +9297,26 @@ function updateAntDexEntries() {
     // 68-72: Knockback Multiplier
     {
       name: "Minimum Knockback Ants",
-      desc: "Gentle push when hit.",
-      stats: "Knockback Multiplier: 0.5-1.5x",
+      desc: "Modest push when hit.",
+      stats: "Knockback Multiplier: 2.0-2.5x",
       discovered: knockbackMinDiscovered
     },
     {
       name: "Low Knockback Ants",
-      desc: "Modest shove on impact.",
-      stats: "Knockback Multiplier: 1.6-2.5x",
+      desc: "Noticeable shove on impact.",
+      stats: "Knockback Multiplier: 2.6-3.1x",
       discovered: knockbackLowDiscovered
     },
     {
       name: "Medium Knockback Ants",
-      desc: "Standard knockback force.",
-      stats: "Knockback Multiplier: 2.6-3.5x",
+      desc: "Strong knockback force.",
+      stats: "Knockback Multiplier: 3.2-3.8x",
       discovered: knockbackMedDiscovered
     },
     {
       name: "High Knockback Ants",
-      desc: "Strong push that disrupts movement.",
-      stats: "Knockback Multiplier: 3.6-4.5x",
+      desc: "Very strong push that disrupts movement.",
+      stats: "Knockback Multiplier: 3.9-4.5x",
       discovered: knockbackHighDiscovered
     },
     {
@@ -10064,8 +10077,8 @@ function drawMultiplayerScoreboard() {
       // Stats - smaller text for details
       textSize(18);
       fill(200, 200, 255);
-      text("Total: " + p.totalScore, getMenuWidth() * 0.3, y + 12);
-      text("Round: " + p.roundScore, getMenuWidth() * 0.3, y + 30);
+      text("Total: " + p.totalScore.toFixed(1).replace(/\.0$/, ''), getMenuWidth() * 0.3, y + 12);
+      text("Round: " + p.roundScore.toFixed(1).replace(/\.0$/, ''), getMenuWidth() * 0.3, y + 30);
       
       // EXP Level on the right
       textAlign(RIGHT);
@@ -10194,16 +10207,14 @@ function drawAntsTab(fadeAlpha) {
     
     // Special category (mutation-based)
     { name: '── SPECIAL CATEGORY ──', key: null, min: 0, max: 0, step: 0 }, // Header
-    { name: 'Special: Explosion', key: 'specialExplosion', min: 0, max: 1, step: 0.01,
-      help: 'Mutation stat for explosion bullets (0-1)' },
+    { name: 'Special: Explosion', key: 'specialExplosion', min: 0, max: 2, step: 0.01,
+      help: 'Mutation stat for explosions (0-2, <1=timed, >=1=proximity)' },
     { name: 'Special: Knockback', key: 'specialKnockback', min: 0, max: 1, step: 0.01,
       help: 'Mutation stat for knockback bullets (0-1)' },
     { name: 'Special Potential', key: 'specialPotential', min: 0, max: 1, step: 0.01,
       help: 'If >0.5, use highest special trait; else none' },
-    { name: 'Bullet Explosion Trigger', key: 'bulletExplosionTrigger', min: -0.5, max: 1.5, step: 0.01,
-      help: '0=Time, 1=Proximity' },
-    { name: 'Knockback Multiplier', key: 'bulletKnockbackMultiplier', min: 0.5, max: 5, step: 0.1,
-      help: 'Multiplies knockback strength (0.5-5)' },
+    { name: 'Knockback Multiplier', key: 'bulletKnockbackMultiplier', min: 2, max: 5, step: 0.1,
+      help: 'Multiplies knockback strength (2-5)' },
     
     // Fire category (mutation-based)
     { name: '── FIRE CATEGORY ──', key: null, min: 0, max: 0, step: 0 }, // Header
@@ -10233,10 +10244,8 @@ function drawAntsTab(fadeAlpha) {
     { name: '── PATH CATEGORY ──', key: null, min: 0, max: 0, step: 0 }, // Header
     { name: 'Path: High Arc', key: 'pathHighArc', min: 0, max: 1, step: 0.01,
       help: 'Mutation stat for high arc path (0-1)' },
-    { name: 'Path: Clockwise', key: 'pathClockwise', min: 0, max: 1, step: 0.01,
-      help: 'Mutation stat for clockwise curve (0-1)' },
-    { name: 'Path: Homing', key: 'pathHoming', min: 0, max: 1, step: 0.01,
-      help: 'Mutation stat for homing path (0-1)' },
+    { name: 'Path: Curve', key: 'pathCurve', min: 0, max: 2, step: 0.01,
+      help: 'Mutation stat for curved/homing path (0-2, <1=curved, >=1=homing)' },
     { name: 'Path Potential', key: 'pathPotential', min: 0, max: 1, step: 0.01,
       help: 'If >0.5, use highest path trait; else straight' },
     { name: 'Bullet Arc Duration', key: 'bulletArcDuration', min: 60, max: 600, step: 1,
@@ -10252,7 +10261,7 @@ function drawAntsTab(fadeAlpha) {
     { name: 'Explosion Residue Mult', key: 'explosionResidueMultiplier', min: 0.5, max: 3, step: 0.01 },
     { name: 'Bullet Explode After', key: 'bulletExplodeAfter', min: 100, max: 800, step: 1 },
     { name: 'Ant Size', key: 'antSize', min: 0.3, max: 3, step: 0.01,
-      help: 'Sprite & hitbox size (mutates from round 10+)' }
+      help: 'Sprite & hitbox size (mutates: Hard R2+, Medium R5+, Easy R10+)' }
   ];
   
   // Ant sub-tabs (1st, 2nd, 3rd place)
@@ -10408,13 +10417,14 @@ function drawAntsTab(fadeAlpha) {
       bulletSpeed: { caps: [250, 200, 150, 120, 90], inverse: true },
       bulletCooldown: { caps: [150, 120, 100, 90, 79], inverse: true },
       antSpeed: { caps: [2, 2.5, 3, 3.5], inverse: false },
-      bulletExplosionTrigger: { caps: [0.5, 1.0, 1.5], inverse: false },
+      specialExplosion: { caps: [1.0, 2.0], inverse: false },
       bulletKnockbackMultiplier: { caps: [2, 3, 4, 5], inverse: false },
       bulletBurstCount: { caps: [3, 4, 5, 5.5], inverse: false },
       bulletBurstSpread: { caps: [2.0, 2.5, 3.0, 3.14], inverse: false },
       bulletCooldownMultiplier: { caps: [3, 4, 5, 5.5], inverse: false },
       bulletArcDuration: { caps: [300, 400, 500, 600], inverse: false },
       bulletCurveStrength: { caps: [0.05, 0.075, 0.1], inverse: false },
+      pathCurve: { caps: [1.0, 2.0], inverse: false },
       explosionProximity: { caps: [400, 600, 800, 1000], inverse: false },
       bulletSize: { caps: [1.5, 2.0, 2.5, 3.0], inverse: false },
       explosionRadiusMultiplier: { caps: [1.5, 2.0, 2.5, 3.0], inverse: false },
