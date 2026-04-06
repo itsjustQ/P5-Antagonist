@@ -2154,7 +2154,31 @@ function drawEnemy(){
         let antImageSize = 45 + (15 * antSize[i]);
         image(ant, 0, 0, antImageSize, antImageSize);
       pop();
-      
+
+      // Small ant: blue pulsing aura
+      if (antSize[i] < 0.8 && antHealth[i] >= 1) {
+        push();
+        noStroke();
+        let smallFlashSpeed = map(antSize[i], 0.8, 0.3, 3, 12);
+        let smallFlashAlpha = 83 + 70 * sin(frameCount * smallFlashSpeed * 0.05);
+        fill(80, 150, 255, smallFlashAlpha);
+        let smallAuraSize = antImageSize * 0.75;
+        ellipse(antX[i], antY[i] - antAirHeight[i], smallAuraSize, smallAuraSize);
+        pop();
+      }
+
+      // Big ant: yellow pulsing aura
+      if (antSize[i] >= 1.5 && antHealth[i] >= 1) {
+        push();
+        noStroke();
+        let bigFlashSpeed = map(antSize[i], 1.5, 3.0, 3, 12);
+        let bigFlashAlpha = 83 + 70 * sin(frameCount * bigFlashSpeed * 0.05);
+        fill(255, 220, 50, bigFlashAlpha);
+        let bigAuraSize = antImageSize * 1.0;
+        ellipse(antX[i], antY[i] - antAirHeight[i], bigAuraSize, bigAuraSize);
+        pop();
+      }
+
       // Draw yellow circles if ant is stunned
       if (antStunned[i]) {
         push();
@@ -3113,7 +3137,49 @@ function enemyShoot1() {
             smooth();
             pop();
           }
-          
+
+          // Draw all auras under the bullet image
+          if (bullet.knockbackBullet) {
+            push();
+            noStroke();
+            let flashSpeed = (bullet.knockbackMultiplier || 1) * 6;
+            let flashAlpha = 83 + 70 * sin(bullet.life * flashSpeed);
+            fill(220, 220, 220, flashAlpha);
+            let auraSize = (25 * bullet.size) + 5 * sin(bullet.life * 0.2);
+            ellipse(bullet.x, bullet.y - bullet.airHeight, auraSize, auraSize);
+            pop();
+          }
+
+          // Homing bullets: red pulsing aura
+          if (bullet.pathType === -2) {
+            push();
+            noStroke();
+            let homingFlashSpeed = map(abs(bullet.curveStrength), 0.015, 0.1, 3, 12);
+            let homingFlashAlpha = 83 + 70 * sin(bullet.life * homingFlashSpeed);
+            fill(255, 60, 60, homingFlashAlpha);
+            let homingAuraSize = (30 * bullet.size) + 5 * sin(bullet.life * 0.2);
+            ellipse(bullet.x, bullet.y - bullet.airHeight, homingAuraSize, homingAuraSize);
+            pop();
+          }
+
+          // Exploding bullets (timed or proximity): green pulsing aura
+          if (explodeOnTermination[i] || triggerExplodeViaProximity[i]) {
+            push();
+            noStroke();
+            let explodeFlashSpeed;
+            if (triggerExplodeViaProximity[i]) {
+              explodeFlashSpeed = map(explosionProximity[i], 100, 800, 10, 2);
+            } else {
+              explodeFlashSpeed = map(bullet.explodeAfter, 800, 100, 2, 10);
+            }
+            let explodeFlashAlpha = 83 + 70 * sin(bullet.life * explodeFlashSpeed);
+            fill(80, 220, 80, explodeFlashAlpha);
+              let explodeAuraSize = (25 * bullet.size) + 5 * sin(bullet.life * 0.2);
+            ellipse(bullet.x, bullet.y - bullet.airHeight, explodeAuraSize, explodeAuraSize);
+            pop();
+          }
+
+          // Draw bullet image on top of auras
           push();
           // Apply fade (either from Tiger Beetle or bullet lifespan)
           if (tigerBeetleActive && tigerBeetleMoving || bullet.life >= bullet.maxLife) {
@@ -3127,16 +3193,15 @@ function enemyShoot1() {
           rotate(bullet.visualAngle || bullet.angle);
           image(bulletImage, 0, 0, (20 * bullet.size), (20 * bullet.size));
           pop();
-          
-          // Draw knockback bullet aura on top of bullet (offset by air height)
-          if (bullet.knockbackBullet) {
+
+          // Landmine bullets: draw pulsing yellow center marker on top of bullet
+          if (getDeathType(i) === 1) {
             push();
             noStroke();
-            let flashSpeed = (bullet.knockbackMultiplier || 1) * 6; // Flash speed = multiplier × 3
-            let flashAlpha = 83 + 70 * sin(bullet.life * flashSpeed); // Scale to reasonable speed
-            fill(220, 220, 220, flashAlpha); // White/grey translucent solid circle
-            let auraSize = (25 * bullet.size) + 5 * sin(bullet.life * 0.2);
-            ellipse(bullet.x, bullet.y - bullet.airHeight, auraSize, auraSize);
+            let mineFlashSpeed = map(deathLandmine[i], 0.3, 1.0, 2, 8);
+            fill(255, 255, 0, 220);
+            let mineCoreSize = (6 * bullet.size) + 2.5 * sin(bullet.life * mineFlashSpeed * 0.2);
+            ellipse(bullet.x, bullet.y - bullet.airHeight, mineCoreSize, mineCoreSize);
             pop();
           }
         }
@@ -3358,6 +3423,34 @@ function enemyShoot1() {
     }
     
     let finalSize = mineSize * pulseFactor;
+
+    // Draw inherited special auras for mines created by special bullets.
+    if (mine.explodeOnTermination || mine.triggerExplodeViaProximity) {
+      push();
+      noStroke();
+      let mineExplodeFlashSpeed;
+      if (mine.triggerExplodeViaProximity) {
+        mineExplodeFlashSpeed = map(mine.explosionProximity || 0, 100, 800, 10, 2);
+      } else {
+        mineExplodeFlashSpeed = map(mine.explodeAfter || 800, 800, 100, 2, 10);
+      }
+      let mineExplodeFlashAlpha = 83 + 70 * sin(mine.life * mineExplodeFlashSpeed);
+      fill(80, 220, 80, mineExplodeFlashAlpha);
+      let mineExplodeAuraSize = finalSize * 1.35;
+      ellipse(mine.x, mine.y, mineExplodeAuraSize, mineExplodeAuraSize);
+      pop();
+    }
+
+    if (mine.knockbackBullet) {
+      push();
+      noStroke();
+      let mineKnockbackFlashSpeed = (mine.knockbackMultiplier || 1) * 6;
+      let mineKnockbackFlashAlpha = 83 + 70 * sin(mine.life * mineKnockbackFlashSpeed);
+      fill(220, 220, 220, mineKnockbackFlashAlpha);
+      let mineKnockbackAuraSize = finalSize * 1.2;
+      ellipse(mine.x, mine.y, mineKnockbackAuraSize, mineKnockbackAuraSize);
+      pop();
+    }
     
     // Color intensity increases with fusion count
     let greenIntensity = min(200 + fusionCount * 10, 255);
@@ -4316,6 +4409,126 @@ function grantTokensForRound(roundNumber) {
       }
     }
   }
+}
+
+// Module-level stat cap tier definitions
+// Format: { caps: [tier1, tier2, tier3...], inverse: boolean }
+// inverse: true means stat improves as it DECREASES (approach from top to bottom)
+const moduleStatCapTiers = {
+  // Inverse stats (lower is better, unlock downward from starting max)
+  bulletSpeed: { caps: [250, 200, 150, 120, 90], inverse: true, start: 300 },
+  bulletCooldown: { caps: [150, 120, 100, 90, 79], inverse: true, start: 200 },
+  
+  // Normal stats (higher is better, unlock upward from starting min)
+  antSpeed: { caps: [2, 2.5, 3, 3.5], inverse: false },
+  
+  // Special category mutation stats (can be capped)
+  specialExplosion: { caps: [1.0, 2.0], inverse: false },  // <1 = timed, >=1 = proximity
+  bulletKnockbackMultiplier: { caps: [2, 3, 4, 5], inverse: false },
+  
+  // Fire category supporting stats
+  bulletBurstCount: { caps: [3, 4, 5, 5.5], inverse: false },
+  bulletBurstSpread: { caps: [2.0, 2.5, 3.0, 3.14], inverse: false },
+  bulletCooldownMultiplier: { caps: [3, 4, 5, 5.5], inverse: false },
+  
+  // Path category mutation stats (can be capped)
+  bulletArcDuration: { caps: [300, 400, 500, 600], inverse: false },
+  bulletCurveStrength: { caps: [0.05, 0.075, 0.1], inverse: false },
+  pathCurve: { caps: [1.0, 2.0], inverse: false },  // <1 = curved, >=1 = homing
+  
+  // Explosion stats
+  explosionProximity: { caps: [400, 600, 800, 1000], inverse: false },
+  bulletSize: { caps: [1.5, 2.0, 2.5, 3.0], inverse: false },
+  explosionRadiusMultiplier: { caps: [1.5, 2.0, 2.5, 3.0], inverse: false },
+  explosionResidueMultiplier: { caps: [1.5, 2.0, 2.5, 3.0], inverse: false },
+  bulletExplodeAfter: { caps: [600, 500, 400, 200, 100], inverse: true, start: 800 },
+  
+  // Ant size
+  antSize: { caps: [1.5, 2.0, 2.5, 3.0], inverse: false }
+};
+
+// Get max mutatable value for a stat based on an ant's unlocked cap tiers.
+// For threshold-gated stats (specialExplosion, pathCurve): caps mark functional tier thresholds.
+//   - No tokens: must stay strictly below caps[0]
+//   - Tier 0 token: can reach caps[0] but must stay strictly below caps[1]
+// For scaling stats (knockback, burst, etc.): caps[0] is natural uncapped max, tokens extend range.
+//   - No tokens: can reach caps[0]
+//   - Tier 0 token: can reach caps[1], etc.
+// investmentsOverride: optional direct investment array (use when antId's investments aren't populated yet)
+function getMaxAllowedValue(statName, antId, investmentsOverride) {
+  const tierInfo = moduleStatCapTiers[statName];
+  if (!tierInfo) {
+    return Infinity; // No cap system for this stat
+  }
+  
+  // Find highest unlocked tier for this stat
+  let unlockedTier = -1;
+  const investments = investmentsOverride !== undefined ? investmentsOverride : (geneTokenInvestments[antId] || []);
+  for (let inv of investments) {
+    if (inv.target === statName && inv.type === 'cap') {
+      unlockedTier = Math.max(unlockedTier, inv.tier || 0);
+    }
+  }
+  
+  // Stats that use threshold gates (caps mark functional tier thresholds, not just range limits)
+  const thresholdGatedStats = ['specialExplosion', 'pathCurve'];
+  
+  if (thresholdGatedStats.includes(statName)) {
+    if (unlockedTier < 0) {
+      // No tokens: must stay below first threshold
+      return tierInfo.caps[0] - 0.1;
+    }
+    // With tier N unlocked: can hit caps[N] but must stay below caps[N+1]
+    const nextIdx = unlockedTier + 1;
+    if (nextIdx >= tierInfo.caps.length) {
+      return tierInfo.caps[tierInfo.caps.length - 1]; // All tiers fully unlocked
+    }
+    return tierInfo.caps[nextIdx] - 0.1;
+  }
+  
+  // Scaling range stats: caps[0] is the natural uncapped max, tokens extend it
+  if (unlockedTier < 0) {
+    return tierInfo.caps[0]; // Natural max, no token needed
+  }
+  // Each token spent moves max up to the next cap index
+  const nextIdx = unlockedTier + 1;
+  if (nextIdx >= tierInfo.caps.length) {
+    return tierInfo.caps[tierInfo.caps.length - 1]; // All caps unlocked
+  }
+  return tierInfo.caps[nextIdx];
+}
+
+// Get minimum mutatable value for an inverse stat based on unlocked cap tiers.
+// Inverse stats improve as they decrease. caps[0] is the natural floor (no tokens needed).
+// Each invested cap tier lowers the floor further.
+//   - No tokens: floor = caps[0]   (e.g. bulletSpeed can't go below 250)
+//   - Tier 0 invested: floor = caps[1]  (can now go below 250 but not below 200)
+//   - Tier 1 invested: floor = caps[2], etc.
+// investmentsOverride: optional direct investment array (use when antId's investments aren't populated yet)
+function getMinAllowedValue(statName, antId, investmentsOverride) {
+  const tierInfo = moduleStatCapTiers[statName];
+  if (!tierInfo || !tierInfo.inverse) {
+    return -Infinity; // Only applies to inverse stats
+  }
+
+  let unlockedTier = -1;
+  const investments = investmentsOverride !== undefined ? investmentsOverride : (geneTokenInvestments[antId] || []);
+  for (let inv of investments) {
+    if (inv.target === statName && inv.type === 'cap') {
+      unlockedTier = Math.max(unlockedTier, inv.tier || 0);
+    }
+  }
+
+  // No tokens: can't improve past the first cap threshold
+  if (unlockedTier < 0) {
+    return tierInfo.caps[0]; // e.g. 250 for bulletSpeed
+  }
+  // Each invested tier lowers the floor to the next cap
+  const nextIdx = unlockedTier + 1;
+  if (nextIdx >= tierInfo.caps.length) {
+    return tierInfo.caps[tierInfo.caps.length - 1]; // All caps unlocked, absolute minimum
+  }
+  return tierInfo.caps[nextIdx];
 }
 
 function evaluateAndAllocateTokens(antIndex, currentRound, isInitialSetup = false) {
@@ -6659,8 +6872,8 @@ function nextRound(){
       if (parent.custom && parent.stats) {
         console.log(`Ant ${i} inherits from custom ant template #${Math.abs(parent.id)}`);
         let s = parent.stats;
-        bulletSpeed[i]   = constrain(s.bulletSpeed   + random(-50, 50), 60, 300);
-        bulletCooldown[i]= constrain(floor(s.bulletCooldown + random(-5, 5)), 79, 200);
+        bulletSpeed[i]   = constrain(s.bulletSpeed   + random(-50, 50), getMinAllowedValue('bulletSpeed', i, s.geneTokenInvestments || []), 300);
+        bulletCooldown[i]= constrain(floor(s.bulletCooldown + random(-5, 5)), getMinAllowedValue('bulletCooldown', i, s.geneTokenInvestments || []), 200);
         antSpeed[i]      = constrain(s.antSpeed      + random(-0.3, 0.3), 0.9, 3.5);
         shotOffsetX[i]   = constrain(s.shotOffsetX   + random(-50, 50), -500, 500);
         shotOffsetY[i]   = constrain(s.shotOffsetY   + random(-50, 50), -500, 500);
@@ -6681,7 +6894,7 @@ function nextRound(){
           distanceFromAnchor[i] = s.distanceFromAnchor;
         }
         // Special category (mutation-based)
-        specialExplosion[i]    = constrain(s.specialExplosion    + random(-movementMutationRate, movementMutationRate), 0, 2);
+        specialExplosion[i]    = constrain(s.specialExplosion    + random(-movementMutationRate, movementMutationRate), 0, getMaxAllowedValue('specialExplosion', i, s.geneTokenInvestments || []));
         specialKnockback[i]    = constrain(s.specialKnockback    + random(-movementMutationRate, movementMutationRate), 0, 1);
         specialPotential[i]    = constrain(s.specialPotential    + random(-movementMutationRate, movementMutationRate), 0, 1);
         // Only mutate explosion stats if parent has specialPotential > 0.5 AND uses explosion
@@ -6689,7 +6902,7 @@ function nextRound(){
           explosionProximity[i] = constrain(s.explosionProximity + random(-100, 100), 0.1, 1000);
           explosionRadiusMultiplier[i] = constrain(s.explosionRadiusMultiplier + random(-0.2, 0.2), 0.5, 3);
           explosionResidueMultiplier[i] = constrain(s.explosionResidueMultiplier + random(-0.2, 0.2), 0.5, 3);
-          bulletExplodeAfter[i] = constrain(s.bulletExplodeAfter + random(-50, 50), 100, 800);
+          bulletExplodeAfter[i] = constrain(s.bulletExplodeAfter + random(-50, 50), getMinAllowedValue('bulletExplodeAfter', i, s.geneTokenInvestments || []), 800);
         } else {
           explosionProximity[i] = s.explosionProximity;
           explosionRadiusMultiplier[i] = s.explosionRadiusMultiplier;
@@ -6698,7 +6911,7 @@ function nextRound(){
         }
         // Only mutate knockback multiplier if parent uses knockback
         if (s.specialPotential > 0.5 && s.specialKnockback > Math.max(s.specialExplosion)) {
-          bulletKnockbackMultiplier[i] = constrain(s.bulletKnockbackMultiplier + random(-0.5, 0.5), 2, 5);
+          bulletKnockbackMultiplier[i] = constrain(s.bulletKnockbackMultiplier + random(-0.5, 0.5), 2, getMaxAllowedValue('bulletKnockbackMultiplier', i, s.geneTokenInvestments || []));
         } else {
           bulletKnockbackMultiplier[i] = s.bulletKnockbackMultiplier;
         }
@@ -6709,15 +6922,15 @@ function nextRound(){
         firePotential[i]    = constrain(s.firePotential    + random(-movementMutationRate, movementMutationRate), 0, 1);
         // Only mutate burst/rapid stats if parent uses burst or rapid fire
         if (s.firePotential > 0.5 && (s.fireBurst >= Math.max(s.fireRapid, s.fireAlternating) || s.fireRapid >= Math.max(s.fireBurst, s.fireAlternating))) {
-          bulletBurstCount[i] = constrain(s.bulletBurstCount + random(-movementMutationRate, movementMutationRate), 1.5, 5.5);
-          bulletBurstSpread[i] = constrain(s.bulletBurstSpread + random(-movementMutationRate, movementMutationRate), PI/3, PI);
+          bulletBurstCount[i] = constrain(s.bulletBurstCount + random(-movementMutationRate, movementMutationRate), 1.5, getMaxAllowedValue('bulletBurstCount', i, s.geneTokenInvestments || []));
+          bulletBurstSpread[i] = constrain(s.bulletBurstSpread + random(-movementMutationRate, movementMutationRate), PI/3, getMaxAllowedValue('bulletBurstSpread', i, s.geneTokenInvestments || []));
         } else {
           bulletBurstCount[i] = s.bulletBurstCount;
           bulletBurstSpread[i] = s.bulletBurstSpread;
         }
         // Only mutate cooldown multiplier if parent uses alternating fire
         if (s.firePotential > 0.5 && s.fireAlternating >= Math.max(s.fireBurst, s.fireRapid)) {
-          bulletCooldownMultiplier[i] = constrain(s.bulletCooldownMultiplier + random(-movementMutationRate, movementMutationRate), 0.5, 5.5);
+          bulletCooldownMultiplier[i] = constrain(s.bulletCooldownMultiplier + random(-movementMutationRate, movementMutationRate), 0.5, getMaxAllowedValue('bulletCooldownMultiplier', i, s.geneTokenInvestments || []));
         } else {
           bulletCooldownMultiplier[i] = s.bulletCooldownMultiplier;
         }
@@ -6726,25 +6939,26 @@ function nextRound(){
         deathPotential[i]    = constrain(s.deathPotential    + random(-(movementMutationRate/2), (movementMutationRate/2)), 0, 1);
         // Path category (mutation-based)
         pathHighArc[i]    = constrain(s.pathHighArc    + random(-movementMutationRate, movementMutationRate), 0, 1);
-        pathCurve[i]    = constrain(s.pathCurve    + random(-movementMutationRate, movementMutationRate), 0, 2);
+        pathCurve[i]    = constrain(s.pathCurve    + random(-movementMutationRate, movementMutationRate), 0, getMaxAllowedValue('pathCurve', i, s.geneTokenInvestments || []));
         pathPotential[i]    = constrain(s.pathPotential    + random(-movementMutationRate, movementMutationRate), 0, 1);
         // Only mutate arc duration if parent uses high arc
         if (s.pathPotential > 0.5 && s.pathHighArc >= s.pathCurve) {
-          bulletArcDuration[i] = constrain(s.bulletArcDuration + random(-50, 50), 60, 600);
+          bulletArcDuration[i] = constrain(s.bulletArcDuration + random(-50, 50), 60, getMaxAllowedValue('bulletArcDuration', i, s.geneTokenInvestments || []));
         } else {
           bulletArcDuration[i] = s.bulletArcDuration;
         }
         // Only mutate curve strength if parent uses curve/homing path
         if (s.pathPotential > 0.5 && s.pathCurve >= s.pathHighArc) {
-          bulletCurveStrength[i] = constrain(s.bulletCurveStrength + random(-0.005, 0.005), -0.1, 0.1);
+          const maxCurve = getMaxAllowedValue('bulletCurveStrength', i, s.geneTokenInvestments || []);
+          bulletCurveStrength[i] = constrain(s.bulletCurveStrength + random(-0.005, 0.005), -maxCurve, maxCurve);
         } else {
           bulletCurveStrength[i] = s.bulletCurveStrength;
         }
-        angleFromSpawn[i]    = constrain(s.angleFromSpawn    + random((-PI / 3), (PI / 3)), 0, TWO_PI);
+        angleFromSpawn[i]    = constrain(s.angleFromSpawn + random((-PI / 3), (PI / 3)), 0, TWO_PI);
         bulletSize[i]    = constrain(s.bulletSize    + random(-(movementMutationRate / 2), (movementMutationRate / 2)), 1, 3);
         explosionRadiusMultiplier[i] = constrain(s.explosionRadiusMultiplier + random(-0.2, 0.2), 0.5, 3);
         explosionResidueMultiplier[i] = constrain(s.explosionResidueMultiplier + random(-0.2, 0.2), 0.5, 3);
-        bulletExplodeAfter[i] = constrain(s.bulletExplodeAfter + random(-50, 50), 100, 800);
+        bulletExplodeAfter[i] = constrain(s.bulletExplodeAfter + random(-50, 50), getMinAllowedValue('bulletExplodeAfter', i, s.geneTokenInvestments || []), 800);
         antSize[i] = constrain(s.antSize + random(-antSizeMutationRate, antSizeMutationRate), 0.3, 3);
         // Cap ant speed based on ant size (small ants can be faster, large ants slower)
         let maxAntSpeed1 = 4.5 - antSize[i];
@@ -6769,8 +6983,8 @@ function nextRound(){
       } else {
         // Regular ant from game performance
         console.log(`Ant ${i} inherits from parent Ant ${parent.id}`);
-        bulletSpeed[i]   = constrain(bulletSpeed[parent.id]   + random(-50, 50), 60, 300);
-        bulletCooldown[i]= constrain(floor(bulletCooldown[parent.id] + random(-5, 5)), 79, 200);
+        bulletSpeed[i]   = constrain(bulletSpeed[parent.id]   + random(-50, 50), getMinAllowedValue('bulletSpeed', parent.id), 300);
+        bulletCooldown[i]= constrain(floor(bulletCooldown[parent.id] + random(-5, 5)), getMinAllowedValue('bulletCooldown', parent.id), 200);
         antSpeed[i]      = constrain(antSpeed[parent.id]      + random(-0.3, 0.3), 0.9, 3.5);
         shotOffsetX[i]   = constrain(shotOffsetX[parent.id]   + random(-50, 50), -500, 500);
         shotOffsetY[i]   = constrain(shotOffsetY[parent.id]   + random(-50, 50), -500, 500);
@@ -6791,7 +7005,7 @@ function nextRound(){
           distanceFromAnchor[i] = distanceFromAnchor[parent.id];
         }
         // Special category (mutation-based)
-        specialExplosion[i]    = constrain(specialExplosion[parent.id]    + random(-movementMutationRate, movementMutationRate), 0, 2);
+        specialExplosion[i]    = constrain(specialExplosion[parent.id]    + random(-movementMutationRate, movementMutationRate), 0, getMaxAllowedValue('specialExplosion', parent.id));
         specialKnockback[i]    = constrain(specialKnockback[parent.id]    + random(-movementMutationRate, movementMutationRate), 0, 1);
         specialPotential[i]    = constrain(specialPotential[parent.id]    + random(-movementMutationRate, movementMutationRate), 0, 1);
         // Only mutate explosion stats if parent has specialPotential > 0.5 AND uses explosion
@@ -6799,7 +7013,7 @@ function nextRound(){
           explosionProximity[i] = constrain(explosionProximity[parent.id] + random(-100, 100), 0.1, 1000);
           explosionRadiusMultiplier[i] = constrain(explosionRadiusMultiplier[parent.id] + random(-0.2, 0.2), 0.5, 3);
           explosionResidueMultiplier[i] = constrain(explosionResidueMultiplier[parent.id] + random(-0.2, 0.2), 0.5, 3);
-          bulletExplodeAfter[i] = constrain(bulletExplodeAfter[parent.id] + random(-50, 50), 100, 800);
+          bulletExplodeAfter[i] = constrain(bulletExplodeAfter[parent.id] + random(-50, 50), getMinAllowedValue('bulletExplodeAfter', parent.id), 800);
         } else {
           explosionProximity[i] = explosionProximity[parent.id];
           explosionRadiusMultiplier[i] = explosionRadiusMultiplier[parent.id];
@@ -6808,7 +7022,7 @@ function nextRound(){
         }
         // Only mutate knockback multiplier if parent uses knockback
         if (specialPotential[parent.id] > 0.5 && specialKnockback[parent.id] > Math.max(specialExplosion[parent.id])) {
-          bulletKnockbackMultiplier[i] = constrain(bulletKnockbackMultiplier[parent.id] + random(-0.5, 0.5), 2, 5);
+          bulletKnockbackMultiplier[i] = constrain(bulletKnockbackMultiplier[parent.id] + random(-0.5, 0.5), 2, getMaxAllowedValue('bulletKnockbackMultiplier', parent.id));
         } else {
           bulletKnockbackMultiplier[i] = bulletKnockbackMultiplier[parent.id];
         }
@@ -6819,15 +7033,15 @@ function nextRound(){
         firePotential[i]    = constrain(firePotential[parent.id]    + random(-movementMutationRate, movementMutationRate), 0, 1);
         // Only mutate burst/rapid stats if parent uses burst or rapid fire
         if (firePotential[parent.id] > 0.5 && (fireBurst[parent.id] >= Math.max(fireRapid[parent.id], fireAlternating[parent.id]) || fireRapid[parent.id] >= Math.max(fireBurst[parent.id], fireAlternating[parent.id]))) {
-          bulletBurstCount[i] = constrain(bulletBurstCount[parent.id] + random(-movementMutationRate, movementMutationRate), 1.5, 5.5);
-          bulletBurstSpread[i] = constrain(bulletBurstSpread[parent.id] + random(-movementMutationRate, movementMutationRate), PI/3, PI);
+          bulletBurstCount[i] = constrain(bulletBurstCount[parent.id] + random(-movementMutationRate, movementMutationRate), 1.5, getMaxAllowedValue('bulletBurstCount', parent.id));
+          bulletBurstSpread[i] = constrain(bulletBurstSpread[parent.id] + random(-movementMutationRate, movementMutationRate), PI/3, getMaxAllowedValue('bulletBurstSpread', parent.id));
         } else {
           bulletBurstCount[i] = bulletBurstCount[parent.id];
           bulletBurstSpread[i] = bulletBurstSpread[parent.id];
         }
         // Only mutate cooldown multiplier if parent uses alternating fire
         if (firePotential[parent.id] > 0.5 && fireAlternating[parent.id] >= Math.max(fireBurst[parent.id], fireRapid[parent.id])) {
-          bulletCooldownMultiplier[i] = constrain(bulletCooldownMultiplier[parent.id] + random(-movementMutationRate, movementMutationRate), 0.5, 5.5);
+          bulletCooldownMultiplier[i] = constrain(bulletCooldownMultiplier[parent.id] + random(-movementMutationRate, movementMutationRate), 0.5, getMaxAllowedValue('bulletCooldownMultiplier', parent.id));
         } else {
           bulletCooldownMultiplier[i] = bulletCooldownMultiplier[parent.id];
         }
@@ -6837,22 +7051,23 @@ function nextRound(){
         // Path category (mutation-based)
         pathHighArc[i]    = constrain(pathHighArc[parent.id]    + random(-movementMutationRate, movementMutationRate), 0, 1);
         pathHighArc[i]    = constrain(pathHighArc[parent.id]    + random(-movementMutationRate, movementMutationRate), 0, 1);
-        pathCurve[i]    = constrain(pathCurve[parent.id]    + random(-movementMutationRate, movementMutationRate), 0, 2);
+        pathCurve[i]    = constrain(pathCurve[parent.id]    + random(-movementMutationRate, movementMutationRate), 0, getMaxAllowedValue('pathCurve', parent.id));
         pathPotential[i]    = constrain(pathPotential[parent.id]    + random(-movementMutationRate, movementMutationRate), 0, 1);
         // Only mutate arc duration if parent uses high arc
         if (pathPotential[parent.id] > 0.5 && pathHighArc[parent.id] >= pathCurve[parent.id]) {
-          bulletArcDuration[i] = constrain(bulletArcDuration[parent.id] + random(-50, 50), 60, 600);
+          bulletArcDuration[i] = constrain(bulletArcDuration[parent.id] + random(-50, 50), 60, getMaxAllowedValue('bulletArcDuration', parent.id));
         } else {
           bulletArcDuration[i] = bulletArcDuration[parent.id];
         }
         // Only mutate curve strength if parent uses curve/homing path
         if (pathPotential[parent.id] > 0.5 && pathCurve[parent.id] >= pathHighArc[parent.id]) {
-          bulletCurveStrength[i] = constrain(bulletCurveStrength[parent.id] + random(-0.005, 0.005), -0.1, 0.1);
+          const maxCurve = getMaxAllowedValue('bulletCurveStrength', parent.id);
+          bulletCurveStrength[i] = constrain(bulletCurveStrength[parent.id] + random(-0.005, 0.005), -maxCurve, maxCurve);
         } else {
           bulletCurveStrength[i] = bulletCurveStrength[parent.id];
         }
         // Remove duplicate mutations (these were already handled above)
-        angleFromSpawn[i]    = constrain(angleFromSpawn[parent.id]    + random((-PI / 3), (PI / 3)), 0, TWO_PI);
+        angleFromSpawn[i]    = constrain(angleFromSpawn[parent.id] + random((-PI / 3), (PI / 3)), 0, TWO_PI);
         bulletSize[i]    = constrain(bulletSize[parent.id]    + random(-(movementMutationRate / 2), (movementMutationRate / 2)), 1, 3);
         antSize[i] = constrain(antSize[parent.id] + random(-antSizeMutationRate, antSizeMutationRate), 0.3, 3);
         // Cap ant speed based on ant size (small ants can be faster, large ants slower)
@@ -6930,11 +7145,11 @@ function nextRound(){
     } else {
 
       bulletSpeed[i] = winner 
-        ? constrain(bulletSpeed[winner.id] + random(-50, 50), 60, 300)   
+        ? constrain(bulletSpeed[winner.id] + random(-50, 50), getMinAllowedValue('bulletSpeed', winner.id), 300)   
         : random(60, 300);
 
       bulletCooldown[i] = winner 
-        ? constrain(floor(bulletCooldown[winner.id] + random(-5, 5)), 79, 200)
+        ? constrain(floor(bulletCooldown[winner.id] + random(-5, 5)), getMinAllowedValue('bulletCooldown', winner.id), 200)
         : floor(random(79, 200));
 
       antSpeed[i] = winner 
@@ -6980,8 +7195,8 @@ function nextRound(){
       
       // Special category (mutation-based)
       specialExplosion[i] = winner
-        ? constrain(specialExplosion[winner.id] + random(-movementMutationRate, movementMutationRate), 0, 1)
-        : random(0, 1);
+        ? constrain(specialExplosion[winner.id] + random(-movementMutationRate, movementMutationRate), 0, getMaxAllowedValue('specialExplosion', winner.id))
+        : random(0, 0.9);
       
       specialKnockback[i] = winner
         ? constrain(specialKnockback[winner.id] + random(-movementMutationRate, movementMutationRate), 0, 1)
@@ -7002,11 +7217,11 @@ function nextRound(){
       
       // Only mutate knockback multiplier if winner uses knockback
       if (winner && specialPotential[winner.id] > 0.5 && specialKnockback[winner.id] > Math.max(specialExplosion[winner.id])) {
-        bulletKnockbackMultiplier[i] = constrain(bulletKnockbackMultiplier[winner.id] + random(-0.5, 0.5), 2, 5);
+        bulletKnockbackMultiplier[i] = constrain(bulletKnockbackMultiplier[winner.id] + random(-0.5, 0.5), 2, getMaxAllowedValue('bulletKnockbackMultiplier', winner.id));
       } else if (winner) {
         bulletKnockbackMultiplier[i] = bulletKnockbackMultiplier[winner.id];
       } else {
-        bulletKnockbackMultiplier[i] = random(2, 5);
+        bulletKnockbackMultiplier[i] = 2; // Start at minimum
       }
       
       // Fire category (mutation-based)
@@ -7028,8 +7243,8 @@ function nextRound(){
       
       // Only mutate burst/rapid stats if winner uses burst or rapid fire
       if (winner && firePotential[winner.id] > 0.5 && (fireBurst[winner.id] >= Math.max(fireRapid[winner.id], fireAlternating[winner.id]) || fireRapid[winner.id] >= Math.max(fireBurst[winner.id], fireAlternating[winner.id]))) {
-        bulletBurstCount[i] = constrain(bulletBurstCount[winner.id] + random(-1, 1), 1.5, 5.5);
-        bulletBurstSpread[i] = constrain(bulletBurstSpread[winner.id] + random(-0.2, 0.2), PI/3, PI);
+        bulletBurstCount[i] = constrain(bulletBurstCount[winner.id] + random(-1, 1), 1.5, getMaxAllowedValue('bulletBurstCount', winner.id));
+        bulletBurstSpread[i] = constrain(bulletBurstSpread[winner.id] + random(-0.2, 0.2), PI/3, getMaxAllowedValue('bulletBurstSpread', winner.id));
       } else if (winner) {
         bulletBurstCount[i] = bulletBurstCount[winner.id];
         bulletBurstSpread[i] = bulletBurstSpread[winner.id];
@@ -7040,7 +7255,7 @@ function nextRound(){
       
       // Only mutate cooldown multiplier if winner uses alternating fire
       if (winner && firePotential[winner.id] > 0.5 && fireAlternating[winner.id] >= Math.max(fireBurst[winner.id], fireRapid[winner.id])) {
-        bulletCooldownMultiplier[i] = constrain(bulletCooldownMultiplier[winner.id] + random(-1, 1), 0.5, 5.5);
+        bulletCooldownMultiplier[i] = constrain(bulletCooldownMultiplier[winner.id] + random(-1, 1), 0.5, getMaxAllowedValue('bulletCooldownMultiplier', winner.id));
       } else if (winner) {
         bulletCooldownMultiplier[i] = bulletCooldownMultiplier[winner.id];
       } else {
@@ -7062,8 +7277,8 @@ function nextRound(){
         : random(0, 1);
       
       pathCurve[i] = winner
-        ? constrain(pathCurve[winner.id] + random(-movementMutationRate, movementMutationRate), 0, 2)
-        : random(0, 2);
+        ? constrain(pathCurve[winner.id] + random(-movementMutationRate, movementMutationRate), 0, getMaxAllowedValue('pathCurve', winner.id))
+        : random(0, 0.9);
       
       pathPotential[i] = winner
         ? constrain(pathPotential[winner.id] + random(-movementMutationRate, movementMutationRate), 0, 1)
@@ -7071,7 +7286,7 @@ function nextRound(){
       
       // Only mutate arc duration if winner uses high arc
       if (winner && pathPotential[winner.id] > 0.5 && pathHighArc[winner.id] >= pathCurve[winner.id]) {
-        bulletArcDuration[i] = constrain(bulletArcDuration[winner.id] + random(-50, 50), 60, 600);
+        bulletArcDuration[i] = constrain(bulletArcDuration[winner.id] + random(-50, 50), 60, getMaxAllowedValue('bulletArcDuration', winner.id));
       } else if (winner) {
         bulletArcDuration[i] = bulletArcDuration[winner.id];
       } else {
@@ -7080,7 +7295,8 @@ function nextRound(){
       
       // Only mutate curve strength if winner uses curve/homing path
       if (winner && pathPotential[winner.id] > 0.5 && pathCurve[winner.id] >= pathHighArc[winner.id]) {
-        bulletCurveStrength[i] = constrain(bulletCurveStrength[winner.id] + random(-0.005, 0.005), -0.1, 0.1);
+        const maxCurve = getMaxAllowedValue('bulletCurveStrength', winner.id);
+        bulletCurveStrength[i] = constrain(bulletCurveStrength[winner.id] + random(-0.005, 0.005), -maxCurve, maxCurve);
       } else if (winner) {
         bulletCurveStrength[i] = bulletCurveStrength[winner.id];
       } else {
@@ -7099,7 +7315,7 @@ function nextRound(){
       if (winner && specialPotential[winner.id] > 0.5 && specialExplosion[winner.id] >= Math.max(specialKnockback[winner.id])) {
         explosionRadiusMultiplier[i] = constrain(explosionRadiusMultiplier[winner.id] + random(-0.2, 0.2), 0.5, 3);
         explosionResidueMultiplier[i] = constrain(explosionResidueMultiplier[winner.id] + random(-0.2, 0.2), 0.5, 3);
-        bulletExplodeAfter[i] = constrain(bulletExplodeAfter[winner.id] + random(-50, 50), 100, 800);
+        bulletExplodeAfter[i] = constrain(bulletExplodeAfter[winner.id] + random(-50, 50), getMinAllowedValue('bulletExplodeAfter', winner.id), 800);
       } else if (winner) {
         explosionRadiusMultiplier[i] = explosionRadiusMultiplier[winner.id];
         explosionResidueMultiplier[i] = explosionResidueMultiplier[winner.id];
@@ -8628,7 +8844,7 @@ function updateAntDexEntries() {
       }
 
       // 47-51: Explosion Fuse (Time Explosion only)
-      if (specialType === 1 && expTrigger === 0) {
+      if (specialType === 1 && specialExplosion[i] < 1) {
         const fuse = bulletExplodeAfter[i];
         if (!fuseMinDiscovered && fuse >= 100 && fuse <= 250) {
           fuseMinDiscovered = true;
@@ -8653,7 +8869,7 @@ function updateAntDexEntries() {
       }
 
       // 52-56: Explosion Proximity (Proximity Explosion only)
-      if (specialType === 1 && expTrigger === 1) {
+      if (specialType === 1 && specialExplosion[i] >= 1) {
         const prox = explosionProximity[i];
         if (!proxMinDiscovered && prox >= 0.1 && prox <= 150) {
           proxMinDiscovered = true;
