@@ -654,6 +654,12 @@ let tigerBeetleMoving = false;
 let flashingEntities = []; // array of {type, index, owner, fade}
 let flashTimer = 0; // frames until next flash selection
 
+// Spatial partitioning grid for collision optimization
+let GRID_CELL_SIZE = 150; // Size of each grid cell in pixels
+let gridCols = 0;
+let gridRows = 0;
+let spatialGrid = {}; // Grid cells: key = "x,y", value = {ants: [], enemyBullets: [], playerBullets: [], mines: []}
+
 let beetle;
 let ant;
 let shieldFull;
@@ -949,6 +955,9 @@ function setup() {
   buttons.shoot = {x: windowWidth - 50, y: windowHeight - 100, w: 80, h: 80};
   
   updateAntDexEntries();
+  
+  // Initialize spatial partitioning grid
+  initSpatialGrid();
 }
 
 function windowResized() {
@@ -967,6 +976,9 @@ function windowResized() {
   buttons.right = {x: 140, y: windowHeight - 100, w: 60, h: 60};
   buttons.dash = {x: windowWidth - 140, y: windowHeight - 100, w: 80, h: 80};
   buttons.shoot = {x: windowWidth - 50, y: windowHeight - 100, w: 80, h: 80};
+  
+  // Reinitialize spatial grid on resize
+  initSpatialGrid();
 }
 
 function triggerDiscoveryPopup() {
@@ -974,6 +986,78 @@ function triggerDiscoveryPopup() {
   discoveryPopupTimer = discoveryPopupDuration;
   discoveryPopupY = windowHeight + 100;          // start off-screen
   discoveryPopupTargetY = windowHeight - 50;    // where it should slide to
+}
+
+// ===== SPATIAL PARTITIONING FUNCTIONS =====
+// These functions optimize collision detection by dividing the screen into a grid
+
+function initSpatialGrid() {
+  // Calculate grid dimensions based on gameplay area
+  gridCols = Math.ceil(getGameplayWidth() / GRID_CELL_SIZE);
+  gridRows = Math.ceil(getGameplayHeight() / GRID_CELL_SIZE);
+  spatialGrid = {};
+}
+
+function getCellKey(x, y) {
+  // Convert world coordinates to grid cell key
+  let col = Math.floor(x / GRID_CELL_SIZE);
+  let row = Math.floor(y / GRID_CELL_SIZE);
+  return `${col},${row}`;
+}
+
+function updateSpatialGrid() {
+  // Clear and rebuild the spatial grid each frame
+  spatialGrid = {};
+  
+  // Add ants to grid
+  for (let i = 1; i <= enemyCount; i++) {
+    let key = getCellKey(antX[i], antY[i]);
+    if (!spatialGrid[key]) spatialGrid[key] = {ants: [], enemyBullets: [], playerBullets: [], mines: []};
+    spatialGrid[key].ants.push(i);
+  }
+  
+  // Add enemy bullets to grid
+  for (let i = 1; i <= enemyCount; i++) {
+    for (let b = 0; b < enemyBullets[i].length; b++) {
+      let bullet = enemyBullets[i][b];
+      let key = getCellKey(bullet.x, bullet.y);
+      if (!spatialGrid[key]) spatialGrid[key] = {ants: [], enemyBullets: [], playerBullets: [], mines: []};
+      spatialGrid[key].enemyBullets.push({antIndex: i, bulletIndex: b, bullet: bullet});
+    }
+  }
+  
+  // Add player bullets to grid
+  for (let i = 0; i < playerBullets.length; i++) {
+    let b = playerBullets[i];
+    let key = getCellKey(b.x, b.y);
+    if (!spatialGrid[key]) spatialGrid[key] = {ants: [], enemyBullets: [], playerBullets: [], mines: []};
+    spatialGrid[key].playerBullets.push({index: i, bullet: b});
+  }
+  
+  // Add landmines to grid
+  for (let m = 0; m < landMines.length; m++) {
+    let mine = landMines[m];
+    let key = getCellKey(mine.x, mine.y);
+    if (!spatialGrid[key]) spatialGrid[key] = {ants: [], enemyBullets: [], playerBullets: [], mines: []};
+    spatialGrid[key].mines.push({index: m, mine: mine});
+  }
+}
+
+function getNearbyCells(x, y) {
+  // Get all cells within radius (current cell + 8 surrounding cells)
+  let cells = [];
+  let col = Math.floor(x / GRID_CELL_SIZE);
+  let row = Math.floor(y / GRID_CELL_SIZE);
+  
+  for (let dc = -1; dc <= 1; dc++) {
+    for (let dr = -1; dr <= 1; dr++) {
+      let key = `${col + dc},${row + dr}`;
+      if (spatialGrid[key]) {
+        cells.push(spatialGrid[key]);
+      }
+    }
+  }
+  return cells;
 }
 
 function draw() {
@@ -1119,6 +1203,9 @@ function draw() {
       } else {
         tigerBeetleMoving = false;
       }
+      
+      // Update spatial partitioning grid each frame for collision optimization
+      updateSpatialGrid();
       
       for (let i = 1; i <= enemyCount; i++) {
         antMoveX[i] = 0;
@@ -2453,74 +2540,79 @@ function dashCollision() {
   // Only check for dash collisions when dashing
   if (!dash) return;
   
-  for (let i = 1; i < enemyCount + 1; i++) {
-    // Skip if ant is already knocked back (can only be hit once per dash)
-    if (antKnockedBack[i]) continue;
-    
-    let antHitboxSize = 20.25 + (6.75 * antSize[i]);
-    if(playerX > (antX[i] - antHitboxSize) && playerY > (antY[i] - antHitboxSize) && 
-       playerX < (antX[i] + antHitboxSize) && playerY < (antY[i] + antHitboxSize)) {
+  // Use spatial grid to only check nearby ants
+  let nearbyCells = getNearbyCells(playerX, playerY);
+  
+  for (let cell of nearbyCells) {
+    for (let i of cell.ants) {
+      // Skip if ant is already knocked back (can only be hit once per dash)
+      if (antKnockedBack[i]) continue;
       
-      // Deal damage based on Horns upgrade (1 + 0.2 per level)
-      let dashDamage = 1 + (upgrade12Level * 0.2);
-      antHealth[i] -= dashDamage;
-      
-      // Stun if damaged but not killed
-      if (antHealth[i] > 0) {
-        antStunned[i] = true;
-        antStunTimer[i] = 30;
-        antLastShotFrame[i] = frameCount; // Reset shooting cooldown
-        antRapidFireActive[i] = false; // Cancel rapid fire
-      }
-      
-      // Calculate knockback direction (away from player)
-      let dx = antX[i] - playerX;
-      let dy = antY[i] - playerY;
-      let distance = dist(playerX, playerY, antX[i], antY[i]);
-      
-      // Normalize and apply knockback velocity
-      if (distance > 0) {
-        // Base knockback scales with Horns upgrade (1 + 0.25 per level)
-        let knockbackMultiplier = 1 + (upgrade12Level * 0.25);
-        let knockbackSpeed = (playerSpeed * 8 / antSize[i]) * knockbackMultiplier;
-        antKnockbackVelX[i] = (dx / distance) * knockbackSpeed;
-        antKnockbackVelY[i] = (dy / distance) * knockbackSpeed;
-      }
-      
-      // Set knockback state
-      antKnockedBack[i] = true;
-      antKnockbackTimer[i] = 60; // Longer knockback duration for dash
-      
-      // If health depleted, kill the ant
-      if (antHealth[i] <= 0) {
-        antLives[i]++;
-        comboTime = 60;
-        combo++;
-        calculateBonus();
-        streakPoints += comboPoints;
-        addScore(100 + comboPoints);
-        health++;
-        addDeathEffect(antX[i], antY[i], 100 + comboPoints);
-        antX[i] = random(0, getGameplayWidth());
-        antY[i] = random(scoreBarHeight + ANT_SPAWN_BUFFER, getGameplayHeight() - expBarHeight - expBarBuffer - ANT_SPAWN_BUFFER);
-        spawnX[i] = antX[i] + cos(angleFromSpawn[i]);
-        spawnY[i] = antY[i] + sin(angleFromSpawn[i]);
-        antHealth[i] = antMaxHealth[i];
-        antKnockedBack[i] = false;
-        antKnockbackTimer[i] = 0;
-        antStunned[i] = false;
-        antStunTimer[i] = 0;
-        antLastShotFrame[i] = 0;
-        antAlternatingCooldownState[i] = 0;
-        antRapidFireActive[i] = false;
-        antAirHeight[i] = 0;
+      let antHitboxSize = 20.25 + (6.75 * antSize[i]);
+      if(playerX > (antX[i] - antHitboxSize) && playerY > (antY[i] - antHitboxSize) && 
+         playerX < (antX[i] + antHitboxSize) && playerY < (antY[i] + antHitboxSize)) {
         
-        if(!sGetHit1.isPlaying() || !sGetHit2.isPlaying()) {
-          sHit = round(random(1,2));
-          if(sHit == 1) {
-            sGetHit1.play();
-          } else {
-            sGetHit2.play();
+        // Deal damage based on Horns upgrade (1 + 0.2 per level)
+        let dashDamage = 1 + (upgrade12Level * 0.2);
+        antHealth[i] -= dashDamage;
+        
+        // Stun if damaged but not killed
+        if (antHealth[i] > 0) {
+          antStunned[i] = true;
+          antStunTimer[i] = 30;
+          antLastShotFrame[i] = frameCount; // Reset shooting cooldown
+          antRapidFireActive[i] = false; // Cancel rapid fire
+        }
+        
+        // Calculate knockback direction (away from player)
+        let dx = antX[i] - playerX;
+        let dy = antY[i] - playerY;
+        let distance = dist(playerX, playerY, antX[i], antY[i]);
+        
+        // Normalize and apply knockback velocity
+        if (distance > 0) {
+          // Base knockback scales with Horns upgrade (1 + 0.25 per level)
+          let knockbackMultiplier = 1 + (upgrade12Level * 0.25);
+          let knockbackSpeed = (playerSpeed * 8 / antSize[i]) * knockbackMultiplier;
+          antKnockbackVelX[i] = (dx / distance) * knockbackSpeed;
+          antKnockbackVelY[i] = (dy / distance) * knockbackSpeed;
+        }
+        
+        // Set knockback state
+        antKnockedBack[i] = true;
+        antKnockbackTimer[i] = 60; // Longer knockback duration for dash
+        
+        // If health depleted, kill the ant
+        if (antHealth[i] <= 0) {
+          antLives[i]++;
+          comboTime = 60;
+          combo++;
+          calculateBonus();
+          streakPoints += comboPoints;
+          addScore(100 + comboPoints);
+          health++;
+          addDeathEffect(antX[i], antY[i], 100 + comboPoints);
+          antX[i] = random(0, getGameplayWidth());
+          antY[i] = random(scoreBarHeight + ANT_SPAWN_BUFFER, getGameplayHeight() - expBarHeight - expBarBuffer - ANT_SPAWN_BUFFER);
+          spawnX[i] = antX[i] + cos(angleFromSpawn[i]);
+          spawnY[i] = antY[i] + sin(angleFromSpawn[i]);
+          antHealth[i] = antMaxHealth[i];
+          antKnockedBack[i] = false;
+          antKnockbackTimer[i] = 0;
+          antStunned[i] = false;
+          antStunTimer[i] = 0;
+          antLastShotFrame[i] = 0;
+          antAlternatingCooldownState[i] = 0;
+          antRapidFireActive[i] = false;
+          antAirHeight[i] = 0;
+          
+          if(!sGetHit1.isPlaying() || !sGetHit2.isPlaying()) {
+            sHit = round(random(1,2));
+            if(sHit == 1) {
+              sGetHit1.play();
+            } else {
+              sGetHit2.play();
+            }
           }
         }
       }
@@ -3304,58 +3396,67 @@ function enemyShoot1() {
       }
     }
     
-    // Check collision with ants (for player mines)
+    // Check collision with ants (for player mines) - use spatial grid for optimization
     if (mine.isPlayerMine) {
-      for (let i = 1; i <= enemyCount; i++) {
-        let antHitboxSize = 20.25 + (6.75 * antSize[i]);
-        let mineHitboxSize = (mineSize / 2);
-        if (dist(antX[i], antY[i], mine.x, mine.y) < antHitboxSize + mineHitboxSize) {
-          // Mine hits ant
-          let damage = mine.size;
-          antHealth[i] -= damage;
-          
-          // Apply knockback if it's a knockback mine
-          if (mine.knockbackBullet) {
-            let dx = antX[i] - mine.x;
-            let dy = antY[i] - mine.y;
-            let distance = dist(mine.x, mine.y, antX[i], antY[i]);
-            if (distance > 0) {
-              let knockbackSpeed = 8 * mine.knockbackMultiplier;
-              antKnockbackVelX[i] = (dx / distance) * knockbackSpeed;
-              antKnockbackVelY[i] = (dy / distance) * knockbackSpeed;
-              antKnockedBack[i] = true;
-              antKnockbackTimer[i] = 60;
+      let nearbyCells = getNearbyCells(mine.x, mine.y);
+      let mineHit = false;
+      
+      for (let cell of nearbyCells) {
+        for (let i of cell.ants) {
+          let antHitboxSize = 20.25 + (6.75 * antSize[i]);
+          let mineHitboxSize = (mineSize / 2);
+          if (dist(antX[i], antY[i], mine.x, mine.y) < antHitboxSize + mineHitboxSize) {
+            // Mine hits ant
+            let damage = mine.size;
+            antHealth[i] -= damage;
+            
+            // Apply knockback if it's a knockback mine
+            if (mine.knockbackBullet) {
+              let dx = antX[i] - mine.x;
+              let dy = antY[i] - mine.y;
+              let distance = dist(mine.x, mine.y, antX[i], antY[i]);
+              if (distance > 0) {
+                let knockbackSpeed = 8 * mine.knockbackMultiplier;
+                antKnockbackVelX[i] = (dx / distance) * knockbackSpeed;
+                antKnockbackVelY[i] = (dy / distance) * knockbackSpeed;
+                antKnockedBack[i] = true;
+                antKnockbackTimer[i] = 60;
+              }
             }
+            
+            // Check if ant dies
+            if (antHealth[i] <= 0) {
+              antLives[i]++;
+              comboTime = 60;
+              combo++;
+              calculateBonus();
+              streakPoints += comboPoints;
+              addScore(100 + comboPoints);
+              health++;
+              addDeathEffect(antX[i], antY[i], 100 + comboPoints);
+              antX[i] = random(0, getGameplayWidth());
+              antY[i] = random(scoreBarHeight + ANT_SPAWN_BUFFER, getGameplayHeight() - expBarHeight - expBarBuffer - ANT_SPAWN_BUFFER);
+              spawnX[i] = antX[i] + cos(angleFromSpawn[i]);
+              spawnY[i] = antY[i] + sin(angleFromSpawn[i]);
+              antHealth[i] = antMaxHealth[i];
+              antKnockedBack[i] = false;
+              antKnockbackTimer[i] = 0;
+              antStunned[i] = false;
+              antStunTimer[i] = 0;
+              antLastShotFrame[i] = 0;
+              antAlternatingCooldownState[i] = 0;
+              antRapidFireActive[i] = false;
+              antAirHeight[i] = 0;
+            }
+            
+            mineHit = true;
           }
-          
-          // Check if ant dies
-          if (antHealth[i] <= 0) {
-            antLives[i]++;
-            comboTime = 60;
-            combo++;
-            calculateBonus();
-            streakPoints += comboPoints;
-            addScore(100 + comboPoints);
-            health++;
-            addDeathEffect(antX[i], antY[i], 100 + comboPoints);
-            antX[i] = random(0, getGameplayWidth());
-            antY[i] = random(scoreBarHeight + ANT_SPAWN_BUFFER, getGameplayHeight() - expBarHeight - expBarBuffer - ANT_SPAWN_BUFFER);
-            spawnX[i] = antX[i] + cos(angleFromSpawn[i]);
-            spawnY[i] = antY[i] + sin(angleFromSpawn[i]);
-            antHealth[i] = antMaxHealth[i];
-            antKnockedBack[i] = false;
-            antKnockbackTimer[i] = 0;
-            antStunned[i] = false;
-            antStunTimer[i] = 0;
-            antLastShotFrame[i] = 0;
-            antAlternatingCooldownState[i] = 0;
-            antRapidFireActive[i] = false;
-            antAirHeight[i] = 0;
-          }
-          
-          landMines.splice(m, 1);
-          break;
         }
+      }
+      
+      // Remove mine after hitting an ant
+      if (mineHit) {
+        landMines.splice(m, 1);
       }
     }
   }
@@ -3758,54 +3859,62 @@ function beetleShoot() {
       pop();
     }
 
-    // bullet collisions
-    for (let j = 1; j < enemyCount + 1; j++) {
-      // Skip if ant is airborne (in the air, not just knocked back)
-      if (antAirHeight[j] > 0) continue;
+    // bullet collisions - use spatial grid for optimization
+    let nearbyCells = getNearbyCells(b.x, b.y);
+    let bulletHit = false;
+    
+    for (let cell of nearbyCells) {
+      if (bulletHit) break;
       
-      if (
-        b.x < antX[j] + 25 &&
-        b.x > antX[j] - 25 &&
-        b.y < antY[j] + 25 &&
-        b.y > antY[j] - 25
-      ) {
-        // Deal damage to ant with Potent Acid multiplier
-        let bulletDamage = 1 + (upgrade13Level * 0.2);
-        antHealth[j] -= bulletDamage;
+      for (let j of cell.ants) {
+        // Skip if ant is airborne (in the air, not just knocked back)
+        if (antAirHeight[j] > 0) continue;
         
-        // Stun if damaged but not killed
-        if (antHealth[j] > 0) {
-          antStunned[j] = true;
-          antStunTimer[j] = 30;
-          antLastShotFrame[j] = frameCount; // Reset shooting cooldown
-          antRapidFireActive[j] = false; // Cancel rapid fire
-        }
-        
-        // Only kill ant if health drops to 0 or below
-        if (antHealth[j] <= 0) {
-          antLives[j]++;
-          comboTime = 60;
-          combo++;
-          calculateBonus();
-          streakPoints += comboPoints;
-          addScore(100 + comboPoints);
-          // Only restore health if round is active and player is alive
-          if (end == false && health > 0) {
-            health++;
+        if (
+          b.x < antX[j] + 25 &&
+          b.x > antX[j] - 25 &&
+          b.y < antY[j] + 25 &&
+          b.y > antY[j] - 25
+        ) {
+          // Deal damage to ant with Potent Acid multiplier
+          let bulletDamage = 1 + (upgrade13Level * 0.2);
+          antHealth[j] -= bulletDamage;
+          
+          // Stun if damaged but not killed
+          if (antHealth[j] > 0) {
+            antStunned[j] = true;
+            antStunTimer[j] = 30;
+            antLastShotFrame[j] = frameCount; // Reset shooting cooldown
+            antRapidFireActive[j] = false; // Cancel rapid fire
           }
-          addDeathEffect(antX[j], antY[j], 100 + comboPoints);
-          antX[j] = random(0, getGameplayWidth());
-          antY[j] = random(scoreBarHeight + ANT_SPAWN_BUFFER, getGameplayHeight() - expBarHeight - expBarBuffer - ANT_SPAWN_BUFFER);
-          spawnX[j] = antX[j] + cos(angleFromSpawn[j]);
-          spawnY[j] = antY[j] + sin(angleFromSpawn[j]);
-          antHealth[j] = antMaxHealth[j];  // Reset health on respawn
-          antKnockedBack[j] = false;
-          antKnockbackTimer[j] = 0;
+          
+          // Only kill ant if health drops to 0 or below
+          if (antHealth[j] <= 0) {
+            antLives[j]++;
+            comboTime = 60;
+            combo++;
+            calculateBonus();
+            streakPoints += comboPoints;
+            addScore(100 + comboPoints);
+            // Only restore health if round is active and player is alive
+            if (end == false && health > 0) {
+              health++;
+            }
+            addDeathEffect(antX[j], antY[j], 100 + comboPoints);
+            antX[j] = random(0, getGameplayWidth());
+            antY[j] = random(scoreBarHeight + ANT_SPAWN_BUFFER, getGameplayHeight() - expBarHeight - expBarBuffer - ANT_SPAWN_BUFFER);
+            spawnX[j] = antX[j] + cos(angleFromSpawn[j]);
+            spawnY[j] = antY[j] + sin(angleFromSpawn[j]);
+            antHealth[j] = antMaxHealth[j];  // Reset health on respawn
+            antKnockedBack[j] = false;
+            antKnockbackTimer[j] = 0;
+          }
+          
+          // Always remove bullet after hitting ant
+          playerBullets.splice(i, 1);
+          bulletHit = true;
+          break;
         }
-        
-        // Always remove bullet after hitting ant
-        playerBullets.splice(i, 1);
-        break;
       }
     }
 
@@ -3876,128 +3985,140 @@ function handleWindAttack() {
       // Deflect enemy bullets within shockwave area (20% base, increases with Bullet Deflection upgrade)
       let deflectChance = (upgrade19Level + 1) * 0.2; // 20% base, +20% per level (0.2, 0.4, 0.6, 0.8, 1.0)
       
-      for (let i = 1; i <= enemyCount; i++) {
-        for (let b = enemyBullets[i].length - 1; b >= 0; b--) {
-          let bullet = enemyBullets[i][b];
+      // Use spatial grid to find bullets and mines in shockwave radius
+      let nearbyCells = getNearbyCells(playerX, playerY);
+      
+      // Deflect enemy bullets
+      for (let cell of nearbyCells) {
+        for (let bulletData of cell.enemyBullets) {
+          let i = bulletData.antIndex;
+          let b = bulletData.bulletIndex;
+          let bullet = bulletData.bullet;
           let bulletDistance = dist(playerX, playerY, bullet.x, bullet.y);
             
-            if (bulletDistance <= maxRadius) {
-              // Check if this bullet gets deflected
-              if (random() < deflectChance) {
-                // Convert to player bullet
-                // Calculate angle from bullet to nearest ant
-                let nearestAntDist = Infinity;
-                let targetAngle = 0;
-                
-                for (let j = 1; j <= enemyCount; j++) {
+          if (bulletDistance <= maxRadius) {
+            // Check if this bullet gets deflected
+            if (random() < deflectChance) {
+              // Convert to player bullet - find nearest ant using spatial grid
+              let nearestAntDist = Infinity;
+              let targetAngle = 0;
+              
+              let bulletCells = getNearbyCells(bullet.x, bullet.y);
+              for (let antCell of bulletCells) {
+                for (let j of antCell.ants) {
                   let distToAnt = dist(bullet.x, bullet.y, antX[j], antY[j]);
                   if (distToAnt < nearestAntDist) {
                     nearestAntDist = distToAnt;
                     targetAngle = atan2(antY[j] - bullet.y, antX[j] - bullet.x) * (180 / PI);
                   }
                 }
-                
-                playerBullets.push({
-                  x: bullet.x,
-                  y: bullet.y,
-                  rotation: targetAngle
-                });
-                
-                // Remove the enemy bullet
-                enemyBullets[i].splice(b, 1);
               }
+              
+              playerBullets.push({
+                x: bullet.x,
+                y: bullet.y,
+                rotation: targetAngle
+              });
+              
+              // Remove the enemy bullet
+              enemyBullets[i].splice(b, 1);
             }
-          }
-        }
-      
-      // Deflect land mines within shockwave area
-      for (let m = landMines.length - 1; m >= 0; m--) {
-        let mine = landMines[m];
-        let mineDistance = dist(playerX, playerY, mine.x, mine.y);
-
-        if (mineDistance <= maxRadius && !mine.isPlayerMine) {
-          // Check if this mine gets deflected. Use the same deflectChance
-          // as enemy bullets so the upgrade affects mines equally.
-          if (random() < deflectChance) {
-            // Convert mine into a player bullet aimed at nearest ant
-            let nearestAntDist = Infinity;
-            let targetAngle = 0;
-
-            for (let j = 1; j <= enemyCount; j++) {
-              let distToAnt = dist(mine.x, mine.y, antX[j], antY[j]);
-              if (distToAnt < nearestAntDist) {
-                nearestAntDist = distToAnt;
-                targetAngle = atan2(antY[j] - mine.y, antX[j] - mine.x) * (180 / PI);
-              }
-            }
-
-            playerBullets.push({
-              x: mine.x,
-              y: mine.y,
-              rotation: targetAngle
-            });
-
-            // Remove the mine once converted to a bullet
-            landMines.splice(m, 1);
-          } else {
-            // If not converted into a bullet, leave the mine as an enemy mine
-            // (do nothing) so it still harms the player.
           }
         }
       }
       
-      // Deal damage when radius reaches max
+      // Deflect land mines within shockwave area
+      for (let cell of nearbyCells) {
+        for (let mineData of cell.mines) {
+          let m = mineData.index;
+          let mine = mineData.mine;
+          let mineDistance = dist(playerX, playerY, mine.x, mine.y);
+
+          if (mineDistance <= maxRadius && !mine.isPlayerMine) {
+            // Check if this mine gets deflected
+            if (random() < deflectChance) {
+              // Convert mine into a player bullet aimed at nearest ant using spatial grid
+              let nearestAntDist = Infinity;
+              let targetAngle = 0;
+
+              let mineCells = getNearbyCells(mine.x, mine.y);
+              for (let antCell of mineCells) {
+                for (let j of antCell.ants) {
+                  let distToAnt = dist(mine.x, mine.y, antX[j], antY[j]);
+                  if (distToAnt < nearestAntDist) {
+                    nearestAntDist = distToAnt;
+                    targetAngle = atan2(antY[j] - mine.y, antX[j] - mine.x) * (180 / PI);
+                  }
+                }
+              }
+
+              playerBullets.push({
+                x: mine.x,
+                y: mine.y,
+                rotation: targetAngle
+              });
+
+              // Remove the mine once converted to a bullet
+              landMines.splice(m, 1);
+            }
+          }
+        }
+      }
+      
+      // Deal damage to ants within shockwave radius using spatial grid
       let windDamage = 0.5 + (upgrade16Level * 0.14); // 0.5 to 1.2 in 5 steps
       let knockbackMultiplier = 4; // 4, 6, 8, 10 in 3 steps
       
-      for (let i = 1; i <= enemyCount; i++) {
-        // Skip if ant is airborne (in the air, not just knocked back)
-        if (antAirHeight[i] > 0) continue;
-        
-        let distance = dist(playerX, playerY, antX[i], antY[i]);
-        if (distance <= maxRadius) {
-          // Deal damage
-          antHealth[i] -= windDamage;
+      for (let cell of nearbyCells) {
+        for (let i of cell.ants) {
+          // Skip if ant is airborne (in the air, not just knocked back)
+          if (antAirHeight[i] > 0) continue;
           
-          // Stun if damaged but not killed
-          if (antHealth[i] > 0) {
-            antStunned[i] = true;
-            antStunTimer[i] = 30;
-            antLastShotFrame[i] = frameCount; // Reset shooting cooldown
-            antRapidFireActive[i] = false; // Cancel rapid fire
-          }
-          
-          // Apply knockback
-          let angle = atan2(antY[i] - playerY, antX[i] - playerX);
-          let knockbackSpeed = movementSpeed * knockbackMultiplier / antSize[i];
-          antKnockbackVelX[i] = cos(angle) * knockbackSpeed;
-          antKnockbackVelY[i] = sin(angle) * knockbackSpeed;
-          antKnockedBack[i] = true;
-          antKnockbackTimer[i] = 60; // 1 second knockback
-          
-          // Check if ant dies
-          if (antHealth[i] <= 0) {
-            antLives[i]++;
-            comboTime = 60;
-            combo++;
-            calculateBonus();
-            streakPoints += comboPoints;
-            addScore(100 + comboPoints);
-            health++;
-            addDeathEffect(antX[i], antY[i], 100 + comboPoints);
-            antX[i] = random(0, getGameplayWidth());
-            antY[i] = random(scoreBarHeight + ANT_SPAWN_BUFFER, getGameplayHeight() - expBarHeight - expBarBuffer - ANT_SPAWN_BUFFER);
-            spawnX[i] = antX[i] + cos(angleFromSpawn[i]);
-            spawnY[i] = antY[i] + sin(angleFromSpawn[i]);
-            antHealth[i] = antMaxHealth[i];
-            antKnockedBack[i] = false;
-            antKnockbackTimer[i] = 0;
-            antStunned[i] = false;
-            antStunTimer[i] = 0;
-            antLastShotFrame[i] = 0;
-            antAlternatingCooldownState[i] = 0;
-            antRapidFireActive[i] = false;
-            antAirHeight[i] = 0;
+          let distance = dist(playerX, playerY, antX[i], antY[i]);
+          if (distance <= maxRadius) {
+            // Deal damage
+            antHealth[i] -= windDamage;
+            
+            // Stun if damaged but not killed
+            if (antHealth[i] > 0) {
+              antStunned[i] = true;
+              antStunTimer[i] = 30;
+              antLastShotFrame[i] = frameCount; // Reset shooting cooldown
+              antRapidFireActive[i] = false; // Cancel rapid fire
+            }
+            
+            // Apply knockback
+            let angle = atan2(antY[i] - playerY, antX[i] - playerX);
+            let knockbackSpeed = movementSpeed * knockbackMultiplier / antSize[i];
+            antKnockbackVelX[i] = cos(angle) * knockbackSpeed;
+            antKnockbackVelY[i] = sin(angle) * knockbackSpeed;
+            antKnockedBack[i] = true;
+            antKnockbackTimer[i] = 60; // 1 second knockback
+            
+            // Check if ant dies
+            if (antHealth[i] <= 0) {
+              antLives[i]++;
+              comboTime = 60;
+              combo++;
+              calculateBonus();
+              streakPoints += comboPoints;
+              addScore(100 + comboPoints);
+              health++;
+              addDeathEffect(antX[i], antY[i], 100 + comboPoints);
+              antX[i] = random(0, getGameplayWidth());
+              antY[i] = random(scoreBarHeight + ANT_SPAWN_BUFFER, getGameplayHeight() - expBarHeight - expBarBuffer - ANT_SPAWN_BUFFER);
+              spawnX[i] = antX[i] + cos(angleFromSpawn[i]);
+              spawnY[i] = antY[i] + sin(angleFromSpawn[i]);
+              antHealth[i] = antMaxHealth[i];
+              antKnockedBack[i] = false;
+              antKnockbackTimer[i] = 0;
+              antStunned[i] = false;
+              antStunTimer[i] = 0;
+              antLastShotFrame[i] = 0;
+              antAlternatingCooldownState[i] = 0;
+              antRapidFireActive[i] = false;
+              antAirHeight[i] = 0;
+            }
           }
         }
       }
