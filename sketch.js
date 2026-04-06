@@ -5,6 +5,10 @@ let tx;
 let ty;
 let start = false;
 let startMenu = false;
+let difficultyMenu = false;
+let difficultySelection = 0;
+let difficulty = 'easy'; // 'easy', 'medium', 'hard'
+let pendingGameMode = null; // stores whether we're starting single or multiplayer
 let antdex = false;
 let antdexReturnState = 'menu';
 let antdexOpenCooldown = 0;
@@ -16,6 +20,56 @@ let startMenuSelection = 0;
 let gameOverMenuSelection = 0;
 let intermissionMenuSelection = 0;
 let menuNavigationCooldown = 0;
+
+function getTokensPerFiveRounds() {
+  if (difficulty === 'medium') return 4;
+  if (difficulty === 'hard') return 5;
+  return 2; // easy
+}
+
+function getInitialTokensForDifficulty() {
+  return getTokensPerFiveRounds();
+}
+
+function applyHardModeRandomInitialAbility(antIndex) {
+  // Hard mode gets one extra initial token that is immediately spent on a random trait ability.
+  if (geneTokens[antIndex] <= 0) {
+    console.log(`Hard mode: Ant ${antIndex} had no extra token to spend`);
+    return;
+  }
+
+  const randomTraits = [
+    { target: 'specialExplosion', category: 'special', potential: 'specialPotential' },
+    { target: 'specialKnockback', category: 'special', potential: 'specialPotential' },
+    { target: 'fireBurst', category: 'fire', potential: 'firePotential' },
+    { target: 'fireRapid', category: 'fire', potential: 'firePotential' },
+    { target: 'fireAlternating', category: 'fire', potential: 'firePotential' },
+    { target: 'deathLandmine', category: 'death', potential: 'deathPotential' },
+    { target: 'pathHighArc', category: 'path', potential: 'pathPotential' },
+    { target: 'pathClockwise', category: 'path', potential: 'pathPotential' },
+    { target: 'pathHoming', category: 'path', potential: 'pathPotential' }
+  ];
+
+  const trait = random(randomTraits);
+
+  // Spend the dedicated 6th token.
+  geneTokens[antIndex]--;
+
+  // Ensure the category can express abilities.
+  eval(trait.potential + '[' + antIndex + '] = max(' + trait.potential + '[' + antIndex + '], 0.6)');
+  // Nudge the selected trait to win its category for expression.
+  eval(trait.target + '[' + antIndex + '] = max(' + trait.target + '[' + antIndex + '], 0.9)');
+
+  geneTokenInvestments[antIndex].push({
+    target: trait.target,
+    type: 'trait',
+    category: trait.category,
+    lockedUntilRound: 3,
+    percentage: 1
+  });
+
+  console.log(`Hard mode: Ant ${antIndex} 6th token spent on ${trait.target}`);
+}
 
 // Developer tools variables
 let devTools = false;
@@ -36,8 +90,8 @@ let devToolsUseCustomAnts = false; // whether to use custom ant stats in nextRou
 let customAntStats = [
   // 1st place ant (index 0)
   {
-    bulletSpeed: 180,
-    bulletCooldown: 120,
+    bulletSpeed: 260,
+    bulletCooldown: 160,
     antSpeed: 1.95,
     shotOffsetX: 0,
     shotOffsetY: 0,
@@ -46,10 +100,30 @@ let customAntStats = [
     followValue: 0,
     autonomy: 0,
     distanceFromAnchor: 200,
-    bulletSpecialType: 0,
+    // Special category (mutation-based)
+    specialExplosion: 0.2,
+    specialKnockback: 0.2,
+    specialPotential: 0.3,
     bulletExplosionTrigger: 0,
     bulletKnockbackMultiplier: 1,
-    bulletDeathType: 0,
+    // Fire category (mutation-based)
+    fireBurst: 0.1,
+    fireRapid: 0.1,
+    fireAlternating: 0.1,
+    firePotential: 0.3,
+    bulletBurstCount: 2,
+    bulletBurstSpread: 1.5,
+    bulletCooldownMultiplier: 2,
+    // Death category (mutation-based)
+    deathLandmine: 0.3,
+    deathPotential: 0.3,
+    // Path category (mutation-based)
+    pathHighArc: 0.1,
+    pathClockwise: 0.1,
+    pathHoming: 0.1,
+    pathPotential: 0.3,
+    bulletArcDuration: 200,
+    bulletCurveStrength: 0.015,
     explosionProximity: 200,
     angleFromSpawn: Math.PI,
     bulletSize: 1,
@@ -57,18 +131,15 @@ let customAntStats = [
     explosionResidueMultiplier: 1,
     bulletExplodeAfter: 800,
     antSize: 1,
-    bulletFireType: 0,
-    bulletPathType: 0,
-    bulletArcDuration: 200,
-    bulletCurveStrength: 0.015,
-    bulletBurstCount: 2,
-    bulletBurstSpread: 2.0944,
-    bulletCooldownMultiplier: 2
+    // Gene Token System
+    geneTokens: 2,
+    geneTokenInvestments: [],
+    geneTokenLastRoundGained: 0
   },
   // 2nd place ant (index 1)
   {
-    bulletSpeed: 180,
-    bulletCooldown: 120,
+    bulletSpeed: 260,
+    bulletCooldown: 160,
     antSpeed: 1.95,
     shotOffsetX: 0,
     shotOffsetY: 0,
@@ -77,10 +148,30 @@ let customAntStats = [
     followValue: 0,
     autonomy: 0,
     distanceFromAnchor: 200,
-    bulletSpecialType: 0,
+    // Special category (mutation-based)
+    specialExplosion: 0.2,
+    specialKnockback: 0.2,
+    specialPotential: 0.3,
     bulletExplosionTrigger: 0,
     bulletKnockbackMultiplier: 1,
-    bulletDeathType: 0,
+    // Fire category (mutation-based)
+    fireBurst: 0.1,
+    fireRapid: 0.1,
+    fireAlternating: 0.1,
+    firePotential: 0.3,
+    bulletBurstCount: 2,
+    bulletBurstSpread: 1.5,
+    bulletCooldownMultiplier: 2,
+    // Death category (mutation-based)
+    deathLandmine: 0.3,
+    deathPotential: 0.3,
+    // Path category (mutation-based)
+    pathHighArc: 0.1,
+    pathClockwise: 0.1,
+    pathHoming: 0.1,
+    pathPotential: 0.3,
+    bulletArcDuration: 200,
+    bulletCurveStrength: 0.015,
     explosionProximity: 200,
     angleFromSpawn: Math.PI,
     bulletSize: 1,
@@ -88,18 +179,15 @@ let customAntStats = [
     explosionResidueMultiplier: 1,
     bulletExplodeAfter: 800,
     antSize: 1,
-    bulletFireType: 0,
-    bulletPathType: 0,
-    bulletArcDuration: 200,
-    bulletCurveStrength: 0.015,
-    bulletBurstCount: 2,
-    bulletBurstSpread: 2.0944,
-    bulletCooldownMultiplier: 2
+    // Gene Token System
+    geneTokens: 2,
+    geneTokenInvestments: [],
+    geneTokenLastRoundGained: 0
   },
   // 3rd place ant (index 2)
   {
-    bulletSpeed: 180,
-    bulletCooldown: 120,
+    bulletSpeed: 260,
+    bulletCooldown: 160,
     antSpeed: 1.95,
     shotOffsetX: 0,
     shotOffsetY: 0,
@@ -108,10 +196,30 @@ let customAntStats = [
     followValue: 0,
     autonomy: 0,
     distanceFromAnchor: 200,
-    bulletSpecialType: 0,
+    // Special category (mutation-based)
+    specialExplosion: 0.2,
+    specialKnockback: 0.2,
+    specialPotential: 0.3,
     bulletExplosionTrigger: 0,
     bulletKnockbackMultiplier: 1,
-    bulletDeathType: 0,
+    // Fire category (mutation-based)
+    fireBurst: 0.1,
+    fireRapid: 0.1,
+    fireAlternating: 0.1,
+    firePotential: 0.3,
+    bulletBurstCount: 2,
+    bulletBurstSpread: 1.5,
+    bulletCooldownMultiplier: 2,
+    // Death category (mutation-based)
+    deathLandmine: 0.3,
+    deathPotential: 0.3,
+    // Path category (mutation-based)
+    pathHighArc: 0.1,
+    pathClockwise: 0.1,
+    pathHoming: 0.1,
+    pathPotential: 0.3,
+    bulletArcDuration: 200,
+    bulletCurveStrength: 0.015,
     explosionProximity: 200,
     angleFromSpawn: Math.PI,
     bulletSize: 1,
@@ -119,13 +227,10 @@ let customAntStats = [
     explosionResidueMultiplier: 1,
     bulletExplodeAfter: 800,
     antSize: 1,
-    bulletFireType: 0,
-    bulletPathType: 0,
-    bulletArcDuration: 200,
-    bulletCurveStrength: 0.015,
-    bulletBurstCount: 2,
-    bulletBurstSpread: 2.0944,
-    bulletCooldownMultiplier: 2
+    // Gene Token System
+    geneTokens: 2,
+    geneTokenInvestments: [],
+    geneTokenLastRoundGained: 0
   }
 ];
 
@@ -380,14 +485,19 @@ let followValue = [];
 let keepDistance = [];
 let followTarget = [];
 let autonomy = [];
-let bulletSpecialType = [];
+
+// Special category (mutation-based)
+let specialExplosion = [];
+let specialKnockback = [];
+let specialPotential = [];
 let bulletExplosionTrigger = [];
 let bulletKnockbackMultiplier = [];
-let bulletDeathType = [];
-let bulletFireType = [];
-let bulletPathType = [];
-let bulletArcDuration = [];
-let bulletCurveStrength = [];
+
+// Fire category (mutation-based)
+let fireBurst = [];
+let fireRapid = [];
+let fireAlternating = [];
+let firePotential = [];
 let bulletBurstCount = [];
 let bulletBurstSpread = [];
 let bulletCooldownMultiplier = [];
@@ -395,6 +505,19 @@ let antAlternatingCooldownState = []; // For alternating cooldown fire type: 0 =
 let antRapidFireActive = []; // Tracks if ant is currently in rapid fire sequence
 let antRapidFireCount = []; // How many bullets left to fire in rapid fire sequence
 let antRapidFireNextFrame = []; // Frame when next rapid fire bullet should spawn
+
+// Death category (mutation-based)
+let deathLandmine = [];
+let deathPotential = [];
+
+// Path category (mutation-based)
+let pathHighArc = [];
+let pathClockwise = [];
+let pathHoming = [];
+let pathPotential = [];
+let bulletArcDuration = [];
+let bulletCurveStrength = [];
+
 let explodeOnTermination = [];
 let triggerExplodeViaProximity = [];
 let explosionProximity = [];
@@ -424,6 +547,11 @@ let antMoveX = [];
 let antMoveY = [];
 let antPrevX = [];
 let antPrevY = [];
+
+// Gene Token System
+let geneTokens = []; // Number of available tokens per ant
+let geneTokenInvestments = []; // Array of objects tracking token investments per ant
+let geneTokenLastRoundGained = []; // Track when ant last gained tokens
 
 let bulletSplitCount = []; // NEW: how many pieces (1–5)
 let bulletSpread = [];     // NEW: spread angle in degrees (or radians)
@@ -582,11 +710,46 @@ function setup() {
   playerBulletX = playerX;
   playerBulletY = playerY;
   playerBulletRotationValue = playerRotationValue;
-  playerSpeed = movementSpeed / enemyCount;
+  playerSpeed = movementSpeed / totalAntSlots;
   let dashCooldown = 0;
 
-
-  for (let i = 1; i < enemyCount + 1; i++) {
+  // Use slot-based spawning system (like nextLevel)
+  let antIndex = 1;
+  let usedSlots = 0;
+  const MAX_ANTS = 500;  // Safety limit
+  
+  // Check if using custom ant size from dev tools or difficulty setting
+  let initialAntSize = 1;  // Default size
+  let initialFollowValue = 0;  // Default follow value
+  let initialAutonomy = 0;  // Default autonomy
+  
+  if (devToolsUseCustomAnts && customAntStats[0]) {
+    // Dev tools override
+    if (customAntStats[0].antSize) initialAntSize = customAntStats[0].antSize;
+    if (customAntStats[0].followValue !== undefined) initialFollowValue = customAntStats[0].followValue;
+    if (customAntStats[0].autonomy !== undefined) initialAutonomy = customAntStats[0].autonomy;
+    console.log(`Using custom ant stats for initial spawn`);
+  } else {
+    // Apply difficulty settings
+    if (difficulty === 'easy') {
+      initialAntSize = 1;
+      initialFollowValue = 0;
+      initialAutonomy = 0;
+    } else if (difficulty === 'medium') {
+      initialAntSize = 0.5;
+      initialFollowValue = 0;
+      initialAutonomy = 1;
+    } else if (difficulty === 'hard') {
+      initialAntSize = 0.33;
+      initialFollowValue = 0;
+      initialAutonomy = 1;
+    }
+    console.log(`Using difficulty ${difficulty}: size=${initialAntSize}, follow=${initialFollowValue}, autonomy=${initialAutonomy}`);
+  }
+  
+  while (usedSlots < totalAntSlots && antIndex <= MAX_ANTS) {
+    let i = antIndex;
+    
     //enemy one
       antX[i] = random(0, getGameplayWidth());
       antY[i] = random(scoreBarHeight + ANT_SPAWN_BUFFER, getGameplayHeight() - expBarHeight - expBarBuffer - ANT_SPAWN_BUFFER);
@@ -603,11 +766,20 @@ function setup() {
     bulletShot[i] = 0;
     //console.log(bulletShot[i]);
     enemyBullets[i] = [];
-    bulletSpeed[i] = 180; // Random speed for each enemy
-    bulletCooldown[i] = 120; // Random cooldown for each enemy
+    bulletSpeed[i] = 260; // Above first cap (250) for inverse stat
+    bulletCooldown[i] = 160; // Above first cap (150) for inverse stat
     antSpeed[i] = 1.95;
     bulletSize[i] = 1;
-    antSize[i] = 1;
+    antSize[i] = initialAntSize;  // Use custom size if dev tools enabled, otherwise 1
+    
+    // Cap ant speed based on ant size (small ants can be faster, large ants slower)
+    let maxAntSpeed = 4.5 - antSize[i];
+    antSpeed[i] = min(antSpeed[i], maxAntSpeed);
+    
+    // Cap bullet size based on ant size (small ants can't have huge bullets)
+    let maxBulletSize = min(3, antSize[i] + 1.0);
+    bulletSize[i] = min(bulletSize[i], maxBulletSize);
+    
     antMaxHealth[i] = antSize[i];
     antHealth[i] = antMaxHealth[i];
     antKnockedBack[i] = false;
@@ -626,18 +798,34 @@ function setup() {
     explosionResidueMultiplier[i] = 1;
     shotOffsetX[i] = 0;
     shotOffsetY[i] = 0;
-    followValue[i] = 0;
-    autonomy[i] = 0;
-    bulletSpecialType[i] = 0;
+    followValue[i] = initialFollowValue;
+    autonomy[i] = initialAutonomy;
+    // Special category (mutation-based)
+    specialExplosion[i] = 0.2;
+    specialKnockback[i] = 0.2;
+    specialPotential[i] = 0.3;
     bulletExplosionTrigger[i] = 0;
     bulletKnockbackMultiplier[i] = 1;
-    bulletDeathType[i] = 0;
-    bulletFireType[i] = 0;
-    bulletPathType[i] = 0;
+    // Fire category (mutation-based)
+    fireBurst[i] = 0.1;
+    fireRapid[i] = 0.1;
+    fireAlternating[i] = 0.1;
+    firePotential[i] = 0.3;
+    bulletBurstCount[i] = 2;
+    bulletBurstSpread[i] = 1.5; // Below first cap (2.0)
+    bulletCooldownMultiplier[i] = 2;
+    // Death category (mutation-based)
+    deathLandmine[i] = 0.3;
+    deathPotential[i] = 0.3;
+    // Path category (mutation-based)
+    pathHighArc[i] = 0.1;
+    pathClockwise[i] = 0.1;
+    pathHoming[i] = 0.1;
+    pathPotential[i] = 0.3;
     bulletArcDuration[i] = 200;
     bulletCurveStrength[i] = 0.015;
     bulletBurstCount[i] = 2;
-    bulletBurstSpread[i] = 2.0944;
+    bulletBurstSpread[i] = 1.5; // Below first cap (2.0)
     bulletCooldownMultiplier[i] = 2;
     antAlternatingCooldownState[i] = 0; // Start with fast cooldown
     antRapidFireActive[i] = false;
@@ -645,8 +833,13 @@ function setup() {
     antRapidFireNextFrame[i] = 0;
     explosionProximity[i] = 200;
     
+    // Gene Token System
+    geneTokens[i] = getInitialTokensForDifficulty();
+    geneTokenInvestments[i] = []; // Empty array to track investments
+    geneTokenLastRoundGained[i] = 0; // Track last round tokens were gained
+    
     // Set explosion flags based on genetics
-    const specialType = Math.round(bulletSpecialType[i]);
+    const specialType = getSpecialType(i);
     if (specialType === 0){
       // No special bullet behavior
       explodeOnTermination[i] = false;
@@ -702,6 +895,44 @@ function setup() {
     }
     antPoints[i] = 0;
     antLives[i] = 1;
+    
+    // Check if this ant will fit in remaining slots
+    const SLOT_EPSILON = 0.001;
+    if (usedSlots + antSize[i] > totalAntSlots + SLOT_EPSILON) {
+      console.log(`  Initial ant ${i} (size ${antSize[i].toFixed(2)}) won't fit in remaining slots (${(totalAntSlots - usedSlots).toFixed(2)}), stopping`);
+      break;  // Exit loop, we're done spawning
+    }
+    
+    console.log(`Initial ant ${i} created: size=${antSize[i].toFixed(2)}, used slots=${(usedSlots + antSize[i]).toFixed(2)}/${totalAntSlots}`);
+    
+    // Track slot usage and increment counter
+    usedSlots += antSize[i];
+    antIndex++;
+  }
+  
+  // Set enemyCount to actual number of ants created
+  enemyCount = antIndex - 1;
+  playerSpeed = movementSpeed / enemyCount;
+  console.log(`Initial setup: Created ${enemyCount} ants using ${usedSlots.toFixed(2)}/${totalAntSlots} slots`);
+  
+  // Invest initial gene tokens for all ants
+  for (let i = 1; i <= enemyCount; i++) {
+    let investmentAttempts = 0;
+    const maxAttempts = 10; // Prevent infinite loops
+    while (geneTokens[i] > 0 && investmentAttempts < maxAttempts) {
+      let tokensBefore = geneTokens[i];
+      evaluateAndAllocateTokens(i, 0, true); // Round 0 for initial setup, isInitialSetup = true
+      if (geneTokens[i] === tokensBefore) {
+        // No investment made, break to avoid infinite loop
+        break;
+      }
+      investmentAttempts++;
+    }
+
+    if (difficulty === 'hard') {
+      geneTokens[i]++; // Dedicated 6th token for random initial ability
+      applyHardModeRandomInitialAbility(i);
+    }
   }
   
   // Apply custom ant stats if enabled in dev tools
@@ -1088,6 +1319,8 @@ function restartGame() {
   // Apply custom ant stats if enabled in dev tools
   if (devToolsUseCustomAnts) {
     applyCustomAntsToInitialPopulation();
+  } else {
+    applyDifficultyToInitialPopulation();
   }
   
   start = true;
@@ -1101,12 +1334,75 @@ function restartGame() {
 
 function applyCustomAntsToInitialPopulation() {
   console.log("Applying custom ant stats to initial population");
-  console.log("Enemy count:", enemyCount);
+  console.log("Current enemy count:", enemyCount);
   
-  // Use first place ant stats for all initial ants (level 1 has only 1 ant)
+  // Use first place ant stats for all initial ants
   let s = customAntStats[0];
   console.log("Custom ant stats:", s);
   
+  // Check if we need to respawn ants due to size change
+  let customSize = s.antSize || 1;
+  let neededAnts = 0;
+  let tempSlots = 0;
+  
+  // Calculate how many ants we need with this size
+  while (tempSlots < totalAntSlots && neededAnts < 500) {
+    if (tempSlots + customSize > totalAntSlots + 0.001) break;
+    tempSlots += customSize;
+    neededAnts++;
+  }
+  
+  console.log(`With size ${customSize}, need ${neededAnts} ants (current: ${enemyCount})`);
+  
+  // If count changed, we need to respawn
+  if (neededAnts !== enemyCount) {
+    console.log(`Respawning population: ${enemyCount} -> ${neededAnts} ants`);
+    
+    // Clear existing ants beyond the new count
+    if (neededAnts < enemyCount) {
+      for (let i = neededAnts + 1; i <= enemyCount; i++) {
+        enemyBullets[i] = [];
+      }
+    }
+    
+    // Initialize new ants if we need more
+    if (neededAnts > enemyCount) {
+      for (let i = enemyCount + 1; i <= neededAnts; i++) {
+        antX[i] = random(0, getGameplayWidth());
+        antY[i] = random(scoreBarHeight + ANT_SPAWN_BUFFER, getGameplayHeight() - expBarHeight - expBarBuffer - ANT_SPAWN_BUFFER);
+        spawnX[i] = antX[i] + cos(angleFromSpawn[i]);
+        spawnY[i] = antY[i] + sin(angleFromSpawn[i]);
+        antPrevX[i] = antX[i];
+        antPrevY[i] = antY[i];
+        strikeX[i] = 0;
+        strikeY[i] = 0;
+        strikeTime1[i] = 0;
+        drawStrike1[i] = 1;
+        bulletShot[i] = 0;
+        enemyBullets[i] = [];
+        antKnockedBack[i] = false;
+        antKnockbackTimer[i] = 0;
+        antKnockbackVelX[i] = 0;
+        antKnockbackVelY[i] = 0;
+        antStunned[i] = false;
+        antStunTimer[i] = 0;
+        antLastShotFrame[i] = 0;
+        antAlternatingCooldownState[i] = 0;
+        antAirHeight[i] = 0;
+        antPoints[i] = 0;
+        antLives[i] = 1;
+        geneTokens[i] = 2;
+        geneTokenInvestments[i] = [];
+        geneTokenLastRoundGained[i] = 0;
+      }
+    }
+    
+    enemyCount = neededAnts;
+    playerSpeed = movementSpeed / enemyCount;
+    console.log(`New enemy count: ${enemyCount}`);
+  }
+  
+  // Now apply custom stats to all ants
   for (let i = 1; i <= enemyCount; i++) {
     console.log(`Setting ant ${i} to custom stats`);
     bulletSpeed[i] = s.bulletSpeed;
@@ -1119,17 +1415,30 @@ function applyCustomAntsToInitialPopulation() {
     followValue[i] = s.followValue;
     autonomy[i] = s.autonomy;
     distanceFromAnchor[i] = s.distanceFromAnchor;
-    bulletSpecialType[i] = s.bulletSpecialType;
+    // Special category (mutation-based)
+    specialExplosion[i] = s.specialExplosion;
+    specialKnockback[i] = s.specialKnockback;
+    specialPotential[i] = s.specialPotential;
     bulletExplosionTrigger[i] = s.bulletExplosionTrigger;
     bulletKnockbackMultiplier[i] = s.bulletKnockbackMultiplier;
-    bulletDeathType[i] = s.bulletDeathType;
-    bulletFireType[i] = s.bulletFireType;
-    bulletPathType[i] = s.bulletPathType;
-    bulletArcDuration[i] = s.bulletArcDuration;
-    bulletCurveStrength[i] = s.bulletCurveStrength;
+    // Fire category (mutation-based)
+    fireBurst[i] = s.fireBurst;
+    fireRapid[i] = s.fireRapid;
+    fireAlternating[i] = s.fireAlternating;
+    firePotential[i] = s.firePotential;
     bulletBurstCount[i] = s.bulletBurstCount;
     bulletBurstSpread[i] = s.bulletBurstSpread;
     bulletCooldownMultiplier[i] = s.bulletCooldownMultiplier;
+    // Death category (mutation-based)
+    deathLandmine[i] = s.deathLandmine;
+    deathPotential[i] = s.deathPotential;
+    // Path category (mutation-based)
+    pathHighArc[i] = s.pathHighArc;
+    pathClockwise[i] = s.pathClockwise;
+    pathHoming[i] = s.pathHoming;
+    pathPotential[i] = s.pathPotential;
+    bulletArcDuration[i] = s.bulletArcDuration;
+    bulletCurveStrength[i] = s.bulletCurveStrength;
     explosionProximity[i] = s.explosionProximity;
     angleFromSpawn[i] = s.angleFromSpawn;
     bulletSize[i] = s.bulletSize;
@@ -1158,7 +1467,7 @@ function applyCustomAntsToInitialPopulation() {
       keepDistance[i] = true;
     }
     // Set explosion flags based on genetics
-    const specialType = Math.round(bulletSpecialType[i]);
+    const specialType = getSpecialType(i);
     if (specialType === 0){
       // No special bullet behavior
       explodeOnTermination[i] = false;
@@ -1207,6 +1516,168 @@ function applyCustomAntsToInitialPopulation() {
   console.log("Custom ant stats applied successfully to all ants");
 }
 
+function applyDifficultyToInitialPopulation() {
+  if (devToolsUseCustomAnts) return;
+
+  let sizeValue = 1;
+  let followValueSetting = 0;
+  let autonomySetting = 0;
+
+  if (difficulty === 'medium') {
+    sizeValue = 0.5;
+    followValueSetting = 0;
+    autonomySetting = 1;
+  } else if (difficulty === 'hard') {
+    sizeValue = 0.33;
+    followValueSetting = 0;
+    autonomySetting = 1;
+  }
+
+  let neededAnts = 0;
+  let usedSlots = 0;
+  while (neededAnts < 500) {
+    if (usedSlots + sizeValue > totalAntSlots + 0.001) break;
+    usedSlots += sizeValue;
+    neededAnts++;
+  }
+
+  if (neededAnts < 1) neededAnts = 1;
+
+  if (neededAnts > enemyCount) {
+    for (let i = enemyCount + 1; i <= neededAnts; i++) {
+      antX[i] = random(0, getGameplayWidth());
+      antY[i] = random(scoreBarHeight + ANT_SPAWN_BUFFER, getGameplayHeight() - expBarHeight - expBarBuffer - ANT_SPAWN_BUFFER);
+      antPrevX[i] = antX[i];
+      antPrevY[i] = antY[i];
+      enemyBullets[i] = [];
+      antPoints[i] = 0;
+      antLives[i] = 1;
+    }
+  }
+
+  enemyCount = neededAnts;
+  playerSpeed = movementSpeed / enemyCount;
+
+  for (let i = 1; i <= enemyCount; i++) {
+    // Ensure all core stats exist for ants created by difficulty expansion.
+    if (bulletSpeed[i] === undefined) bulletSpeed[i] = 260;
+    if (bulletCooldown[i] === undefined) bulletCooldown[i] = 160;
+    if (antSpeed[i] === undefined) antSpeed[i] = 1.95;
+    if (bulletSize[i] === undefined) bulletSize[i] = 1;
+    if (shotOffsetX[i] === undefined) shotOffsetX[i] = 0;
+    if (shotOffsetY[i] === undefined) shotOffsetY[i] = 0;
+    if (standingPointX[i] === undefined) standingPointX[i] = width / 2;
+    if (standingPointY[i] === undefined) standingPointY[i] = height / 2;
+    if (distanceFromAnchor[i] === undefined) distanceFromAnchor[i] = 200;
+    if (angleFromSpawn[i] === undefined) angleFromSpawn[i] = PI;
+    if (enemyBullets[i] === undefined) enemyBullets[i] = [];
+    if (antPoints[i] === undefined) antPoints[i] = 0;
+    if (antLives[i] === undefined) antLives[i] = 1;
+    if (antKnockedBack[i] === undefined) antKnockedBack[i] = false;
+    if (antKnockbackTimer[i] === undefined) antKnockbackTimer[i] = 0;
+    if (antKnockbackVelX[i] === undefined) antKnockbackVelX[i] = 0;
+    if (antKnockbackVelY[i] === undefined) antKnockbackVelY[i] = 0;
+    if (antStunned[i] === undefined) antStunned[i] = false;
+    if (antStunTimer[i] === undefined) antStunTimer[i] = 0;
+    if (antLastShotFrame[i] === undefined) antLastShotFrame[i] = 0;
+    if (antAlternatingCooldownState[i] === undefined) antAlternatingCooldownState[i] = 0;
+    if (antRapidFireActive[i] === undefined) antRapidFireActive[i] = false;
+    if (antAirHeight[i] === undefined) antAirHeight[i] = 0;
+    if (bulletExplosionTrigger[i] === undefined) bulletExplosionTrigger[i] = 0;
+    if (explosionProximity[i] === undefined) explosionProximity[i] = 200;
+    if (bulletExplodeAfter[i] === undefined) bulletExplodeAfter[i] = 800;
+    if (bulletBurstCount[i] === undefined) bulletBurstCount[i] = 2;
+    if (bulletBurstSpread[i] === undefined) bulletBurstSpread[i] = 1.5;
+    if (bulletCooldownMultiplier[i] === undefined) bulletCooldownMultiplier[i] = 2;
+    if (bulletArcDuration[i] === undefined) bulletArcDuration[i] = 200;
+    if (bulletCurveStrength[i] === undefined) bulletCurveStrength[i] = 0.015;
+    if (specialExplosion[i] === undefined) specialExplosion[i] = 0.2;
+    if (specialKnockback[i] === undefined) specialKnockback[i] = 0.2;
+    if (specialPotential[i] === undefined) specialPotential[i] = 0.3;
+    if (fireBurst[i] === undefined) fireBurst[i] = 0.1;
+    if (fireRapid[i] === undefined) fireRapid[i] = 0.1;
+    if (fireAlternating[i] === undefined) fireAlternating[i] = 0.1;
+    if (firePotential[i] === undefined) firePotential[i] = 0.3;
+    if (deathLandmine[i] === undefined) deathLandmine[i] = 0.3;
+    if (deathPotential[i] === undefined) deathPotential[i] = 0.3;
+    if (pathHighArc[i] === undefined) pathHighArc[i] = 0.1;
+    if (pathClockwise[i] === undefined) pathClockwise[i] = 0.1;
+    if (pathHoming[i] === undefined) pathHoming[i] = 0.1;
+    if (pathPotential[i] === undefined) pathPotential[i] = 0.3;
+    if (bulletKnockbackMultiplier[i] === undefined) bulletKnockbackMultiplier[i] = 1;
+    if (explosionRadiusMultiplier[i] === undefined) explosionRadiusMultiplier[i] = 1;
+    if (explosionResidueMultiplier[i] === undefined) explosionResidueMultiplier[i] = 1;
+    if (bulletSpread[i] === undefined) bulletSpread[i] = 0;
+    if (bulletSplitCount[i] === undefined) bulletSplitCount[i] = 1;
+    if (antRapidFireCount[i] === undefined) antRapidFireCount[i] = 0;
+    if (antRapidFireNextFrame[i] === undefined) antRapidFireNextFrame[i] = 0;
+
+    antSize[i] = sizeValue;
+    followValue[i] = followValueSetting;
+    autonomy[i] = autonomySetting;
+
+    let maxAntSpeed = 4.5 - antSize[i];
+    antSpeed[i] = min(antSpeed[i], maxAntSpeed);
+    let maxBulletSize = min(3, antSize[i] + 1.0);
+    bulletSize[i] = min(bulletSize[i], maxBulletSize);
+
+    antMaxHealth[i] = antSize[i];
+    antHealth[i] = antMaxHealth[i];
+
+    if (Math.round(autonomy[i]) === 0){
+      followTarget[i] = true;
+      keepDistance[i] = false;
+    } else if (Math.round(autonomy[i]) === 1){
+      followTarget[i] = false;
+      keepDistance[i] = true;
+    }
+
+    if (Math.round(followValue[i]) === 0){
+      followAnt[i] = false;
+      followBeetle[i] = true;
+      findLocation[i] = false;
+      standStill[i] = false;
+    } else if (Math.round(followValue[i]) === 1) {
+      followAnt[i] = true;
+      followBeetle[i] = false;
+      findLocation[i] = false;
+      standStill[i] = false;
+    } else if (Math.round(followValue[i]) === 2) {
+      followAnt[i] = false;
+      followBeetle[i] = false;
+      findLocation[i] = true;
+      standStill[i] = false;
+    } else if (Math.round(followValue[i]) === 3) {
+      followAnt[i] = false;
+      followBeetle[i] = false;
+      findLocation[i] = false;
+      standStill[i] = true;
+    }
+
+    geneTokens[i] = getInitialTokensForDifficulty();
+    geneTokenInvestments[i] = [];
+    geneTokenLastRoundGained[i] = 0;
+  }
+
+  for (let i = 1; i <= enemyCount; i++) {
+    let investmentAttempts = 0;
+    const maxAttempts = 10;
+    while (geneTokens[i] > 0 && investmentAttempts < maxAttempts) {
+      let tokensBefore = geneTokens[i];
+      evaluateAndAllocateTokens(i, 0, true);
+      if (geneTokens[i] === tokensBefore) break;
+      investmentAttempts++;
+    }
+
+    if (difficulty === 'hard') {
+      geneTokens[i]++; // Dedicated 6th token for random initial ability
+      applyHardModeRandomInitialAbility(i);
+    }
+  }
+
+  console.log(`Applied ${difficulty} difficulty: ${enemyCount} ants, size=${sizeValue}, follow=${followValueSetting}, autonomy=${autonomySetting}`);
+}
+
 function syncActualWinnersToCustomStats(topAnts) {
   // Update customAntStats to reflect the actual top 3 performing ants
   // This allows users to see what the winners looked like in dev tools
@@ -1224,21 +1695,41 @@ function syncActualWinnersToCustomStats(topAnts) {
         followValue: followValue[antId],
         autonomy: autonomy[antId],
         distanceFromAnchor: distanceFromAnchor[antId],
-        bulletSpecialType: bulletSpecialType[antId],
+        // Special category (mutation-based)
+        specialExplosion: specialExplosion[antId],
+        specialKnockback: specialKnockback[antId],
+        specialPotential: specialPotential[antId],
         bulletExplosionTrigger: bulletExplosionTrigger[antId],
         bulletKnockbackMultiplier: bulletKnockbackMultiplier[antId],
-        bulletDeathType: bulletDeathType[antId],
-        bulletFireType: bulletFireType[antId],
+        // Fire category (mutation-based)
+        fireBurst: fireBurst[antId],
+        fireRapid: fireRapid[antId],
+        fireAlternating: fireAlternating[antId],
+        firePotential: firePotential[antId],
         bulletBurstCount: bulletBurstCount[antId],
         bulletBurstSpread: bulletBurstSpread[antId],
         bulletCooldownMultiplier: bulletCooldownMultiplier[antId],
+        // Death category (mutation-based)
+        deathLandmine: deathLandmine[antId],
+        deathPotential: deathPotential[antId],
+        // Path category (mutation-based)
+        pathHighArc: pathHighArc[antId],
+        pathClockwise: pathClockwise[antId],
+        pathHoming: pathHoming[antId],
+        pathPotential: pathPotential[antId],
+        bulletArcDuration: bulletArcDuration[antId],
+        bulletCurveStrength: bulletCurveStrength[antId],
         explosionProximity: explosionProximity[antId],
         angleFromSpawn: angleFromSpawn[antId],
         bulletSize: bulletSize[antId],
         explosionRadiusMultiplier: explosionRadiusMultiplier[antId],
         explosionResidueMultiplier: explosionResidueMultiplier[antId],
         bulletExplodeAfter: bulletExplodeAfter[antId],
-        antSize: antSize[antId]
+        antSize: antSize[antId],
+        // Gene Token System
+        geneTokens: geneTokens[antId],
+        geneTokenInvestments: JSON.parse(JSON.stringify(geneTokenInvestments[antId] || [])), // Deep copy
+        geneTokenLastRoundGained: geneTokenLastRoundGained[antId]
       };
     }
   }
@@ -1250,6 +1741,8 @@ function returnToMainMenu() {
   antdex = false;
   start = false;
   startMenu = true;
+  difficultyMenu = false;
+  pendingGameMode = null;
   antdexReturnState = 'menu';
   endmusic.stop();
   gamemusic.stop();
@@ -2098,7 +2591,7 @@ function enemyShoot1() {
     for (let i = 1; i < enemyCount + 1; i++) {
       // Check if ant is in rapid fire sequence and ready to fire next bullet
       if (antRapidFireActive[i] && frameCount >= antRapidFireNextFrame[i]) {
-        const fireType = Math.round(bulletFireType[i]);
+        const fireType = getFireType(i);
         const bulletsToFire = Math.round(bulletBurstCount[i]);
         const sizeDivisor = 1 + (bulletsToFire - 1) / 4;
         const actualBulletSize = bulletSize[i] / sizeDivisor;
@@ -2113,7 +2606,7 @@ function enemyShoot1() {
                                  (playerX + shotOffsetX[i]) - antX[i]);
         
         // Adjust velocity for high arc bullets to land at target
-        const pathType = Math.round(bulletPathType[i]);
+        const pathType = getPathType(i);
         let targetX = playerX + shotOffsetX[i];
         let targetY = playerY + shotOffsetY[i];
         if (pathType === 1) {
@@ -2136,12 +2629,12 @@ function enemyShoot1() {
           maxLife: actualBulletSpeed * 100,
           size: actualBulletSize,
           trueSpeed: actualBulletSpeed,
-          knockbackBullet: (Math.round(bulletSpecialType[i]) === -1),
+          knockbackBullet: (getSpecialType(i) === -1),
           knockbackMultiplier: bulletKnockbackMultiplier[i],
           delayFrames: 0,
           airHeight: 0,
           airProgress: 0,
-          pathType: Math.round(bulletPathType[i]),
+          pathType: getPathType(i),
           arcDuration: bulletArcDuration[i],
           curveStrength: bulletCurveStrength[i],
           targetX: playerX + shotOffsetX[i],
@@ -2164,7 +2657,7 @@ function enemyShoot1() {
       if (!antStunned[i]) {
         // Determine cooldown based on fire type
         let currentCooldown = bulletCooldown[i];
-        const fireType = Math.round(bulletFireType[i]);
+        const fireType = getFireType(i);
         
         // Type -1: Alternating cooldown
         if (fireType === -1) {
@@ -2221,7 +2714,7 @@ function enemyShoot1() {
             let actualBulletSpeed = Math.sqrt(rapidVx * rapidVx + rapidVy * rapidVy);
             
             // Adjust velocity for high arc bullets to land at target
-            const pathType = Math.round(bulletPathType[i]);
+            const pathType = getPathType(i);
             let targetX = playerX + shotOffsetX[i];
             let targetY = playerY + shotOffsetY[i];
             if (pathType === 1) {
@@ -2245,12 +2738,12 @@ function enemyShoot1() {
               maxLife: actualBulletSpeed * 100,
               size: actualBulletSize,
               trueSpeed: actualBulletSpeed,
-              knockbackBullet: (Math.round(bulletSpecialType[i]) === -1),
+              knockbackBullet: (getSpecialType(i) === -1),
               knockbackMultiplier: bulletKnockbackMultiplier[i],
               delayFrames: 0,
               airHeight: 0,
               airProgress: 0,
-              pathType: Math.round(bulletPathType[i]),
+              pathType: getPathType(i),
               arcDuration: bulletArcDuration[i],
               curveStrength: bulletCurveStrength[i],
               targetX: playerX + shotOffsetX[i],
@@ -2313,7 +2806,7 @@ function enemyShoot1() {
               }
 
               // Adjust velocity for high arc bullets to land at target
-              const pathType = Math.round(bulletPathType[i]);
+              const pathType = getPathType(i);
               let targetX = playerX + shotOffsetX[i];
               let targetY = playerY + shotOffsetY[i];
               if (pathType === 1) {
@@ -2336,12 +2829,12 @@ function enemyShoot1() {
                 maxLife: actualBulletSpeed * 100,
                 size: actualBulletSize,
                 trueSpeed: actualBulletSpeed,
-                knockbackBullet: (Math.round(bulletSpecialType[i]) === -1),
+                knockbackBullet: (getSpecialType(i) === -1),
                 knockbackMultiplier: bulletKnockbackMultiplier[i],
                 delayFrames: 0,
                 airHeight: 0,
                 airProgress: 0,
-                pathType: Math.round(bulletPathType[i]),
+                pathType: getPathType(i),
                 arcDuration: bulletArcDuration[i],
                 curveStrength: bulletCurveStrength[i],
                 targetX: playerX + shotOffsetX[i],
@@ -2473,7 +2966,7 @@ function enemyShoot1() {
         const FADE_DURATION = 30; // Frames to fade out
         if (bullet.pathType !== 1 && bullet.life > bullet.maxLife + FADE_DURATION) {
           // Check bullet death type
-          if (Math.round(bulletDeathType[i]) === 1) {
+          if (getDeathType(i) === 1) {
             // Type 1: Convert to land mine
             landMines.push({
               x: bullet.x,
@@ -2598,7 +3091,7 @@ function enemyShoot1() {
           handlePlayerHit(i, isKnockbackBullet, bullet.x, bullet.y, knockbackMult, bulletSpeed, false, bullet.size);
         } else if (bullet.pathType === 1 && bullet.airProgress >= 1 && bullet.airHeight <= 1) {
           // High arc bullet has landed without hitting player - trigger death effect
-          const deathType = Math.round(bulletDeathType[bullet.owner]);
+          const deathType = getDeathType(bullet.owner);
           if (deathType === 1) {
             // Convert to land mine
             landMines.push({
@@ -3578,6 +4071,519 @@ function getNearestAnt(index) {
     }
   }
   return nearestIndex; // index of the nearest ant
+}
+
+// Helper functions to determine winning trait based on mutation stats
+function getSpecialType(antIndex) {
+  // If potential <= 0.5, return default (none)
+  if (specialPotential[antIndex] <= 0.5) {
+    return 0; // None (default)
+  }
+  // Check if ant has invested a token in the special category
+  const hasInvestment = (geneTokenInvestments[antIndex] || []).some(
+    inv => inv.type === 'trait' && inv.category === 'special'
+  );
+  if (!hasInvestment) {
+    return 0; // None (no token invested)
+  }
+  // Find the highest value among the non-default options
+  let maxVal = Math.max(
+    specialExplosion[antIndex],
+    specialKnockback[antIndex]
+  );
+  if (specialExplosion[antIndex] === maxVal) return 1; // Explosion
+  if (specialKnockback[antIndex] === maxVal) return -1; // Knockback
+  return 0; // None (fallback)
+}
+
+function getFireType(antIndex) {
+  // If potential <= 0.5, return default (normal)
+  if (firePotential[antIndex] <= 0.5) {
+    return 0; // Normal (default)
+  }
+  // Check if ant has invested a token in the fire category
+  const hasInvestment = (geneTokenInvestments[antIndex] || []).some(
+    inv => inv.type === 'trait' && inv.category === 'fire'
+  );
+  if (!hasInvestment) {
+    return 0; // Normal (no token invested)
+  }
+  // Find the highest value among the non-default options
+  let maxVal = Math.max(
+    fireBurst[antIndex],
+    fireRapid[antIndex],
+    fireAlternating[antIndex]
+  );
+  if (fireBurst[antIndex] === maxVal) return 1; // Burst
+  if (fireRapid[antIndex] === maxVal) return 2; // Rapid
+  if (fireAlternating[antIndex] === maxVal) return -1; // Alternating
+  return 0; // Normal (fallback)
+}
+
+function getDeathType(antIndex) {
+  // If potential <= 0.5, return default (fading)
+  if (deathPotential[antIndex] <= 0.5) {
+    return 0; // Fading (default)
+  }
+  // Check if ant has invested a token in the death category
+  const hasInvestment = (geneTokenInvestments[antIndex] || []).some(
+    inv => inv.type === 'trait' && inv.category === 'death'
+  );
+  if (!hasInvestment) {
+    return 0; // Fading (no token invested)
+  }
+  // Only one non-default option
+  if (deathLandmine[antIndex] > 0) return 1; // Landmine
+  return 0; // Fading (fallback)
+}
+
+function getPathType(antIndex) {
+  // If potential <= 0.5, return default (straight)
+  if (pathPotential[antIndex] <= 0.5) {
+    return 0; // Straight (default)
+  }
+  // Check if ant has invested a token in the path category
+  const hasInvestment = (geneTokenInvestments[antIndex] || []).some(
+    inv => inv.type === 'trait' && inv.category === 'path'
+  );
+  if (!hasInvestment) {
+    return 0; // Straight (no token invested)
+  }
+  // Find the highest value among the non-default options
+  let maxVal = Math.max(
+    pathHighArc[antIndex],
+    pathClockwise[antIndex],
+    pathHoming[antIndex]
+  );
+  if (pathHighArc[antIndex] === maxVal) return 1; // High Arc
+  if (pathClockwise[antIndex] === maxVal) return -1; // Clockwise
+  if (pathHoming[antIndex] === maxVal) return -2; // Homing
+  return 0; // Straight (fallback)
+}
+
+// ========== GENE TOKEN SYSTEM ==========
+
+function grantTokensForRound(roundNumber) {
+  // Grant tokens every 5 rounds using the current difficulty.
+  if (roundNumber > 0 && roundNumber % 5 === 0) {
+    const tokensToGrant = getTokensPerFiveRounds();
+    
+    for (let i = 1; i < enemyCount + 1; i++) {
+      if (geneTokenLastRoundGained[i] < roundNumber) {
+        geneTokens[i] += tokensToGrant;
+        geneTokenLastRoundGained[i] = roundNumber;
+        console.log(`Ant ${i} gained ${tokensToGrant} gene tokens (now has ${geneTokens[i]})`);
+        
+        // Immediately invest all tokens
+        let investmentAttempts = 0;
+        const maxAttempts = 10; // Prevent infinite loops
+        while (geneTokens[i] > 0 && investmentAttempts < maxAttempts) {
+          let tokensBefore = geneTokens[i];
+          evaluateAndAllocateTokens(i, roundNumber, false); // Not initial setup
+          if (geneTokens[i] === tokensBefore) {
+            // No investment made, break to avoid infinite loop
+            break;
+          }
+          investmentAttempts++;
+        }
+      }
+    }
+  }
+}
+
+function evaluateAndAllocateTokens(antIndex, currentRound, isInitialSetup = false) {
+  // Only allocate if there are free tokens
+  if (geneTokens[antIndex] <= 0) return;
+  
+  let bestCandidate = null;
+  let bestPercentage = 0;
+  
+  // Define stat cap tiers (multiple caps that unlock progressively)
+  // Format: { caps: [tier1, tier2, tier3...], inverse: boolean }
+  // inverse: true means stat improves as it DECREASES (approach from top to bottom)
+  const statCapTiers = {
+    // Inverse stats (lower is better, unlock downward from starting max)
+    bulletSpeed: { caps: [250, 200, 150, 120, 90], inverse: true, start: 300 },
+    bulletCooldown: { caps: [150, 120, 100, 90, 79], inverse: true, start: 200 },
+    
+    // Normal stats (higher is better, unlock upward from starting min)
+    antSpeed: { caps: [2, 2.5, 3, 3.5], inverse: false },
+    
+    // Special category supporting stats
+    bulletExplosionTrigger: { caps: [0.5, 1.0, 1.5], inverse: false },
+    bulletKnockbackMultiplier: { caps: [2, 3, 4, 5], inverse: false },
+    
+    // Fire category supporting stats
+    bulletBurstCount: { caps: [3, 4, 5, 5.5], inverse: false },
+    bulletBurstSpread: { caps: [2.0, 2.5, 3.0, 3.14], inverse: false },
+    bulletCooldownMultiplier: { caps: [3, 4, 5, 5.5], inverse: false },
+    
+    // Path category supporting stats
+    bulletArcDuration: { caps: [300, 400, 500, 600], inverse: false },
+    bulletCurveStrength: { caps: [0.05, 0.075, 0.1], inverse: false },
+    
+    // Explosion stats
+    explosionProximity: { caps: [400, 600, 800, 1000], inverse: false },
+    bulletSize: { caps: [1.5, 2.0, 2.5, 3.0], inverse: false },
+    explosionRadiusMultiplier: { caps: [1.5, 2.0, 2.5, 3.0], inverse: false },
+    explosionResidueMultiplier: { caps: [1.5, 2.0, 2.5, 3.0], inverse: false },
+    bulletExplodeAfter: { caps: [600, 500, 400, 200, 100], inverse: true, start: 800 },
+    
+    // Ant size
+    antSize: { caps: [1.5, 2.0, 2.5, 3.0], inverse: false }
+  };
+  
+  // Helper function to check if a stat is currently expressed (useful/active)
+  function isStatExpressed(statName) {
+    // Get current trait types
+    const specialType = getSpecialType(antIndex);
+    const fireType = getFireType(antIndex);
+    const pathType = getPathType(antIndex);
+    
+    // Always expressed stats
+    if (['bulletSpeed', 'bulletCooldown', 'antSpeed', 'bulletSize'].includes(statName)) {
+      return true;
+    }
+    
+    // Special category stats
+    if (statName === 'bulletExplosionTrigger' && specialType === 1) return true; // Explosion
+    if (statName === 'bulletKnockbackMultiplier' && specialType === -1) return true; // Knockback
+    if (statName === 'explosionProximity' && specialType === 1) return true; // Explosion
+    if (statName === 'explosionRadiusMultiplier' && specialType === 1) return true; // Explosion
+    if (statName === 'explosionResidueMultiplier' && specialType === 1) return true; // Explosion
+    if (statName === 'bulletExplodeAfter' && specialType === 1) return true; // Explosion
+    
+    // Fire category stats
+    if (statName === 'bulletBurstCount' && fireType === 1) return true; // Burst
+    if (statName === 'bulletBurstSpread' && fireType === 1) return true; // Burst
+    if (statName === 'bulletCooldownMultiplier' && fireType === -1) return true; // Alternating
+    
+    // Path category stats
+    if (statName === 'bulletArcDuration' && pathType === 1) return true; // High Arc
+    if (statName === 'bulletCurveStrength' && (pathType === -1 || pathType === -2)) return true; // Clockwise or Homing
+    
+    // Ant size only after round 10
+    if (statName === 'antSize' && currentRound >= 10) return true;
+    
+    return false;
+  }
+  
+  // Helper function to get current cap tier for a stat
+  function getCurrentCapTier(statName, currentValue) {
+    const tierInfo = statCapTiers[statName];
+    if (!tierInfo) return null;
+    
+    // Find how many tiers are already unlocked for this stat
+    let unlockedTier = -1;
+    const investments = geneTokenInvestments[antIndex] || [];
+    for (let inv of investments) {
+      if (inv.target === statName && inv.type === 'cap') {
+        unlockedTier = Math.max(unlockedTier, inv.tier || 0);
+      }
+    }
+    
+    // Next tier to unlock
+    const nextTier = unlockedTier + 1;
+    if (nextTier >= tierInfo.caps.length) return null; // All tiers unlocked
+    
+    const nextCapValue = tierInfo.caps[nextTier];
+    
+    if (tierInfo.inverse) {
+      // For inverse stats, calculate progress toward lower value
+      const startValue = tierInfo.start || tierInfo.caps[0];
+      const range = startValue - nextCapValue;
+      const progress = startValue - currentValue;
+      return { tier: nextTier, cap: nextCapValue, percentage: progress / range, inverse: true };
+    } else {
+      // For normal stats, calculate progress toward higher value
+      const baseValue = unlockedTier >= 0 ? tierInfo.caps[unlockedTier] : 0;
+      const range = nextCapValue - baseValue;
+      const progress = currentValue - baseValue;
+      return { tier: nextTier, cap: nextCapValue, percentage: progress / range, inverse: false };
+    }
+  }
+  
+  // Define which stats are always useful (not conditional on traits)
+  const alwaysUsefulStats = [
+    'bulletSpeed',      // Always affects bullet speed
+    'bulletCooldown',   // Always affects shooting rate
+    'antSpeed'          // Always affects movement
+  ];
+  
+  // Check each stat that has cap tiers
+  for (let statName in statCapTiers) {
+    const currentValue = eval(statName + '[' + antIndex + ']');
+    const capInfo = getCurrentCapTier(statName, currentValue);
+    
+    if (capInfo) {
+      if (isInitialSetup) {
+        // During initial setup, only consider always-useful stats
+        if (alwaysUsefulStats.includes(statName) && capInfo.percentage > bestPercentage) {
+          bestPercentage = capInfo.percentage;
+          bestCandidate = { 
+            type: 'cap', 
+            name: statName, 
+            tier: capInfo.tier,
+            cap: capInfo.cap,
+            inverse: capInfo.inverse
+          };
+        }
+      } else {
+        // After initial setup, only consider expressed stats
+        if (isStatExpressed(statName) && capInfo.percentage > bestPercentage) {
+          bestPercentage = capInfo.percentage;
+          bestCandidate = { 
+            type: 'cap', 
+            name: statName, 
+            tier: capInfo.tier,
+            cap: capInfo.cap,
+            inverse: capInfo.inverse
+          };
+        }
+      }
+    }
+  }
+  
+  // Check potential stats - these don't get caps, but unlock traits
+  const potentials = {
+    specialPotential: { category: 'special', value: specialPotential[antIndex] },
+    firePotential: { category: 'fire', value: firePotential[antIndex] },
+    deathPotential: { category: 'death', value: deathPotential[antIndex] },
+    pathPotential: { category: 'path', value: pathPotential[antIndex] }
+  };
+  
+  for (let potName in potentials) {
+    const pot = potentials[potName];
+    // Only consider if potential is above 0.5 (category is active)
+    // Note: Initial ants start with 0.3 potential, so traits won't be available
+    // during initial setup - only stat caps will be invested in
+    if (pot.value > 0.5) {
+      const category = pot.category;
+      
+      // Check if this category already has an investment
+      const investments = geneTokenInvestments[antIndex] || [];
+      const categoryAlreadyInvested = investments.some(inv => inv.type === 'trait' && inv.category === category);
+      
+      // Skip this category if already invested
+      if (categoryAlreadyInvested) {
+        continue;
+      }
+      
+      let bestMutation = null;
+      let bestMutationValue = 0;
+      
+      if (category === 'special') {
+        if (specialExplosion[antIndex] > bestMutationValue) {
+          bestMutationValue = specialExplosion[antIndex];
+          bestMutation = 'specialExplosion';
+        }
+        if (specialKnockback[antIndex] > bestMutationValue) {
+          bestMutationValue = specialKnockback[antIndex];
+          bestMutation = 'specialKnockback';
+        }
+      } else if (category === 'fire') {
+        if (fireBurst[antIndex] > bestMutationValue) {
+          bestMutationValue = fireBurst[antIndex];
+          bestMutation = 'fireBurst';
+        }
+        if (fireRapid[antIndex] > bestMutationValue) {
+          bestMutationValue = fireRapid[antIndex];
+          bestMutation = 'fireRapid';
+        }
+        if (fireAlternating[antIndex] > bestMutationValue) {
+          bestMutationValue = fireAlternating[antIndex];
+          bestMutation = 'fireAlternating';
+        }
+      } else if (category === 'death') {
+        bestMutation = 'deathLandmine';
+      } else if (category === 'path') {
+        if (pathHighArc[antIndex] > bestMutationValue) {
+          bestMutationValue = pathHighArc[antIndex];
+          bestMutation = 'pathHighArc';
+        }
+        if (pathClockwise[antIndex] > bestMutationValue) {
+          bestMutationValue = pathClockwise[antIndex];
+          bestMutation = 'pathClockwise';
+        }
+        if (pathHoming[antIndex] > bestMutationValue) {
+          bestMutationValue = pathHoming[antIndex];
+          bestMutation = 'pathHoming';
+        }
+      }
+      
+      if (bestMutation) {
+        if (pot.value > bestPercentage) {
+          // Pick trait with highest percentage
+          bestPercentage = pot.value;
+          bestCandidate = { type: 'trait', name: bestMutation, category: category };
+        }
+      }
+    }
+  }
+  
+  // Allocate token
+  if (bestCandidate && geneTokens[antIndex] > 0) {
+    geneTokens[antIndex]--;
+    const investment = {
+      target: bestCandidate.name,
+      type: bestCandidate.type,
+      lockedUntilRound: currentRound + 3,  // Lock for 2 full rounds (can free at round+3)
+      percentage: bestPercentage
+    };
+    
+    if (bestCandidate.type === 'cap') {
+      investment.tier = bestCandidate.tier;
+      investment.cap = bestCandidate.cap;
+      investment.inverse = bestCandidate.inverse;
+      console.log(`Ant ${antIndex} invested token in ${bestCandidate.name} tier ${bestCandidate.tier + 1} (cap: ${bestCandidate.cap.toFixed(2)})`);
+      
+      // If initial setup, bump stat to the cap value
+      if (isInitialSetup) {
+        eval(bestCandidate.name + '[' + antIndex + '] = ' + bestCandidate.cap);
+        console.log(`  -> Bumped ${bestCandidate.name} to ${bestCandidate.cap.toFixed(2)}`);
+      }
+    } else {
+      investment.category = bestCandidate.category;
+      console.log(`Ant ${antIndex} invested token in ${bestCandidate.name} trait (${bestCandidate.category})`);
+    }
+    
+    geneTokenInvestments[antIndex].push(investment);
+  }
+}
+
+function updateTokenInvestments(antIndex, currentRound) {
+  // Check each investment and free tokens if conditions aren't met
+  for (let i = geneTokenInvestments[antIndex].length - 1; i >= 0; i--) {
+    const investment = geneTokenInvestments[antIndex][i];
+    
+    // Skip if still locked
+    if (currentRound < investment.lockedUntilRound) continue;
+    
+    let shouldFree = false;
+    
+    if (investment.type === 'trait') {
+      // Check if potential dropped below 0.5
+      const potentialName = investment.category + 'Potential';
+      const potentialValue = eval(potentialName + '[' + antIndex + ']');
+      
+      if (potentialValue <= 0.5) {
+        shouldFree = true;
+        console.log(`Freeing token from ${investment.target} - potential too low`);
+      } else {
+        // Check if another mutation in same category overtook this one
+        const currentValue = eval(investment.target + '[' + antIndex + ']');
+        let maxOtherValue = 0;
+        
+        if (investment.category === 'special') {
+          maxOtherValue = Math.max(
+            investment.target !== 'specialExplosion' ? specialExplosion[antIndex] : 0,
+            investment.target !== 'specialKnockback' ? specialKnockback[antIndex] : 0
+          );
+        } else if (investment.category === 'fire') {
+          maxOtherValue = Math.max(
+            investment.target !== 'fireBurst' ? fireBurst[antIndex] : 0,
+            investment.target !== 'fireRapid' ? fireRapid[antIndex] : 0,
+            investment.target !== 'fireAlternating' ? fireAlternating[antIndex] : 0
+          );
+        } else if (investment.category === 'path') {
+          maxOtherValue = Math.max(
+            investment.target !== 'pathHighArc' ? pathHighArc[antIndex] : 0,
+            investment.target !== 'pathClockwise' ? pathClockwise[antIndex] : 0,
+            investment.target !== 'pathHoming' ? pathHoming[antIndex] : 0
+          );
+        }
+        
+        if (maxOtherValue > currentValue) {
+          shouldFree = true;
+          console.log(`Freeing token from ${investment.target} - overtaken by another mutation`);
+        }
+      }
+    } else if (investment.type === 'cap') {
+      // For cap investments, check if the stat has fallen below the unlocked cap
+      const currentValue = eval(investment.target + '[' + antIndex + ']');
+      
+      if (investment.inverse) {
+        // For inverse stats (lower is better), free if value goes back above the cap
+        if (currentValue > investment.cap) {
+          shouldFree = true;
+          console.log(`Freeing token from ${investment.target} tier ${investment.tier + 1} - value increased above cap`);
+        }
+      } else {
+        // For normal stats (higher is better), free if value falls below the previous tier
+        const previousCap = investment.tier > 0 ? investment.cap : 0;
+        if (currentValue < previousCap) {
+          shouldFree = true;
+          console.log(`Freeing token from ${investment.target} tier ${investment.tier + 1} - value fell below previous tier`);
+        }
+      }
+    }
+    
+    // Free the token
+    if (shouldFree) {
+      geneTokens[antIndex]++;
+      geneTokenInvestments[antIndex].splice(i, 1);
+    }
+  }
+}
+
+function getStatCapForAnt(antIndex, statName) {
+  // Returns the current cap for a stat based on unlocked tiers
+  // Returns null if stat has no caps
+  
+  const statCapTiers = {
+    // Inverse stats (lower is better, unlock downward from starting max)
+    bulletSpeed: { caps: [250, 200, 150, 120, 90], inverse: true, start: 300 },
+    bulletCooldown: { caps: [150, 120, 100, 90, 79], inverse: true, start: 200 },
+    
+    // Normal stats (higher is better, unlock upward from starting min)
+    antSpeed: { caps: [2, 2.5, 3, 3.5], inverse: false },
+    
+    // Special category supporting stats
+    bulletExplosionTrigger: { caps: [0.5, 1.0, 1.5], inverse: false },
+    bulletKnockbackMultiplier: { caps: [2, 3, 4, 5], inverse: false },
+    
+    // Fire category supporting stats
+    bulletBurstCount: { caps: [3, 4, 5, 5.5], inverse: false },
+    bulletBurstSpread: { caps: [2.0, 2.5, 3.0, 3.14], inverse: false },
+    bulletCooldownMultiplier: { caps: [3, 4, 5, 5.5], inverse: false },
+    
+    // Path category supporting stats
+    bulletArcDuration: { caps: [300, 400, 500, 600], inverse: false },
+    bulletCurveStrength: { caps: [0.05, 0.075, 0.1], inverse: false },
+    
+    // Explosion stats
+    explosionProximity: { caps: [400, 600, 800, 1000], inverse: false },
+    bulletSize: { caps: [1.5, 2.0, 2.5, 3.0], inverse: false },
+    explosionRadiusMultiplier: { caps: [1.5, 2.0, 2.5, 3.0], inverse: false },
+    explosionResidueMultiplier: { caps: [1.5, 2.0, 2.5, 3.0], inverse: false },
+    bulletExplodeAfter: { caps: [600, 500, 400, 200, 100], inverse: true, start: 800 },
+    
+    // Ant size
+    antSize: { caps: [1.5, 2.0, 2.5, 3.0], inverse: false }
+  };
+  
+  const tierInfo = statCapTiers[statName];
+  if (!tierInfo) return null; // No caps for this stat
+  
+  // Find highest unlocked tier
+  let highestTier = -1;
+  const investments = geneTokenInvestments[antIndex] || [];
+  for (let inv of investments) {
+    if (inv.target === statName && inv.type === 'cap') {
+      highestTier = Math.max(highestTier, inv.tier || 0);
+    }
+  }
+  
+  if (highestTier >= 0) {
+    return tierInfo.caps[highestTier];
+  } else {
+    // No tiers unlocked
+    if (tierInfo.inverse) {
+      return tierInfo.start; // Start at the high value for inverse stats
+    } else {
+      return 0; // Start at 0 for normal stats (or use base starting value)
+    }
+  }
 }
 
 function addDeathEffect(x, y, points = 100) {
@@ -5334,6 +6340,10 @@ function printLiveAntRankings() {
 }
 
 function printWinningAntStats() {
+  const safeFixed = (value, digits = 2) => {
+    return (typeof value === 'number' && Number.isFinite(value)) ? value.toFixed(digits) : 'N/A';
+  };
+
   const topAnts = getTopAnts();
   const count1 = Math.round((enemyCount + 1) * 0.5);
   const count2 = Math.round((enemyCount + 1) * 0.3);
@@ -5343,19 +6353,19 @@ function printWinningAntStats() {
   for (let i = 0; i < topAnts.length; i++) {
     const ant = topAnts[i];
     console.log(
-      `#${i + 1}: Ant ${ant.id} | Points: ${ant.points} | Lives: ${ant.lives} | Ratio: ${ant.ratio.toFixed(2)}`
+      `#${i + 1}: Ant ${ant.id} | Points: ${ant.points} | Lives: ${ant.lives} | Ratio: ${safeFixed(ant.ratio)}`
     );
     console.log(
-      `   bulletSpeed: ${bulletSpeed[ant.id].toFixed(2)}, bulletCooldown: ${bulletCooldown[ant.id]}, antSpeed: ${antSpeed[ant.id].toFixed(2)}`
+      `   bulletSpeed: ${safeFixed(bulletSpeed[ant.id])}, bulletCooldown: ${bulletCooldown[ant.id]}, antSpeed: ${safeFixed(antSpeed[ant.id])}`
     );
     console.log(
-      `   shotOffsetX: ${shotOffsetX[ant.id].toFixed(2)}, shotOffsetY: ${shotOffsetY[ant.id].toFixed(2)}`
+      `   shotOffsetX: ${safeFixed(shotOffsetX[ant.id])}, shotOffsetY: ${safeFixed(shotOffsetY[ant.id])}`
     );
     console.log(
-      `   followValue: ${followValue[ant.id].toFixed(2)}, autonomy: ${autonomy[ant.id].toFixed(2)}, bulletSize: ${bulletSize[ant.id].toFixed(2)}`
+      `   followValue: ${safeFixed(followValue[ant.id])}, autonomy: ${safeFixed(autonomy[ant.id])}, bulletSize: ${safeFixed(bulletSize[ant.id])}`
     );
     console.log(
-      `   standingPointX: ${standingPointX[ant.id].toFixed(2)}, standingPointY: ${standingPointY[ant.id]}, distanceFromAnchor: ${distanceFromAnchor[ant.id].toFixed(2)}`
+      `   standingPointX: ${safeFixed(standingPointX[ant.id])}, standingPointY: ${standingPointY[ant.id]}, distanceFromAnchor: ${safeFixed(distanceFromAnchor[ant.id])}`
     );
   }
 
@@ -5434,6 +6444,9 @@ function nextRound(){
   // antSize mutation rate: 0 until round 10, then 0.2
   let antSizeMutationRate = (level >= 10) ? 0.2 : 0;
 
+  // Gene Token System - Grant tokens every 5 rounds, then evaluate/allocate
+  grantTokensForRound(level);
+
   playerRotationValue = 0;
   bulletShot[enemyIndex] = 0;
   playerX = width / 2;
@@ -5504,23 +6517,85 @@ function nextRound(){
         antSpeed[i]      = constrain(s.antSpeed      + random(-0.3, 0.3), 0.9, 3.5);
         shotOffsetX[i]   = constrain(s.shotOffsetX   + random(-50, 50), -500, 500);
         shotOffsetY[i]   = constrain(s.shotOffsetY   + random(-50, 50), -500, 500);
-        standingPointX[i]   = constrain(s.standingPointX   + random(-100, 100), 0, getGameplayWidth());
-        standingPointY[i]   = constrain(s.standingPointY   + random(-100, 100), scoreBarHeight, getGameplayHeight());
+        // Only mutate standing point if parent uses Location mode (followValue near 2)
+        if (Math.round(s.followValue) === 2) {
+          standingPointX[i] = constrain(s.standingPointX + random(-100, 100), 0, getGameplayWidth());
+          standingPointY[i] = constrain(s.standingPointY + random(-100, 100), scoreBarHeight, getGameplayHeight());
+        } else {
+          standingPointX[i] = s.standingPointX;
+          standingPointY[i] = s.standingPointY;
+        }
         followValue[i]    = constrain(s.followValue    + random(-movementMutationRate, movementMutationRate), -0.5, 3.49);
         autonomy[i]    = constrain(s.autonomy    + random(-movementMutationRate, movementMutationRate), -0.5, 1.5);
-        distanceFromAnchor[i]    = constrain(s.distanceFromAnchor    + random(-100, 100), 0.1, 1000);
-        bulletSpecialType[i]    = constrain(s.bulletSpecialType    + random(-movementMutationRate, movementMutationRate), -1.5, 1.5);
-        bulletExplosionTrigger[i]    = constrain(s.bulletExplosionTrigger    + random(-movementMutationRate, movementMutationRate), -0.5, 1.5);
-        bulletKnockbackMultiplier[i]    = constrain(s.bulletKnockbackMultiplier    + random(-0.5, 0.5), 0.5, 5);
-        bulletDeathType[i]    = constrain(s.bulletDeathType    + random(-(movementMutationRate/2), (movementMutationRate/2)), -0.5, 1.5);
-        bulletFireType[i]    = constrain(s.bulletFireType    + random(-movementMutationRate, movementMutationRate), -1.5, 2.5);
-        bulletPathType[i]    = constrain(s.bulletPathType    + random(-movementMutationRate, movementMutationRate), -2.5, 1.5);
-        bulletArcDuration[i]    = constrain(s.bulletArcDuration    + random(-50, 50), 60, 600);
-        bulletCurveStrength[i]    = constrain(s.bulletCurveStrength    + random(-0.005, 0.005), -0.1, 0.1);
-        bulletBurstCount[i]    = constrain(s.bulletBurstCount    + random(-movementMutationRate, movementMutationRate), 1.5, 5.5);
-        bulletBurstSpread[i]    = constrain(s.bulletBurstSpread    + random(-movementMutationRate, movementMutationRate), PI/3, PI);
-        bulletCooldownMultiplier[i]    = constrain(s.bulletCooldownMultiplier    + random(-movementMutationRate, movementMutationRate), 0.5, 5.5);
-        explosionProximity[i]    = constrain(s.explosionProximity    + random(-100, 100), 0.1, 1000);
+        // Only mutate distance if parent uses KeepDistance (autonomy near 1)
+        if (Math.round(s.autonomy) === 1) {
+          distanceFromAnchor[i] = constrain(s.distanceFromAnchor + random(-100, 100), 0.1, 1000);
+        } else {
+          distanceFromAnchor[i] = s.distanceFromAnchor;
+        }
+        // Special category (mutation-based)
+        specialExplosion[i]    = constrain(s.specialExplosion    + random(-movementMutationRate, movementMutationRate), 0, 1);
+        specialKnockback[i]    = constrain(s.specialKnockback    + random(-movementMutationRate, movementMutationRate), 0, 1);
+        specialPotential[i]    = constrain(s.specialPotential    + random(-movementMutationRate, movementMutationRate), 0, 1);
+        // Only mutate explosion stats if parent has specialPotential > 0.5 AND uses explosion
+        if (s.specialPotential > 0.5 && s.specialExplosion >= Math.max(s.specialKnockback)) {
+          bulletExplosionTrigger[i] = constrain(s.bulletExplosionTrigger + random(-movementMutationRate, movementMutationRate), -0.5, 1.5);
+          explosionProximity[i] = constrain(s.explosionProximity + random(-100, 100), 0.1, 1000);
+          explosionRadiusMultiplier[i] = constrain(s.explosionRadiusMultiplier + random(-0.2, 0.2), 0.5, 3);
+          explosionResidueMultiplier[i] = constrain(s.explosionResidueMultiplier + random(-0.2, 0.2), 0.5, 3);
+          bulletExplodeAfter[i] = constrain(s.bulletExplodeAfter + random(-50, 50), 100, 800);
+        } else {
+          bulletExplosionTrigger[i] = s.bulletExplosionTrigger;
+          explosionProximity[i] = s.explosionProximity;
+          explosionRadiusMultiplier[i] = s.explosionRadiusMultiplier;
+          explosionResidueMultiplier[i] = s.explosionResidueMultiplier;
+          bulletExplodeAfter[i] = s.bulletExplodeAfter;
+        }
+        // Only mutate knockback multiplier if parent uses knockback
+        if (s.specialPotential > 0.5 && s.specialKnockback > Math.max(s.specialExplosion)) {
+          bulletKnockbackMultiplier[i] = constrain(s.bulletKnockbackMultiplier + random(-0.5, 0.5), 0.5, 5);
+        } else {
+          bulletKnockbackMultiplier[i] = s.bulletKnockbackMultiplier;
+        }
+        // Fire category (mutation-based)
+        fireBurst[i]    = constrain(s.fireBurst    + random(-movementMutationRate, movementMutationRate), 0, 1);
+        fireRapid[i]    = constrain(s.fireRapid    + random(-movementMutationRate, movementMutationRate), 0, 1);
+        fireAlternating[i]    = constrain(s.fireAlternating    + random(-movementMutationRate, movementMutationRate), 0, 1);
+        firePotential[i]    = constrain(s.firePotential    + random(-movementMutationRate, movementMutationRate), 0, 1);
+        // Only mutate burst/rapid stats if parent uses burst or rapid fire
+        if (s.firePotential > 0.5 && (s.fireBurst >= Math.max(s.fireRapid, s.fireAlternating) || s.fireRapid >= Math.max(s.fireBurst, s.fireAlternating))) {
+          bulletBurstCount[i] = constrain(s.bulletBurstCount + random(-movementMutationRate, movementMutationRate), 1.5, 5.5);
+          bulletBurstSpread[i] = constrain(s.bulletBurstSpread + random(-movementMutationRate, movementMutationRate), PI/3, PI);
+        } else {
+          bulletBurstCount[i] = s.bulletBurstCount;
+          bulletBurstSpread[i] = s.bulletBurstSpread;
+        }
+        // Only mutate cooldown multiplier if parent uses alternating fire
+        if (s.firePotential > 0.5 && s.fireAlternating >= Math.max(s.fireBurst, s.fireRapid)) {
+          bulletCooldownMultiplier[i] = constrain(s.bulletCooldownMultiplier + random(-movementMutationRate, movementMutationRate), 0.5, 5.5);
+        } else {
+          bulletCooldownMultiplier[i] = s.bulletCooldownMultiplier;
+        }
+        // Death category (mutation-based)
+        deathLandmine[i]    = constrain(s.deathLandmine    + random(-(movementMutationRate/2), (movementMutationRate/2)), 0, 1);
+        deathPotential[i]    = constrain(s.deathPotential    + random(-(movementMutationRate/2), (movementMutationRate/2)), 0, 1);
+        // Path category (mutation-based)
+        pathHighArc[i]    = constrain(s.pathHighArc    + random(-movementMutationRate, movementMutationRate), 0, 1);
+        pathClockwise[i]    = constrain(s.pathClockwise    + random(-movementMutationRate, movementMutationRate), 0, 1);
+        pathHoming[i]    = constrain(s.pathHoming    + random(-movementMutationRate, movementMutationRate), 0, 1);
+        pathPotential[i]    = constrain(s.pathPotential    + random(-movementMutationRate, movementMutationRate), 0, 1);
+        // Only mutate arc duration if parent uses high arc
+        if (s.pathPotential > 0.5 && s.pathHighArc >= Math.max(s.pathClockwise, s.pathHoming)) {
+          bulletArcDuration[i] = constrain(s.bulletArcDuration + random(-50, 50), 60, 600);
+        } else {
+          bulletArcDuration[i] = s.bulletArcDuration;
+        }
+        // Only mutate curve strength if parent uses clockwise path
+        if (s.pathPotential > 0.5 && s.pathClockwise >= Math.max(s.pathHighArc, s.pathHoming)) {
+          bulletCurveStrength[i] = constrain(s.bulletCurveStrength + random(-0.005, 0.005), -0.1, 0.1);
+        } else {
+          bulletCurveStrength[i] = s.bulletCurveStrength;
+        }
         angleFromSpawn[i]    = constrain(s.angleFromSpawn    + random((-PI / 3), (PI / 3)), 0, TWO_PI);
         bulletSize[i]    = constrain(s.bulletSize    + random(-(movementMutationRate / 2), (movementMutationRate / 2)), 1, 3);
         explosionRadiusMultiplier[i] = constrain(s.explosionRadiusMultiplier + random(-0.2, 0.2), 0.5, 3);
@@ -5543,6 +6618,10 @@ function nextRound(){
         antAlternatingCooldownState[i] = 0;
         antRapidFireActive[i] = false;
         antAirHeight[i] = 0;
+        // Gene Token System - inherit parent's tokens and investments
+        geneTokens[i] = s.geneTokens || 2;
+        geneTokenInvestments[i] = JSON.parse(JSON.stringify(s.geneTokenInvestments || [])); // Deep copy
+        geneTokenLastRoundGained[i] = s.geneTokenLastRoundGained || 0;
       } else {
         // Regular ant from game performance
         console.log(`Ant ${i} inherits from parent Ant ${parent.id}`);
@@ -5551,28 +6630,88 @@ function nextRound(){
         antSpeed[i]      = constrain(antSpeed[parent.id]      + random(-0.3, 0.3), 0.9, 3.5);
         shotOffsetX[i]   = constrain(shotOffsetX[parent.id]   + random(-50, 50), -500, 500);
         shotOffsetY[i]   = constrain(shotOffsetY[parent.id]   + random(-50, 50), -500, 500);
-        standingPointX[i]   = constrain(standingPointX[parent.id]   + random(-100, 100), 0, getGameplayWidth());
-        standingPointY[i]   = constrain(standingPointY[parent.id]   + random(-100, 100), scoreBarHeight, getGameplayHeight());
+        // Only mutate standing point if parent uses Location mode (followValue near 2)
+        if (Math.round(followValue[parent.id]) === 2) {
+          standingPointX[i] = constrain(standingPointX[parent.id] + random(-100, 100), 0, getGameplayWidth());
+          standingPointY[i] = constrain(standingPointY[parent.id] + random(-100, 100), scoreBarHeight, getGameplayHeight());
+        } else {
+          standingPointX[i] = standingPointX[parent.id];
+          standingPointY[i] = standingPointY[parent.id];
+        }
         followValue[i]    = constrain(followValue[parent.id]    + random(-movementMutationRate, movementMutationRate), -0.5, 3.49);
         autonomy[i]    = constrain(autonomy[parent.id]    + random(-movementMutationRate, movementMutationRate), -0.5, 1.5);
-        distanceFromAnchor[i]    = constrain(distanceFromAnchor[parent.id]    + random(-100, 100), 0.1, 1000);
-        bulletSpecialType[i]    = constrain(bulletSpecialType[parent.id]    + random(-movementMutationRate, movementMutationRate), -1.5, 1.5);
-        bulletExplosionTrigger[i]    = constrain(bulletExplosionTrigger[parent.id]    + random(-movementMutationRate, movementMutationRate), -0.5, 1.5);
-        bulletKnockbackMultiplier[i]    = constrain(bulletKnockbackMultiplier[parent.id]    + random(-0.5, 0.5), 0.5, 5);
-        bulletDeathType[i]    = constrain(bulletDeathType[parent.id]    + random(-(movementMutationRate/2), (movementMutationRate/2)), -0.5, 1.5);
-        bulletFireType[i]    = constrain(bulletFireType[parent.id]    + random(-movementMutationRate, movementMutationRate), -1.5, 2.5);
-        bulletPathType[i]    = constrain(bulletPathType[parent.id]    + random(-movementMutationRate, movementMutationRate), -2.5, 1.5);
-        bulletArcDuration[i]    = constrain(bulletArcDuration[parent.id]    + random(-50, 50), 60, 600);
-        bulletCurveStrength[i]    = constrain(bulletCurveStrength[parent.id]    + random(-0.005, 0.005), -0.1, 0.1);
-        bulletBurstCount[i]    = constrain(bulletBurstCount[parent.id]    + random(-movementMutationRate, movementMutationRate), 1.5, 5.5);
-        bulletBurstSpread[i]    = constrain(bulletBurstSpread[parent.id]    + random(-movementMutationRate, movementMutationRate), PI/3, PI);
-        bulletCooldownMultiplier[i]    = constrain(bulletCooldownMultiplier[parent.id]    + random(-movementMutationRate, movementMutationRate), 0.5, 5.5);
-        explosionProximity[i]    = constrain(explosionProximity[parent.id]    + random(-100, 100), 0.1, 1000);
+        // Only mutate distance if parent uses KeepDistance (autonomy near 1)
+        if (Math.round(autonomy[parent.id]) === 1) {
+          distanceFromAnchor[i] = constrain(distanceFromAnchor[parent.id] + random(-100, 100), 0.1, 1000);
+        } else {
+          distanceFromAnchor[i] = distanceFromAnchor[parent.id];
+        }
+        // Special category (mutation-based)
+        specialExplosion[i]    = constrain(specialExplosion[parent.id]    + random(-movementMutationRate, movementMutationRate), 0, 1);
+        specialKnockback[i]    = constrain(specialKnockback[parent.id]    + random(-movementMutationRate, movementMutationRate), 0, 1);
+        specialPotential[i]    = constrain(specialPotential[parent.id]    + random(-movementMutationRate, movementMutationRate), 0, 1);
+        // Only mutate explosion stats if parent has specialPotential > 0.5 AND uses explosion
+        if (specialPotential[parent.id] > 0.5 && specialExplosion[parent.id] >= Math.max(specialKnockback[parent.id])) {
+          bulletExplosionTrigger[i] = constrain(bulletExplosionTrigger[parent.id] + random(-movementMutationRate, movementMutationRate), -0.5, 1.5);
+          explosionProximity[i] = constrain(explosionProximity[parent.id] + random(-100, 100), 0.1, 1000);
+          explosionRadiusMultiplier[i] = constrain(explosionRadiusMultiplier[parent.id] + random(-0.2, 0.2), 0.5, 3);
+          explosionResidueMultiplier[i] = constrain(explosionResidueMultiplier[parent.id] + random(-0.2, 0.2), 0.5, 3);
+          bulletExplodeAfter[i] = constrain(bulletExplodeAfter[parent.id] + random(-50, 50), 100, 800);
+        } else {
+          bulletExplosionTrigger[i] = bulletExplosionTrigger[parent.id];
+          explosionProximity[i] = explosionProximity[parent.id];
+          explosionRadiusMultiplier[i] = explosionRadiusMultiplier[parent.id];
+          explosionResidueMultiplier[i] = explosionResidueMultiplier[parent.id];
+          bulletExplodeAfter[i] = bulletExplodeAfter[parent.id];
+        }
+        // Only mutate knockback multiplier if parent uses knockback
+        if (specialPotential[parent.id] > 0.5 && specialKnockback[parent.id] > Math.max(specialExplosion[parent.id])) {
+          bulletKnockbackMultiplier[i] = constrain(bulletKnockbackMultiplier[parent.id] + random(-0.5, 0.5), 0.5, 5);
+        } else {
+          bulletKnockbackMultiplier[i] = bulletKnockbackMultiplier[parent.id];
+        }
+        // Fire category (mutation-based)
+        fireBurst[i]    = constrain(fireBurst[parent.id]    + random(-movementMutationRate, movementMutationRate), 0, 1);
+        fireRapid[i]    = constrain(fireRapid[parent.id]    + random(-movementMutationRate, movementMutationRate), 0, 1);
+        fireAlternating[i]    = constrain(fireAlternating[parent.id]    + random(-movementMutationRate, movementMutationRate), 0, 1);
+        firePotential[i]    = constrain(firePotential[parent.id]    + random(-movementMutationRate, movementMutationRate), 0, 1);
+        // Only mutate burst/rapid stats if parent uses burst or rapid fire
+        if (firePotential[parent.id] > 0.5 && (fireBurst[parent.id] >= Math.max(fireRapid[parent.id], fireAlternating[parent.id]) || fireRapid[parent.id] >= Math.max(fireBurst[parent.id], fireAlternating[parent.id]))) {
+          bulletBurstCount[i] = constrain(bulletBurstCount[parent.id] + random(-movementMutationRate, movementMutationRate), 1.5, 5.5);
+          bulletBurstSpread[i] = constrain(bulletBurstSpread[parent.id] + random(-movementMutationRate, movementMutationRate), PI/3, PI);
+        } else {
+          bulletBurstCount[i] = bulletBurstCount[parent.id];
+          bulletBurstSpread[i] = bulletBurstSpread[parent.id];
+        }
+        // Only mutate cooldown multiplier if parent uses alternating fire
+        if (firePotential[parent.id] > 0.5 && fireAlternating[parent.id] >= Math.max(fireBurst[parent.id], fireRapid[parent.id])) {
+          bulletCooldownMultiplier[i] = constrain(bulletCooldownMultiplier[parent.id] + random(-movementMutationRate, movementMutationRate), 0.5, 5.5);
+        } else {
+          bulletCooldownMultiplier[i] = bulletCooldownMultiplier[parent.id];
+        }
+        // Death category (mutation-based)
+        deathLandmine[i]    = constrain(deathLandmine[parent.id]    + random(-(movementMutationRate/2), (movementMutationRate/2)), 0, 1);
+        deathPotential[i]    = constrain(deathPotential[parent.id]    + random(-(movementMutationRate/2), (movementMutationRate/2)), 0, 1);
+        // Path category (mutation-based)
+        pathHighArc[i]    = constrain(pathHighArc[parent.id]    + random(-movementMutationRate, movementMutationRate), 0, 1);
+        pathClockwise[i]    = constrain(pathClockwise[parent.id]    + random(-movementMutationRate, movementMutationRate), 0, 1);
+        pathHoming[i]    = constrain(pathHoming[parent.id]    + random(-movementMutationRate, movementMutationRate), 0, 1);
+        pathPotential[i]    = constrain(pathPotential[parent.id]    + random(-movementMutationRate, movementMutationRate), 0, 1);
+        // Only mutate arc duration if parent uses high arc
+        if (pathPotential[parent.id] > 0.5 && pathHighArc[parent.id] >= Math.max(pathClockwise[parent.id], pathHoming[parent.id])) {
+          bulletArcDuration[i] = constrain(bulletArcDuration[parent.id] + random(-50, 50), 60, 600);
+        } else {
+          bulletArcDuration[i] = bulletArcDuration[parent.id];
+        }
+        // Only mutate curve strength if parent uses clockwise path
+        if (pathPotential[parent.id] > 0.5 && pathClockwise[parent.id] >= Math.max(pathHighArc[parent.id], pathHoming[parent.id])) {
+          bulletCurveStrength[i] = constrain(bulletCurveStrength[parent.id] + random(-0.005, 0.005), -0.1, 0.1);
+        } else {
+          bulletCurveStrength[i] = bulletCurveStrength[parent.id];
+        }
+        // Remove duplicate mutations (these were already handled above)
         angleFromSpawn[i]    = constrain(angleFromSpawn[parent.id]    + random((-PI / 3), (PI / 3)), 0, TWO_PI);
         bulletSize[i]    = constrain(bulletSize[parent.id]    + random(-(movementMutationRate / 2), (movementMutationRate / 2)), 1, 3);
-        explosionRadiusMultiplier[i] = constrain(explosionRadiusMultiplier[parent.id] + random(-0.2, 0.2), 0.5, 3);
-        explosionResidueMultiplier[i] = constrain(explosionResidueMultiplier[parent.id] + random(-0.2, 0.2), 0.5, 3);
-        bulletExplodeAfter[i] = constrain(bulletExplodeAfter[parent.id] + random(-50, 50), 100, 800);
         antSize[i] = constrain(antSize[parent.id] + random(-antSizeMutationRate, antSizeMutationRate), 0.3, 3);
         // Cap ant speed based on ant size (small ants can be faster, large ants slower)
         let maxAntSpeed2 = 4.5 - antSize[i];
@@ -5590,6 +6729,10 @@ function nextRound(){
         antAlternatingCooldownState[i] = 0;
         antRapidFireActive[i] = false;
         antAirHeight[i] = 0;
+        // Gene Token System - inherit parent's tokens and investments
+        geneTokens[i] = geneTokens[parent.id] || 0;
+        geneTokenInvestments[i] = JSON.parse(JSON.stringify(geneTokenInvestments[parent.id] || [])); // Deep copy
+        geneTokenLastRoundGained[i] = geneTokenLastRoundGained[parent.id] || 0;
       }
 
       if (Math.round(autonomy[i]) === 0){
@@ -5600,7 +6743,7 @@ function nextRound(){
         keepDistance[i] = true;
       }
       // Set explosion flags based on genetics
-      const specialType = Math.round(bulletSpecialType[i]);
+      const specialType = getSpecialType(i);
       if (specialType === 0){
         // No special bullet behavior
         explodeOnTermination[i] = false;
@@ -5664,13 +6807,17 @@ function nextRound(){
         ? constrain(shotOffsetY[winner.id] + random(-50, 50), -500, 500)
         : random(-500, 500);
       
-      standingPointX[i] = winner 
-        ? constrain(standingPointX[winner.id] + random(-100, 100), 0, getGameplayWidth())
-        : random(0, getGameplayWidth());
-
-      standingPointY[i] = winner 
-        ? constrain(standingPointY[winner.id] + random(-100, 100), scoreBarHeight, getGameplayHeight() - expBarHeight - expBarBuffer)
-        : random(scoreBarHeight, getGameplayHeight() - expBarHeight - expBarBuffer);
+      // Only mutate standing point if winner uses Location mode (followValue near 2)
+      if (winner && Math.round(followValue[winner.id]) === 2) {
+        standingPointX[i] = constrain(standingPointX[winner.id] + random(-100, 100), 0, getGameplayWidth());
+        standingPointY[i] = constrain(standingPointY[winner.id] + random(-100, 100), scoreBarHeight, getGameplayHeight() - expBarHeight - expBarBuffer);
+      } else if (winner) {
+        standingPointX[i] = standingPointX[winner.id];
+        standingPointY[i] = standingPointY[winner.id];
+      } else {
+        standingPointX[i] = random(0, getGameplayWidth());
+        standingPointY[i] = random(scoreBarHeight, getGameplayHeight() - expBarHeight - expBarBuffer);
+      }
       
       followValue[i] = winner 
         ? constrain(followValue[winner.id] + random(-movementMutationRate, movementMutationRate), -0.5, 3.49)
@@ -5680,41 +6827,130 @@ function nextRound(){
         ? constrain(autonomy[winner.id] + random(-movementMutationRate, movementMutationRate), -0.5, 1.5)
         : random(-0.5, 1.5);
       
-      distanceFromAnchor[i] = winner 
-        ? constrain(distanceFromAnchor[winner.id] + random(-100, 100), 0.1, 1000)
-        : random(0.1, 1000);
+      // Only mutate distance if winner uses KeepDistance (autonomy near 1)
+      if (winner && Math.round(autonomy[winner.id]) === 1) {
+        distanceFromAnchor[i] = constrain(distanceFromAnchor[winner.id] + random(-100, 100), 0.1, 1000);
+      } else if (winner) {
+        distanceFromAnchor[i] = distanceFromAnchor[winner.id];
+      } else {
+        distanceFromAnchor[i] = random(0.1, 1000);
+      }
       
-      bulletSpecialType[i] = winner
-        ? constrain(bulletSpecialType[winner.id] + random(-movementMutationRate, movementMutationRate), -1.5, 1.5)
-        : random(-1.5, 1.5);
+      // Special category (mutation-based)
+      specialExplosion[i] = winner
+        ? constrain(specialExplosion[winner.id] + random(-movementMutationRate, movementMutationRate), 0, 1)
+        : random(0, 1);
       
-      bulletExplosionTrigger[i] = winner
-        ? constrain(bulletExplosionTrigger[winner.id] + random(-movementMutationRate, movementMutationRate), -0.5, 1.5)
-        : random(-0.5, 1.5);
+      specialKnockback[i] = winner
+        ? constrain(specialKnockback[winner.id] + random(-movementMutationRate, movementMutationRate), 0, 1)
+        : random(0, 1);
       
-      bulletKnockbackMultiplier[i] = winner
-        ? constrain(bulletKnockbackMultiplier[winner.id] + random(-0.5, 0.5), 0.5, 5)
-        : random(0.5, 5);
+      specialPotential[i] = winner
+        ? constrain(specialPotential[winner.id] + random(-movementMutationRate, movementMutationRate), 0, 1)
+        : random(0, 1);
       
-      explosionProximity[i] = winner
-        ? constrain(explosionProximity[winner.id] + random(-100, 100), 0.1, 1000)
-        : random(0.1, 1000);
+      // Only mutate explosion stats if winner has specialPotential > 0.5 AND uses explosion
+      if (winner && specialPotential[winner.id] > 0.5 && specialExplosion[winner.id] >= Math.max(specialKnockback[winner.id])) {
+        bulletExplosionTrigger[i] = constrain(bulletExplosionTrigger[winner.id] + random(-movementMutationRate, movementMutationRate), -0.5, 1.5);
+        explosionProximity[i] = constrain(explosionProximity[winner.id] + random(-100, 100), 0.1, 1000);
+      } else if (winner) {
+        bulletExplosionTrigger[i] = bulletExplosionTrigger[winner.id];
+        explosionProximity[i] = explosionProximity[winner.id];
+      } else {
+        bulletExplosionTrigger[i] = random(-0.5, 1.5);
+        explosionProximity[i] = random(0.1, 1000);
+      }
       
-      bulletFireType[i] = winner
-        ? constrain(bulletFireType[winner.id] + random(-movementMutationRate, movementMutationRate), -1.5, 2.5)
-        : random(-1.5, 2.5);
+      // Only mutate knockback multiplier if winner uses knockback
+      if (winner && specialPotential[winner.id] > 0.5 && specialKnockback[winner.id] > Math.max(specialExplosion[winner.id])) {
+        bulletKnockbackMultiplier[i] = constrain(bulletKnockbackMultiplier[winner.id] + random(-0.5, 0.5), 0.5, 5);
+      } else if (winner) {
+        bulletKnockbackMultiplier[i] = bulletKnockbackMultiplier[winner.id];
+      } else {
+        bulletKnockbackMultiplier[i] = random(0.5, 5);
+      }
       
-      bulletBurstCount[i] = winner
-        ? constrain(bulletBurstCount[winner.id] + random(-1, 1), 1.5, 5.5)
-        : random(1.5, 5.5);
+      // Fire category (mutation-based)
+      fireBurst[i] = winner
+        ? constrain(fireBurst[winner.id] + random(-movementMutationRate, movementMutationRate), 0, 1)
+        : random(0, 1);
       
-      bulletBurstSpread[i] = winner
-        ? constrain(bulletBurstSpread[winner.id] + random(-0.2, 0.2), PI/3, PI)
-        : random(PI/3, PI);
+      fireRapid[i] = winner
+        ? constrain(fireRapid[winner.id] + random(-movementMutationRate, movementMutationRate), 0, 1)
+        : random(0, 1);
       
-      bulletCooldownMultiplier[i] = winner
-        ? constrain(bulletCooldownMultiplier[winner.id] + random(-1, 1), 0.5, 5.5)
-        : random(0.5, 5.5);
+      fireAlternating[i] = winner
+        ? constrain(fireAlternating[winner.id] + random(-movementMutationRate, movementMutationRate), 0, 1)
+        : random(0, 1);
+      
+      firePotential[i] = winner
+        ? constrain(firePotential[winner.id] + random(-movementMutationRate, movementMutationRate), 0, 1)
+        : random(0, 1);
+      
+      // Only mutate burst/rapid stats if winner uses burst or rapid fire
+      if (winner && firePotential[winner.id] > 0.5 && (fireBurst[winner.id] >= Math.max(fireRapid[winner.id], fireAlternating[winner.id]) || fireRapid[winner.id] >= Math.max(fireBurst[winner.id], fireAlternating[winner.id]))) {
+        bulletBurstCount[i] = constrain(bulletBurstCount[winner.id] + random(-1, 1), 1.5, 5.5);
+        bulletBurstSpread[i] = constrain(bulletBurstSpread[winner.id] + random(-0.2, 0.2), PI/3, PI);
+      } else if (winner) {
+        bulletBurstCount[i] = bulletBurstCount[winner.id];
+        bulletBurstSpread[i] = bulletBurstSpread[winner.id];
+      } else {
+        bulletBurstCount[i] = random(1.5, 5.5);
+        bulletBurstSpread[i] = random(PI/3, PI);
+      }
+      
+      // Only mutate cooldown multiplier if winner uses alternating fire
+      if (winner && firePotential[winner.id] > 0.5 && fireAlternating[winner.id] >= Math.max(fireBurst[winner.id], fireRapid[winner.id])) {
+        bulletCooldownMultiplier[i] = constrain(bulletCooldownMultiplier[winner.id] + random(-1, 1), 0.5, 5.5);
+      } else if (winner) {
+        bulletCooldownMultiplier[i] = bulletCooldownMultiplier[winner.id];
+      } else {
+        bulletCooldownMultiplier[i] = random(0.5, 5.5);
+      }
+      
+      // Death category (mutation-based)
+      deathLandmine[i] = winner
+        ? constrain(deathLandmine[winner.id] + random(-(movementMutationRate/2), (movementMutationRate/2)), 0, 1)
+        : random(0, 1);
+      
+      deathPotential[i] = winner
+        ? constrain(deathPotential[winner.id] + random(-(movementMutationRate/2), (movementMutationRate/2)), 0, 1)
+        : random(0, 1);
+      
+      // Path category (mutation-based)
+      pathHighArc[i] = winner
+        ? constrain(pathHighArc[winner.id] + random(-movementMutationRate, movementMutationRate), 0, 1)
+        : random(0, 1);
+      
+      pathClockwise[i] = winner
+        ? constrain(pathClockwise[winner.id] + random(-movementMutationRate, movementMutationRate), 0, 1)
+        : random(0, 1);
+      
+      pathHoming[i] = winner
+        ? constrain(pathHoming[winner.id] + random(-movementMutationRate, movementMutationRate), 0, 1)
+        : random(0, 1);
+      
+      pathPotential[i] = winner
+        ? constrain(pathPotential[winner.id] + random(-movementMutationRate, movementMutationRate), 0, 1)
+        : random(0, 1);
+      
+      // Only mutate arc duration if winner uses high arc
+      if (winner && pathPotential[winner.id] > 0.5 && pathHighArc[winner.id] >= Math.max(pathClockwise[winner.id], pathHoming[winner.id])) {
+        bulletArcDuration[i] = constrain(bulletArcDuration[winner.id] + random(-50, 50), 60, 600);
+      } else if (winner) {
+        bulletArcDuration[i] = bulletArcDuration[winner.id];
+      } else {
+        bulletArcDuration[i] = random(60, 600);
+      }
+      
+      // Only mutate curve strength if winner uses clockwise path
+      if (winner && pathPotential[winner.id] > 0.5 && pathClockwise[winner.id] >= Math.max(pathHighArc[winner.id], pathHoming[winner.id])) {
+        bulletCurveStrength[i] = constrain(bulletCurveStrength[winner.id] + random(-0.005, 0.005), -0.1, 0.1);
+      } else if (winner) {
+        bulletCurveStrength[i] = bulletCurveStrength[winner.id];
+      } else {
+        bulletCurveStrength[i] = random(-0.1, 0.1);
+      }
       
       angleFromSpawn[i] = winner 
         ? constrain(angleFromSpawn[winner.id] + random((-PI / 3), (PI / 3)), 0, TWO_PI)
@@ -5724,15 +6960,20 @@ function nextRound(){
         ? constrain(bulletSize[winner.id] + random(-(movementMutationRate / 2), (movementMutationRate / 2)), 1, 3)
         : random(1, 3);
 
-      explosionRadiusMultiplier[i] = winner
-        ? constrain(explosionRadiusMultiplier[winner.id] + random(-0.2, 0.2), 0.5, 3)
-        : random(0.5, 3);
-
-      explosionResidueMultiplier[i] = winner
-        ? constrain(explosionResidueMultiplier[winner.id] + random(-0.2, 0.2), 0.5, 3)
-        : random(0.5, 3);
-
-      bulletExplodeAfter[i] = constrain(bulletExplodeAfter[winner.id] + random(-50, 50), 100, 800);
+      // Explosion stats - only mutate if winner uses explosions
+      if (winner && specialPotential[winner.id] > 0.5 && specialExplosion[winner.id] >= Math.max(specialKnockback[winner.id])) {
+        explosionRadiusMultiplier[i] = constrain(explosionRadiusMultiplier[winner.id] + random(-0.2, 0.2), 0.5, 3);
+        explosionResidueMultiplier[i] = constrain(explosionResidueMultiplier[winner.id] + random(-0.2, 0.2), 0.5, 3);
+        bulletExplodeAfter[i] = constrain(bulletExplodeAfter[winner.id] + random(-50, 50), 100, 800);
+      } else if (winner) {
+        explosionRadiusMultiplier[i] = explosionRadiusMultiplier[winner.id];
+        explosionResidueMultiplier[i] = explosionResidueMultiplier[winner.id];
+        bulletExplodeAfter[i] = bulletExplodeAfter[winner.id];
+      } else {
+        explosionRadiusMultiplier[i] = random(0.5, 3);
+        explosionResidueMultiplier[i] = random(0.5, 3);
+        bulletExplodeAfter[i] = random(100, 800);
+      }
       
       antSize[i] = winner 
         ? constrain(antSize[winner.id] + random(-antSizeMutationRate, antSizeMutationRate), 0.3, 3)
@@ -5758,13 +6999,24 @@ function nextRound(){
       antAlternatingCooldownState[i] = 0;
       antRapidFireActive[i] = false;
       antAirHeight[i] = 0;
+      
+      // Gene Token System - inherit or initialize
+      if (winner) {
+        geneTokens[i] = geneTokens[winner.id] || 0;
+        geneTokenInvestments[i] = JSON.parse(JSON.stringify(geneTokenInvestments[winner.id] || [])); // Deep copy
+        geneTokenLastRoundGained[i] = geneTokenLastRoundGained[winner.id] || 0;
+      } else {
+        geneTokens[i] = 2;
+        geneTokenInvestments[i] = [];
+        geneTokenLastRoundGained[i] = 0;
+      }
 
       if (Math.round(autonomy[i]) === 0){
         followTarget[i] = false;
         keepDistance[i] = true;
       }
       // Set explosion flags based on genetics
-      const specialType2 = Math.round(bulletSpecialType[i]);
+      const specialType2 = getSpecialType(i);
       if (specialType2 === 0){
         // No special bullet behavior
         explodeOnTermination[i] = false;
@@ -5841,6 +7093,24 @@ function nextRound(){
   enemyCount = antIndex - 1;
   playerSpeed = movementSpeed / enemyCount;
   console.log(`Total: Created ${enemyCount} ants across all winners`);
+
+  // Gene Token System - Update existing investments and allocate new tokens
+  for (let i = 1; i <= enemyCount; i++) {
+    updateTokenInvestments(i, level);
+    
+    // Immediately invest all available tokens
+    let investmentAttempts = 0;
+    const maxAttempts = 10; // Prevent infinite loops
+    while (geneTokens[i] > 0 && investmentAttempts < maxAttempts) {
+      let tokensBefore = geneTokens[i];
+      evaluateAndAllocateTokens(i, level, false); // Not initial setup
+      if (geneTokens[i] === tokensBefore) {
+        // No investment made, break to avoid infinite loop
+        break;
+      }
+      investmentAttempts++;
+    }
+  }
 
   // Multiplayer: After setting up the new round, prepare for first player
   if (multiplayerTransition) {
@@ -5957,6 +7227,8 @@ function drawStartScreen(){
         // Apply custom ant stats if enabled
         if (devToolsUseCustomAnts) {
           applyCustomAntsToInitialPopulation();
+        } else {
+          applyDifficultyToInitialPopulation();
         }
         start = true;
         // Don't change music here - title music already playing and will continue for turn screen
@@ -5974,7 +7246,7 @@ function drawStartScreen(){
       return;
     }
     
-    if (startMenu === false){
+    if (startMenu === false && !difficultyMenu){
       imageMode(CENTER);
       image(splashScreen, getMenuWidth() / 2, getMenuHeight() / 2, getMenuHeight() * 1.4, getMenuHeight());
       if(!titlemusic.isPlaying()) {
@@ -5985,7 +7257,7 @@ function drawStartScreen(){
         menuNavigationCooldown = 20; // Prevent immediate menu selection
       }
     }
-    if (startMenu === true){
+    if (startMenu === true && !difficultyMenu){
       imageMode(CENTER);
       image(splashScreen, getMenuWidth() / 2, getMenuHeight() / 2, getMenuHeight() * 1.4, getMenuHeight());
       if(!titlemusic.isPlaying()) {
@@ -6116,15 +7388,9 @@ function drawStartScreen(){
         if (mx > option0X - option0W/2 && mx < option0X + option0W/2 &&
             my > option0Y - option0H/2 && my < option0Y + option0H/2) {
           if (menuNavigationCooldown === 0) {
-            multiplayerMode = false;
-            numPlayers = 1;
-            // Apply custom ant stats if enabled
-            if (devToolsUseCustomAnts) {
-              applyCustomAntsToInitialPopulation();
-            }
-            start = true;
-            titlemusic.stop();
-            gamemusic.play();
+            pendingGameMode = 'single';
+            difficultyMenu = true;
+            startMenu = false;
             menuNavigationCooldown = 20;
           }
         } 
@@ -6132,7 +7398,8 @@ function drawStartScreen(){
         else if (mx > option1X - option1W/2 && mx < option1X + option1W/2 &&
                  my > option1Y - option1H/2 && my < option1Y + option1H/2) {
           if (menuNavigationCooldown === 0) {
-            playerSelectScreen = true;
+            pendingGameMode = 'multiplayer';
+            difficultyMenu = true;
             startMenu = false;
             menuNavigationCooldown = 20;
           }
@@ -6152,17 +7419,14 @@ function drawStartScreen(){
       // Enter key to select
       if (isConfirmPressed() && menuNavigationCooldown === 0) {
         if (startMenuSelection === 0) {
-          multiplayerMode = false;
-          numPlayers = 1;
-          // Apply custom ant stats if enabled
-          if (devToolsUseCustomAnts) {
-            applyCustomAntsToInitialPopulation();
-          }
-          start = true;
-          titlemusic.stop();
-          gamemusic.play();
+          // Single Player - go to difficulty menu
+          pendingGameMode = 'single';
+          difficultyMenu = true;
+          startMenu = false;
         } else if (startMenuSelection === 1) {
-          playerSelectScreen = true;
+          // Multiplayer - go to difficulty menu
+          pendingGameMode = 'multiplayer';
+          difficultyMenu = true;
           startMenu = false;
         } else if (startMenuSelection === 2) {
           antdex = true;
@@ -6172,6 +7436,123 @@ function drawStartScreen(){
         menuNavigationCooldown = 20;
       }
 
+    }
+    
+    // Difficulty Selection Menu
+    if (difficultyMenu === true) {
+      // Dark background
+      imageMode(CORNER);
+      fill(20);
+      rect(0, 0, getMenuWidth(), getMenuHeight());
+      
+      // Menu navigation
+      if (menuNavigationCooldown === 0) {
+        if (isUpPressed()) {
+          difficultySelection = (difficultySelection - 1 + 3) % 3;
+          menuNavigationCooldown = 10;
+        } else if (isDownPressed()) {
+          difficultySelection = (difficultySelection + 1) % 3;
+          menuNavigationCooldown = 10;
+        }
+      }
+      
+      // Title
+      fill(255);
+      textAlign(CENTER);
+      textSize(60);
+      text("Select Difficulty", getMenuWidth() / 2, getMenuHeight() * 0.15);
+      
+      // Difficulty options
+      let difficulties = [
+        { name: 'Easy', color: [100, 255, 100], desc: 'Normal ants, 2 tokens/5 rounds' },
+        { name: 'Medium', color: [255, 255, 100], desc: 'Smaller ants (0.5), 4 tokens/5 rounds' },
+        { name: 'Hard', color: [255, 100, 100], desc: 'Tiny ants (0.33), 5+ tokens/5 rounds' }
+      ];
+      
+      for (let i = 0; i < 3; i++) {
+        let optY = getMenuHeight() * (0.30 + i * 0.18);
+        let optX = getMenuWidth() / 2;
+        let optW = 450;
+        let optH = 100;
+        
+        push();
+          rectMode(CENTER);
+          if (difficultySelection === i) {
+            fill(255);
+            stroke(difficulties[i].color);
+            strokeWeight(3);
+          } else {
+            fill(50, 50, 50);
+            stroke(100, 100, 100);
+            strokeWeight(2);
+          }
+          rect(optX, optY, optW, optH, 12);
+          
+          // Difficulty name
+          if (difficultySelection === i) {
+            fill(10);
+          } else {
+            fill(255);
+          }
+          textSize(36);
+          textAlign(CENTER, TOP);
+          text(difficulties[i].name, optX, optY - 30);
+          
+          // Description
+          if (difficultySelection === i) {
+            fill(60);
+          } else {
+            fill(180);
+          }
+          textSize(18);
+          text(difficulties[i].desc, optX, optY + 5);
+        pop();
+      }
+      
+      // Instructions
+      let fadeAlpha = map(sin(frameCount * 0.05), -1, 1, 30, 70);
+      fill(200, fadeAlpha);
+      textSize(18);
+      textAlign(CENTER);
+      text('W/S or ↑/↓  Navigate  |  Enter or A  Confirm  |  Esc  Back', getMenuWidth() / 2, getMenuHeight() * 0.85);
+      
+      // Back to main menu
+      if (keyIsDown(ESCAPE) && menuNavigationCooldown === 0) {
+        difficultyMenu = false;
+        startMenu = true;
+        menuNavigationCooldown = 20;
+      }
+      
+      // Confirm selection
+      if (isConfirmPressed() && menuNavigationCooldown === 0) {
+        // Set difficulty
+        if (difficultySelection === 0) difficulty = 'easy';
+        else if (difficultySelection === 1) difficulty = 'medium';
+        else if (difficultySelection === 2) difficulty = 'hard';
+        
+        console.log(`Difficulty set to: ${difficulty}`);
+        
+        // Start appropriate game mode
+        if (pendingGameMode === 'single') {
+          multiplayerMode = false;
+          numPlayers = 1;
+          if (devToolsUseCustomAnts) {
+            applyCustomAntsToInitialPopulation();
+          } else {
+            applyDifficultyToInitialPopulation();
+          }
+          start = true;
+          difficultyMenu = false;
+          pendingGameMode = null;
+          titlemusic.stop();
+          gamemusic.play();
+        } else if (pendingGameMode === 'multiplayer') {
+          playerSelectScreen = true;
+          difficultyMenu = false;
+        }
+        
+        menuNavigationCooldown = 20;
+      }
     }
   
   endMenuScaling();
@@ -7073,7 +8454,7 @@ function updateAntDexEntries() {
       }
 
       // 44-46 + 67: Special Abilities
-      const specialType = Math.round(bulletSpecialType[i]);
+      const specialType = getSpecialType(i);
       const expTrigger = Math.round(bulletExplosionTrigger[i]);
 
       if (!noSpecialDiscovered && specialType === 0) {
@@ -7094,7 +8475,7 @@ function updateAntDexEntries() {
       }
 
       // Fire Type discoveries
-      const fireType = Math.round(bulletFireType[i]);
+      const fireType = getFireType(i);
       if (!alternatingFireDiscovered && fireType === -1) {
         alternatingFireDiscovered = true;
         triggerDiscoveryPopup();
@@ -7288,14 +8669,14 @@ function updateAntDexEntries() {
       }
 
       // Bullet Death Type: Landmine Conversion
-      const deathType = Math.round(bulletDeathType[i]);
+      const deathType = getDeathType(i);
       if (!landmineConversionDiscovered && deathType === 1) {
         landmineConversionDiscovered = true;
         triggerDiscoveryPopup();
       }
 
       // Bullet Path Type discoveries
-      const pathType = Math.round(bulletPathType[i]);
+      const pathType = getPathType(i);
       if (!clockwiseCurveDiscovered && pathType === -1) {
         clockwiseCurveDiscovered = true;
         triggerDiscoveryPopup();
@@ -8689,28 +10070,59 @@ function drawAntsTab(fadeAlpha) {
     { name: 'Autonomy', key: 'autonomy', min: -0.5, max: 1.5, step: 0.01,
       help: '0=FollowTarget, 1=KeepDistance' },
     { name: 'Distance From Anchor', key: 'distanceFromAnchor', min: 0.1, max: 1000, step: 1 },
-    { name: 'Bullet Special Type', key: 'bulletSpecialType', min: -1.5, max: 1.5, step: 0.01,
-      help: '-1=Knockback, 0=None, 1=Explosions' },
+    
+    // Special category (mutation-based)
+    { name: '── SPECIAL CATEGORY ──', key: null, min: 0, max: 0, step: 0 }, // Header
+    { name: 'Special: Explosion', key: 'specialExplosion', min: 0, max: 1, step: 0.01,
+      help: 'Mutation stat for explosion bullets (0-1)' },
+    { name: 'Special: Knockback', key: 'specialKnockback', min: 0, max: 1, step: 0.01,
+      help: 'Mutation stat for knockback bullets (0-1)' },
+    { name: 'Special Potential', key: 'specialPotential', min: 0, max: 1, step: 0.01,
+      help: 'If >0.5, use highest special trait; else none' },
     { name: 'Bullet Explosion Trigger', key: 'bulletExplosionTrigger', min: -0.5, max: 1.5, step: 0.01,
       help: '0=Time, 1=Proximity' },
     { name: 'Knockback Multiplier', key: 'bulletKnockbackMultiplier', min: 0.5, max: 5, step: 0.1,
       help: 'Multiplies knockback strength (0.5-5)' },
-    { name: 'Bullet Death Type', key: 'bulletDeathType', min: -0.5, max: 1.5, step: 0.01,
-      help: '0=Fade out, 1=Land mine' },
-    { name: 'Bullet Fire Type', key: 'bulletFireType', min: -1.5, max: 2.5, step: 0.01,
-      help: '-1=Alt Cooldown, 0=Single, 1=Burst, 2=Rapid' },
-    { name: 'Bullet Path Type', key: 'bulletPathType', min: -2.5, max: 1.5, step: 0.01,
-      help: '-2=Homing, -1=Curve CW, 0=Normal, 1=High Arc' },
-    { name: 'Bullet Arc Duration', key: 'bulletArcDuration', min: 60, max: 600, step: 1,
-      help: 'Frames in air for High Arc (60-600)' },
-    { name: 'Bullet Curve Strength', key: 'bulletCurveStrength', min: -0.1, max: 0.1, step: 0.001,
-      help: 'Curve tightness (+ = clockwise, - = counter-clockwise)' },
+    
+    // Fire category (mutation-based)
+    { name: '── FIRE CATEGORY ──', key: null, min: 0, max: 0, step: 0 }, // Header
+    { name: 'Fire: Burst', key: 'fireBurst', min: 0, max: 1, step: 0.01,
+      help: 'Mutation stat for burst fire (0-1)' },
+    { name: 'Fire: Rapid', key: 'fireRapid', min: 0, max: 1, step: 0.01,
+      help: 'Mutation stat for rapid fire (0-1)' },
+    { name: 'Fire: Alternating', key: 'fireAlternating', min: 0, max: 1, step: 0.01,
+      help: 'Mutation stat for alternating cooldown (0-1)' },
+    { name: 'Fire Potential', key: 'firePotential', min: 0, max: 1, step: 0.01,
+      help: 'If >0.5, use highest fire trait; else normal' },
     { name: 'Bullet Burst Count', key: 'bulletBurstCount', min: 1.5, max: 5.5, step: 0.01,
       help: 'Number of bullets in burst/rapid (2-5)' },
     { name: 'Bullet Burst Spread', key: 'bulletBurstSpread', min: 1.047, max: 3.14, step: 0.01,
       help: 'Spread angle 60-180° (π/3 to π radians)' },
     { name: 'Cooldown Multiplier', key: 'bulletCooldownMultiplier', min: 0.5, max: 5.5, step: 0.1,
       help: 'Alternating cooldown multiplier (1-5)' },
+    
+    // Death category (mutation-based)
+    { name: '── DEATH CATEGORY ──', key: null, min: 0, max: 0, step: 0 }, // Header
+    { name: 'Death: Landmine', key: 'deathLandmine', min: 0, max: 1, step: 0.01,
+      help: 'Mutation stat for landmine conversion (0-1)' },
+    { name: 'Death Potential', key: 'deathPotential', min: 0, max: 1, step: 0.01,
+      help: 'If >0.5, use highest death trait; else fading' },
+    
+    // Path category (mutation-based)
+    { name: '── PATH CATEGORY ──', key: null, min: 0, max: 0, step: 0 }, // Header
+    { name: 'Path: High Arc', key: 'pathHighArc', min: 0, max: 1, step: 0.01,
+      help: 'Mutation stat for high arc path (0-1)' },
+    { name: 'Path: Clockwise', key: 'pathClockwise', min: 0, max: 1, step: 0.01,
+      help: 'Mutation stat for clockwise curve (0-1)' },
+    { name: 'Path: Homing', key: 'pathHoming', min: 0, max: 1, step: 0.01,
+      help: 'Mutation stat for homing path (0-1)' },
+    { name: 'Path Potential', key: 'pathPotential', min: 0, max: 1, step: 0.01,
+      help: 'If >0.5, use highest path trait; else straight' },
+    { name: 'Bullet Arc Duration', key: 'bulletArcDuration', min: 60, max: 600, step: 1,
+      help: 'Frames in air for High Arc (60-600)' },
+    { name: 'Bullet Curve Strength', key: 'bulletCurveStrength', min: -0.1, max: 0.1, step: 0.001,
+      help: 'Curve tightness (+ = clockwise, - = counter-clockwise)' },
+    
     { name: 'Explosion Proximity', key: 'explosionProximity', min: 0.1, max: 1000, step: 1 },
     { name: 'Angle From Spawn', key: 'angleFromSpawn', min: 0, max: 6.28, step: 0.01,
       help: 'Radians (0-2π)' },
@@ -8796,14 +10208,55 @@ function drawAntsTab(fadeAlpha) {
     text('Showing: Most recent winning ants (read-only)', toggleX + toggleWidth / 2, toggleY + toggleHeight + 23);
   }
   
+  // Get current ant stats
+  let currentAnt = customAntStats[devToolsAntTab];
+  
+  // Guard against undefined currentAnt
+  if (!currentAnt) {
+    fill(255, 0, 0);
+    textSize(16);
+    textAlign(CENTER, CENTER);
+    text('No ant stats available', getMenuWidth() / 2, getMenuHeight() / 2);
+    pop();
+    return;
+  }
+  
+  // Gene token display
+  let tokenY = toggleY + toggleHeight + 42;
+  textAlign(CENTER, CENTER);
+  textSize(13);
+  fill(150, 255, 150);
+  let tokenCount = currentAnt.geneTokens || 0;
+  let investmentCount = (currentAnt.geneTokenInvestments || []).length;
+  let totalTokens = tokenCount + investmentCount;
+  text('Gene Tokens: ' + tokenCount + ' available / ' + totalTokens + ' total', getMenuWidth() / 2, tokenY);
+  
+  // Show trait investments if any
+  let investY = tokenY + 16;
+  if (currentAnt.geneTokenInvestments && currentAnt.geneTokenInvestments.length > 0) {
+    textSize(10);
+    fill(200, 200, 100);
+    let traitInvestments = currentAnt.geneTokenInvestments.filter(inv => inv.type === 'trait').map(inv => inv.category);
+    let capInvestments = currentAnt.geneTokenInvestments.filter(inv => inv.type === 'cap').length;
+    let investText = '';
+    if (traitInvestments.length > 0) {
+      investText += 'Traits: ' + traitInvestments.join(', ');
+    }
+    if (capInvestments > 0) {
+      if (investText.length > 0) investText += ' | ';
+      investText += 'Caps: ' + capInvestments;
+    }
+    text('Investments: ' + investText, getMenuWidth() / 2, investY);
+  } else {
+    investY -= 8; // Reduce space if no investments
+  }
+  
   // Draw stat sliders
-  let startY = toggleY + 58;
+  let startY = investY + 24;
   let sliderHeight = 22;
   let sliderSpacing = 24;
   let sliderWidth = getMenuWidth() * 0.7;
   let sliderX = (getMenuWidth() - sliderWidth) / 2;
-  
-  let currentAnt = customAntStats[devToolsAntTab];
   
   // Calculate visible range (show 10 stats at a time)
   let visibleStats = 10;
@@ -8813,13 +10266,55 @@ function drawAntsTab(fadeAlpha) {
   for (let i = 0; i < visibleStats && (i + devToolsAntScrollOffset) < antStatDefinitions.length; i++) {
     let statIndex = i + devToolsAntScrollOffset;
     let stat = antStatDefinitions[statIndex];
-    let value = currentAnt[stat.key];
     let y = startY + i * sliderSpacing;
+    
+    // Check if this is a header row (null key)
+    if (stat.key === null) {
+      // Display header
+      textAlign(CENTER, CENTER);
+      textSize(13);
+      fill(255, 255, 100);  // Yellow for headers
+      text(stat.name, getMenuWidth() / 2, y);
+      continue; // Skip the rest of the loop for headers
+    }
+    
+    let value = currentAnt[stat.key];
+    if (value === undefined) value = 0; // Fallback for missing stat
+    let isSelected = devToolsAntStatIndex === statIndex;
+    
+    // Define stat cap tiers (used for display)
+    const statCapTiers = {
+      bulletSpeed: { caps: [250, 200, 150, 120, 90], inverse: true },
+      bulletCooldown: { caps: [150, 120, 100, 90, 79], inverse: true },
+      antSpeed: { caps: [2, 2.5, 3, 3.5], inverse: false },
+      bulletExplosionTrigger: { caps: [0.5, 1.0, 1.5], inverse: false },
+      bulletKnockbackMultiplier: { caps: [2, 3, 4, 5], inverse: false },
+      bulletBurstCount: { caps: [3, 4, 5, 5.5], inverse: false },
+      bulletBurstSpread: { caps: [2.0, 2.5, 3.0, 3.14], inverse: false },
+      bulletCooldownMultiplier: { caps: [3, 4, 5, 5.5], inverse: false },
+      bulletArcDuration: { caps: [300, 400, 500, 600], inverse: false },
+      bulletCurveStrength: { caps: [0.05, 0.075, 0.1], inverse: false },
+      explosionProximity: { caps: [400, 600, 800, 1000], inverse: false },
+      bulletSize: { caps: [1.5, 2.0, 2.5, 3.0], inverse: false },
+      explosionRadiusMultiplier: { caps: [1.5, 2.0, 2.5, 3.0], inverse: false },
+      explosionResidueMultiplier: { caps: [1.5, 2.0, 2.5, 3.0], inverse: false },
+      bulletExplodeAfter: { caps: [600, 500, 400, 200, 100], inverse: true },
+      antSize: { caps: [1.5, 2.0, 2.5, 3.0], inverse: false }
+    };
+    
+    // Count unlocked tiers for this stat
+    let unlockedTiers = 0;
+    if (statCapTiers[stat.key] && currentAnt.geneTokenInvestments) {
+      for (let inv of currentAnt.geneTokenInvestments) {
+        if (inv.target === stat.key && inv.type === 'cap') {
+          unlockedTiers = Math.max(unlockedTiers, (inv.tier || 0) + 1);
+        }
+      }
+    }
     
     // Stat name
     textAlign(LEFT, CENTER);
     textSize(12);
-    let isSelected = devToolsAntStatIndex === statIndex;
     fill(isSelected ? 255 : 200);
     text(stat.name + ':', sliderX, y);
     
@@ -8827,6 +10322,22 @@ function drawAntsTab(fadeAlpha) {
     textAlign(RIGHT, CENTER);
     let displayValue = stat.integer ? Math.floor(value) : value.toFixed(2);
     text(displayValue, sliderX + sliderWidth, y);
+    
+    // Show cap tier information if this stat has caps and is selected
+    if (statCapTiers[stat.key] && isSelected) {
+      // Show cap tiers below the stat
+      let tierInfo = statCapTiers[stat.key];
+      let capsText = 'Caps: [';
+      capsText += tierInfo.caps.map(c => c.toFixed(stat.integer ? 0 : 2)).join(', ');
+      capsText += ']';
+      if (tierInfo.inverse) capsText += ' (inverse)';
+      capsText += ' | Unlocked: ' + unlockedTiers + '/' + tierInfo.caps.length;
+      
+      textAlign(CENTER, CENTER);
+      textSize(9);
+      fill(100, 255, 100);
+      text(capsText, getMenuWidth() / 2, y + 11);
+    }
     
     // Slider bar background
     let barX = sliderX + 200;
@@ -8839,10 +10350,35 @@ function drawAntsTab(fadeAlpha) {
     fill(40);
     rect(barX, barY, barWidth, barHeight, 4);
     
-    // Slider filled portion
-    // Use dynamic max for ant speed based on ant size
+    // Calculate effective max for slider
     let effectiveMax = (stat.key === 'antSpeed') ? (4.5 - currentAnt.antSize) : stat.max;
+    
+    // Draw cap markers on the slider if this stat has caps
+    if (statCapTiers[stat.key]) {
+      let tierInfo = statCapTiers[stat.key];
+      
+      // Draw cap markers
+      for (let ti = 0; ti < tierInfo.caps.length; ti++) {
+        let capValue = tierInfo.caps[ti];
+        let markerRatio = (capValue - stat.min) / (effectiveMax - stat.min);
+        let markerX = barX + barWidth * markerRatio;
+        
+        stroke(ti < unlockedTiers ? 0 : 100);
+        strokeWeight(2);
+        if (ti < unlockedTiers) {
+          fill(100, 255, 100); // Green for unlocked
+        } else {
+          fill(255, 150, 0); // Orange for locked
+        }
+        rectMode(CENTER);
+        rect(markerX, y, 3, barHeight + 4, 1);
+      }
+    }
+    
+    // Slider filled portion
     let fillRatio = (value - stat.min) / (effectiveMax - stat.min);
+    rectMode(CORNER);
+    noStroke();
     if (!devToolsUseCustomAnts) {
       // Read-only mode - showing actual winners with cyan/gray
       if (isSelected) {
@@ -8859,12 +10395,14 @@ function drawAntsTab(fadeAlpha) {
     }
     rect(barX, barY, barWidth * fillRatio, barHeight, 4);
     
-    // Help text for special stats
+    // Help text for special stats (shown below cap info if it exists)
     if (stat.help && isSelected) {
       textAlign(CENTER, CENTER);
       textSize(10);
       fill(180);
-      text(stat.help, getMenuWidth() / 2, y + 12);
+      // Adjust position based on whether cap info is shown
+      let helpYOffset = statCapTiers[stat.key] ? 22 : 12;
+      text(stat.help, getMenuWidth() / 2, y + helpYOffset);
     }
   }
   
@@ -8913,6 +10451,10 @@ function drawAntsTab(fadeAlpha) {
     if (keyIsDown(87) || keyIsDown(38)) {  // W or Up - scroll/select up
       if (devToolsAntStatIndex > 0) {
         devToolsAntStatIndex--;
+        // Skip header rows
+        while (devToolsAntStatIndex > 0 && antStatDefinitions[devToolsAntStatIndex].key === null) {
+          devToolsAntStatIndex--;
+        }
         // Auto-scroll if needed
         if (devToolsAntStatIndex < devToolsAntScrollOffset) {
           devToolsAntScrollOffset = devToolsAntStatIndex;
@@ -8922,6 +10464,11 @@ function drawAntsTab(fadeAlpha) {
     } else if (keyIsDown(83) || keyIsDown(40)) {  // S or Down - scroll/select down
       if (devToolsAntStatIndex < antStatDefinitions.length - 1) {
         devToolsAntStatIndex++;
+        // Skip header rows
+        while (devToolsAntStatIndex < antStatDefinitions.length - 1 && 
+               antStatDefinitions[devToolsAntStatIndex].key === null) {
+          devToolsAntStatIndex++;
+        }
         // Auto-scroll if needed
         if (devToolsAntStatIndex >= devToolsAntScrollOffset + visibleStats) {
           devToolsAntScrollOffset = devToolsAntStatIndex - visibleStats + 1;
@@ -8930,21 +10477,25 @@ function drawAntsTab(fadeAlpha) {
       changed = true;
     } else if ((keyIsDown(65) || keyIsDown(37)) && devToolsUseCustomAnts) {  // A or Left - decrease value (only if custom mode enabled)
       let stat = antStatDefinitions[devToolsAntStatIndex];
-      // Use dynamic max for ant speed based on ant size
-      let effectiveMax = (stat.key === 'antSpeed') ? (4.5 - currentAnt.antSize) : stat.max;
-      currentAnt[stat.key] = constrain(currentAnt[stat.key] - stat.step * 5, stat.min, effectiveMax);
-      if (stat.integer) currentAnt[stat.key] = Math.floor(currentAnt[stat.key]);
+      if (stat.key !== null) { // Only adjust non-header stats
+        // Use dynamic max for ant speed based on ant size
+        let effectiveMax = (stat.key === 'antSpeed') ? (4.5 - currentAnt.antSize) : stat.max;
+        currentAnt[stat.key] = constrain(currentAnt[stat.key] - stat.step * 5, stat.min, effectiveMax);
+        if (stat.integer) currentAnt[stat.key] = Math.floor(currentAnt[stat.key]);
+      }
       changed = true;
     } else if ((keyIsDown(68) || keyIsDown(39)) && devToolsUseCustomAnts) {  // D or Right - increase value (only if custom mode enabled)
       let stat = antStatDefinitions[devToolsAntStatIndex];
-      // Use dynamic max for ant speed based on ant size
-      let effectiveMax = (stat.key === 'antSpeed') ? (4.5 - currentAnt.antSize) : stat.max;
-      currentAnt[stat.key] = constrain(currentAnt[stat.key] + stat.step * 5, stat.min, effectiveMax);
-      if (stat.integer) currentAnt[stat.key] = Math.floor(currentAnt[stat.key]);
-      // If ant size changed, clamp ant speed to new max
-      if (stat.key === 'antSize') {
-        let maxAntSpeedDev = 4.5 - currentAnt.antSize;
-        currentAnt.antSpeed = min(currentAnt.antSpeed, maxAntSpeedDev);
+      if (stat.key !== null) { // Only adjust non-header stats
+        // Use dynamic max for ant speed based on ant size
+        let effectiveMax = (stat.key === 'antSpeed') ? (4.5 - currentAnt.antSize) : stat.max;
+        currentAnt[stat.key] = constrain(currentAnt[stat.key] + stat.step * 5, stat.min, effectiveMax);
+        if (stat.integer) currentAnt[stat.key] = Math.floor(currentAnt[stat.key]);
+        // If ant size changed, clamp ant speed to new max
+        if (stat.key === 'antSize') {
+          let maxAntSpeedDev = 4.5 - currentAnt.antSize;
+          currentAnt.antSpeed = min(currentAnt.antSpeed, maxAntSpeedDev);
+        }
       }
       changed = true;
     }
