@@ -557,6 +557,8 @@ let explosionRadiusMultiplier = [];
 let explosionResidueMultiplier = [];
 
 let enemyExplosions = [];
+let enemyArcExplosionLinks = [];
+let enemyGroundImpacts = [];
 let bulletExplodeAfter = [];
 
 let buttons = {};
@@ -1222,7 +1224,9 @@ function draw() {
       calculateBonus();
       enemyInteraction1(); // Beetle Eats Enemy
       enemyShoot1();
+      drawEnemyArcExplosionLinks();
       drawEnemyExplosions();
+      drawEnemyGroundImpacts();
       detectKeyboardInput();
       // Beetle Moves
       beetleShoot();
@@ -3048,22 +3052,38 @@ function enemyShoot1() {
 
         // --- EXPLOSION TRIGGER ---
         let shouldExplode = false;
+        let explosionRadiusScale = 1;
+        let shouldSpawnArcLink = false;
 
-        // 1) explode when bullet life ends, if this ant is set to do that
-        if (explodeOnTermination[i] && bullet.life >= bullet.explodeAfter) {
-          shouldExplode = true;
-        }
-
-        // 2) explode when close to player, if this ant is proximity-based
-        if (triggerExplodeViaProximity[i]) {
-          let distToPlayer = dist(bullet.x, bullet.y, playerX, playerY);
-          if (distToPlayer <= explosionProximity[i]) {
+        if (bullet.pathType === 1) {
+          // High-arc timed explosions can trigger in-air when their fuse ends.
+          if (explodeOnTermination[i] && bullet.life >= bullet.explodeAfter) {
             shouldExplode = true;
+            let maxArcHeight = Math.max((bullet.arcDuration || 60) * 0.5, 1);
+            let arcHeightRatio = constrain((bullet.airHeight || 0) / maxArcHeight, 0, 1);
+            explosionRadiusScale = 1 + (0.3 * arcHeightRatio);
+            shouldSpawnArcLink = (bullet.airHeight || 0) > 2;
+          }
+        } else {
+          // 1) explode when bullet life ends, if this ant is set to do that
+          if (explodeOnTermination[i] && bullet.life >= bullet.explodeAfter) {
+            shouldExplode = true;
+          }
+
+          // 2) explode when close to player, if this ant is proximity-based
+          if (triggerExplodeViaProximity[i]) {
+            let distToPlayer = dist(bullet.x, bullet.y, playerX, playerY);
+            if (distToPlayer <= explosionProximity[i]) {
+              shouldExplode = true;
+            }
           }
         }
 
         if (shouldExplode) {
-          spawnEnemyExplosion(bullet.x, bullet.y, bullet.size, i);
+          if (shouldSpawnArcLink) {
+            spawnEnemyArcExplosionLink(bullet.x, bullet.y - bullet.airHeight, bullet.y, bullet.size, explosionRadiusScale);
+          }
+          spawnEnemyExplosion(bullet.x, bullet.y, bullet.size, i, explosionRadiusScale);
           enemyBullets[i].splice(b, 1);
           continue;
         }
@@ -3258,6 +3278,34 @@ function enemyShoot1() {
               explodeAfter: bullet.explodeAfter || bulletExplodeAfter[bullet.owner],
               fusionCount: 1
             });
+          } else {
+            let hasExplosionSpecial = explodeOnTermination[bullet.owner] || triggerExplodeViaProximity[bullet.owner];
+
+            // Explosion special: explode on ground impact like a normal triggered explosion.
+            if (hasExplosionSpecial) {
+              spawnEnemyExplosion(bullet.x, bullet.y, bullet.size, bullet.owner);
+            } else if (bullet.knockbackBullet) {
+              // Knockback special: white impact burst with AoE direct-hit-equivalent effect.
+              let knockbackRadius = (18 * bullet.size) * (0.9 + 0.45 * (bullet.knockbackMultiplier || 1));
+              spawnEnemyGroundImpact(bullet.x, bullet.y, knockbackRadius, true);
+              let distToPlayer = dist(playerX, playerY, bullet.x, bullet.y);
+              if (distToPlayer <= knockbackRadius) {
+                handlePlayerHit(
+                  bullet.owner,
+                  true,
+                  bullet.x,
+                  bullet.y,
+                  bullet.knockbackMultiplier || 1,
+                  10,
+                  false,
+                  bullet.size
+                );
+              }
+            } else {
+              // Non-special high-arc bullets create a small ground impact AoE visual.
+              let defaultImpactRadius = 22 * bullet.size;
+              spawnEnemyGroundImpact(bullet.x, bullet.y, defaultImpactRadius, false);
+            }
           }
           // Type 0 or other: Just disappear
           enemyBullets[i].splice(b, 1);
@@ -4531,6 +4579,151 @@ function getMinAllowedValue(statName, antId, investmentsOverride) {
   return tierInfo.caps[nextIdx];
 }
 
+function getRequiredCapTierForValue(statName, value) {
+  const tierInfo = moduleStatCapTiers[statName];
+  if (!tierInfo) return -1;
+
+  const thresholdGatedStats = ['specialExplosion', 'pathCurve'];
+  let requiredTier = -1;
+
+  if (thresholdGatedStats.includes(statName)) {
+    // Threshold-gated: crossing each threshold requires the matching tier token.
+    for (let t = 0; t < tierInfo.caps.length; t++) {
+      if (value >= tierInfo.caps[t]) {
+        requiredTier = t;
+      }
+    }
+    return requiredTier;
+  }
+
+  if (tierInfo.inverse) {
+    // Inverse stats improve when lowered below each cap threshold.
+    for (let t = 0; t < tierInfo.caps.length; t++) {
+      if (value < tierInfo.caps[t]) {
+        requiredTier = t;
+      }
+    }
+    return requiredTier;
+  }
+
+  // Normal scaling stats improve when raised above each cap threshold.
+  for (let t = 0; t < tierInfo.caps.length; t++) {
+    if (value > tierInfo.caps[t]) {
+      requiredTier = t;
+    }
+  }
+  return requiredTier;
+}
+
+function syncCustomAntCapInvestmentsForStat(customAnt, statName) {
+  if (!customAnt || !moduleStatCapTiers[statName]) return;
+
+  if (!customAnt.geneTokenInvestments) customAnt.geneTokenInvestments = [];
+  if (customAnt.geneTokens === undefined) customAnt.geneTokens = 0;
+
+  const statValue = customAnt[statName];
+  if (statValue === undefined) return;
+
+  const requiredTier = getRequiredCapTierForValue(statName, statValue);
+  if (requiredTier < 0) return;
+
+  let highestUnlockedTier = -1;
+  for (let inv of customAnt.geneTokenInvestments) {
+    if (inv.type === 'cap' && inv.target === statName) {
+      highestUnlockedTier = Math.max(highestUnlockedTier, inv.tier || 0);
+    }
+  }
+
+  const tierInfo = moduleStatCapTiers[statName];
+  for (let tier = highestUnlockedTier + 1; tier <= requiredTier && tier < tierInfo.caps.length; tier++) {
+    customAnt.geneTokenInvestments.push({
+      target: statName,
+      type: 'cap',
+      tier: tier,
+      cap: tierInfo.caps[tier],
+      inverse: !!tierInfo.inverse,
+      lockedUntilRound: 0,
+      percentage: 1
+    });
+
+    // Spend available tokens first; if none are available, keep at 0 and still
+    // reflect the newly required cap investment for editor consistency.
+    if (customAnt.geneTokens > 0) {
+      customAnt.geneTokens--;
+    }
+  }
+
+  customAnt.geneTokens = Math.max(0, Math.floor(customAnt.geneTokens));
+}
+
+function getTraitCategoryFromStatKey(statKey) {
+  if (!statKey) return null;
+  if (['specialExplosion', 'specialKnockback', 'specialPotential', 'bulletKnockbackMultiplier'].includes(statKey)) return 'special';
+  if (['fireBurst', 'fireRapid', 'fireAlternating', 'firePotential', 'bulletBurstCount', 'bulletBurstSpread', 'bulletCooldownMultiplier'].includes(statKey)) return 'fire';
+  if (['deathLandmine', 'deathPotential'].includes(statKey)) return 'death';
+  if (['pathHighArc', 'pathCurve', 'pathPotential', 'bulletArcDuration', 'bulletCurveStrength'].includes(statKey)) return 'path';
+  return null;
+}
+
+function getDominantTraitKeyForCategory(customAnt, category) {
+  const traitKeysByCategory = {
+    special: ['specialExplosion', 'specialKnockback'],
+    fire: ['fireBurst', 'fireRapid', 'fireAlternating'],
+    death: ['deathLandmine'],
+    path: ['pathHighArc', 'pathCurve']
+  };
+
+  const traitKeys = traitKeysByCategory[category] || [];
+  if (traitKeys.length === 0) return null;
+
+  let bestKey = traitKeys[0];
+  let bestValue = customAnt[bestKey] || 0;
+  for (let k = 1; k < traitKeys.length; k++) {
+    const key = traitKeys[k];
+    const value = customAnt[key] || 0;
+    if (value > bestValue) {
+      bestValue = value;
+      bestKey = key;
+    }
+  }
+  return bestKey;
+}
+
+function investCustomAntTraitToken(customAnt, category) {
+  if (!customAnt || !category) return false;
+  if (!customAnt.geneTokenInvestments) customAnt.geneTokenInvestments = [];
+  if (customAnt.geneTokens === undefined) customAnt.geneTokens = 0;
+
+  const hasTraitInvestment = customAnt.geneTokenInvestments.some(
+    inv => inv.type === 'trait' && inv.category === category
+  );
+  if (hasTraitInvestment) return false;
+
+  const targetTrait = getDominantTraitKeyForCategory(customAnt, category);
+  if (!targetTrait) return false;
+
+  const potentialKey = category + 'Potential';
+  if (customAnt[potentialKey] === undefined) customAnt[potentialKey] = 0;
+  customAnt[potentialKey] = Math.max(customAnt[potentialKey], 0.6);
+
+  if (customAnt[targetTrait] === undefined) customAnt[targetTrait] = 0;
+  customAnt[targetTrait] = Math.max(customAnt[targetTrait], 0.6);
+
+  if (customAnt.geneTokens > 0) {
+    customAnt.geneTokens--;
+  }
+  customAnt.geneTokens = Math.max(0, Math.floor(customAnt.geneTokens));
+  customAnt.geneTokenInvestments.push({
+    target: targetTrait,
+    type: 'trait',
+    category: category,
+    lockedUntilRound: 0,
+    percentage: 1
+  });
+
+  return true;
+}
+
 function evaluateAndAllocateTokens(antIndex, currentRound, isInitialSetup = false) {
   // Only allocate if there are free tokens
   if (geneTokens[antIndex] <= 0) return;
@@ -5030,14 +5223,14 @@ function fuseLandMines() {
   } // End of while loop
 }
 
-function spawnEnemyExplosion(x, y, size, ownerId) {
+function spawnEnemyExplosion(x, y, size, ownerId, radiusScale = 1) {
   const BASE_RADIUS     = 20;  // radius for size 1
   const RADIUS_PER_SIZE = 40;
 
   const BASE_LIFE       = 10;  // frames for size 1 (~0.3 sec)
   const LIFE_PER_SIZE   = 20;
 
-  let radius  = (BASE_RADIUS + RADIUS_PER_SIZE * (size - 1)) * explosionRadiusMultiplier[ownerId];
+  let radius  = (BASE_RADIUS + RADIUS_PER_SIZE * (size - 1)) * explosionRadiusMultiplier[ownerId] * radiusScale;
   let maxLife = (BASE_LIFE   + LIFE_PER_SIZE   * (size - 1)) * explosionResidueMultiplier[ownerId];
 
   enemyExplosions.push({
@@ -5049,6 +5242,98 @@ function spawnEnemyExplosion(x, y, size, ownerId) {
     size: size,       // bulletSize that created it
     ownerId: ownerId  // which ant owns this explosion
   });
+}
+
+function spawnEnemyArcExplosionLink(x, airY, groundY, bulletSize, radiusScale = 1) {
+  enemyArcExplosionLinks.push({
+    x: x,
+    airY: airY,
+    groundY: groundY,
+    bulletSize: bulletSize,
+    radiusScale: radiusScale,
+    life: 0,
+    maxLife: 16
+  });
+}
+
+function drawEnemyArcExplosionLinks() {
+  for (let i = enemyArcExplosionLinks.length - 1; i >= 0; i--) {
+    let link = enemyArcExplosionLinks[i];
+    link.life++;
+
+    let t = link.life / link.maxLife;
+    let alpha = lerp(220, 0, t);
+    let pulse = 1 + 0.2 * sin(link.life * 0.9);
+    let lineWidth = (2 + link.bulletSize * 1.2) * pulse;
+
+    push();
+    stroke(120, 255, 120, alpha);
+    strokeWeight(lineWidth);
+    line(link.x, link.airY, link.x, link.groundY);
+
+    noStroke();
+    // Top cap: larger green "mushroom cloud" style marker
+    fill(110, 255, 110, alpha * 0.7);
+    let cloudScale = max(1, link.radiusScale || 1);
+    let airMarkerOuter = (18 + link.bulletSize * 8) * cloudScale * pulse;
+    ellipse(link.x, link.airY, airMarkerOuter * 1.35, airMarkerOuter);
+    fill(70, 220, 70, alpha);
+    let airMarkerInner = (12 + link.bulletSize * 5) * cloudScale * pulse;
+    ellipse(link.x, link.airY, airMarkerInner * 1.25, airMarkerInner);
+
+    fill(60, 210, 60, alpha);
+    let groundMarkerSize = (10 + link.bulletSize * 6 * link.radiusScale) * pulse;
+    ellipse(link.x, link.groundY, groundMarkerSize, groundMarkerSize);
+    pop();
+
+    if (link.life >= link.maxLife) {
+      enemyArcExplosionLinks.splice(i, 1);
+    }
+  }
+}
+
+function spawnEnemyGroundImpact(x, y, radius, isKnockbackImpact = false) {
+  const baseLife = isKnockbackImpact ? 12 : 9;
+  const lifeScale = isKnockbackImpact ? 0.08 : 0.06;
+
+  enemyGroundImpacts.push({
+    x: x,
+    y: y,
+    radius: radius,
+    maxLife: baseLife + radius * lifeScale,
+    life: 0,
+    isKnockbackImpact: isKnockbackImpact
+  });
+}
+
+function drawEnemyGroundImpacts() {
+  for (let i = enemyGroundImpacts.length - 1; i >= 0; i--) {
+    let impact = enemyGroundImpacts[i];
+    impact.life++;
+
+    let t = impact.life / impact.maxLife;
+    let alpha = lerp(160, 0, t);
+    let currentRadius = impact.radius * (0.8 + 0.35 * sin(impact.life * 0.45));
+
+    push();
+    noStroke();
+    if (impact.isKnockbackImpact) {
+      fill(240, 240, 240, alpha * 0.6);
+      ellipse(impact.x, impact.y, currentRadius * 1.25);
+      fill(255, 255, 255, alpha);
+      ellipse(impact.x, impact.y, currentRadius);
+    } else {
+      fill(255, 230, 170, alpha * 0.55);
+      ellipse(impact.x, impact.y, currentRadius * 1.2);
+      fill(255, 210, 120, alpha * 0.85);
+      ellipse(impact.x, impact.y, currentRadius);
+    }
+    pop();
+
+    if (impact.life >= impact.maxLife) {
+      enemyGroundImpacts.splice(i, 1);
+    }
+  }
 }
 
 function drawEnemyExplosions() {
@@ -10420,6 +10705,8 @@ function drawAntsTab(fadeAlpha) {
     { name: 'Autonomy', key: 'autonomy', min: -0.5, max: 1.5, step: 0.01,
       help: '0=FollowTarget, 1=KeepDistance' },
     { name: 'Distance From Anchor', key: 'distanceFromAnchor', min: 0.1, max: 1000, step: 1 },
+    { name: 'Gene Tokens Available', key: 'geneTokens', min: 0, max: 99, step: 1, integer: true,
+      help: 'Unspent token count for this ant' },
     
     // Special category (mutation-based)
     { name: '── SPECIAL CATEGORY ──', key: null, min: 0, max: 0, step: 0 }, // Header
@@ -10596,9 +10883,29 @@ function drawAntsTab(fadeAlpha) {
   } else {
     investY -= 8; // Reduce space if no investments
   }
+
+  let selectedStatDef = antStatDefinitions[devToolsAntStatIndex] || null;
+  let selectedTraitCategory = (selectedStatDef && selectedStatDef.key) ? getTraitCategoryFromStatKey(selectedStatDef.key) : null;
+  if (devToolsUseCustomAnts) {
+    textAlign(CENTER, CENTER);
+    textSize(10);
+    if (selectedTraitCategory) {
+      const hasCategoryInvestment = (currentAnt.geneTokenInvestments || []).some(
+        inv => inv.type === 'trait' && inv.category === selectedTraitCategory
+      );
+      fill(hasCategoryInvestment ? color(120, 220, 120) : color(255, 210, 120));
+      text('Set Trait Token: Enter on category stat (' + selectedTraitCategory + ')' +
+           (hasCategoryInvestment ? ' [already invested]' : ''),
+           getMenuWidth() / 2, investY + 14);
+    } else {
+      fill(170);
+      text('Set Trait Token: select a Special/Fire/Death/Path stat, then press Enter',
+           getMenuWidth() / 2, investY + 14);
+    }
+  }
   
   // Draw stat sliders
-  let startY = investY + 24;
+  let startY = investY + 34;
   let sliderHeight = 22;
   let sliderSpacing = 24;
   let sliderWidth = getMenuWidth() * 0.7;
@@ -10829,6 +11136,7 @@ function drawAntsTab(fadeAlpha) {
         let effectiveMax = (stat.key === 'antSpeed') ? (4.5 - currentAnt.antSize) : stat.max;
         currentAnt[stat.key] = constrain(currentAnt[stat.key] - stat.step * 5, stat.min, effectiveMax);
         if (stat.integer) currentAnt[stat.key] = Math.floor(currentAnt[stat.key]);
+        syncCustomAntCapInvestmentsForStat(currentAnt, stat.key);
       }
       changed = true;
     } else if ((keyIsDown(68) || keyIsDown(39)) && devToolsUseCustomAnts) {  // D or Right - increase value (only if custom mode enabled)
@@ -10842,6 +11150,16 @@ function drawAntsTab(fadeAlpha) {
         if (stat.key === 'antSize') {
           let maxAntSpeedDev = 4.5 - currentAnt.antSize;
           currentAnt.antSpeed = min(currentAnt.antSpeed, maxAntSpeedDev);
+        }
+        syncCustomAntCapInvestmentsForStat(currentAnt, stat.key);
+      }
+      changed = true;
+    } else if (keyIsDown(13) && devToolsUseCustomAnts) {  // Enter - manually invest trait token in selected category
+      let stat = antStatDefinitions[devToolsAntStatIndex];
+      if (stat.key !== null) {
+        let selectedCategory = getTraitCategoryFromStatKey(stat.key);
+        if (selectedCategory) {
+          investCustomAntTraitToken(currentAnt, selectedCategory);
         }
       }
       changed = true;
@@ -11250,7 +11568,7 @@ function drawDevTools() {
       text('Q/E/R Tabs  |  1-6 Player  |  WASD/Arrows Nav  |  Enter Toggle  |  Shift+/+\\\\ Exit', getMenuWidth() / 2, getMenuHeight() - 25);
     } else if (devToolsTab === 'ants') {
       if (devToolsUseCustomAnts) {
-        text('Q/E/R Tabs  |  1-3 Ant Rank  |  W/S Select  |  A/D Adjust  |  T Toggle  |  Shift+/+\\\\ Exit', getMenuWidth() / 2, getMenuHeight() - 25);
+        text('Q/E/R Tabs  |  1-3 Ant Rank  |  W/S Select  |  A/D Adjust  |  Enter Set Trait Token  |  T Toggle  |  Shift+/+\\ Exit', getMenuWidth() / 2, getMenuHeight() - 25);
       } else {
         text('Q/E/R Tabs  |  1-3 Ant Rank  |  W/S Navigate  |  T Enable Editing  |  Shift+/+\\\\ Exit', getMenuWidth() / 2, getMenuHeight() - 25);
       }
