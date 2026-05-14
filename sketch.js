@@ -6,9 +6,10 @@ let ty;
 let start = false;
 let startMenu = false;
 let difficultyMenu = false;
-let difficultySelection = 0;
-let difficulty = 'easy'; // 'easy', 'medium', 'hard'
+let difficultySelection = 5; // 1-10 slider
+let difficulty = 5; // 1-10: 1-3=easy, 4-5=medium, 6-7=hard, 8-10=insane
 let pendingGameMode = null; // stores whether we're starting single or multiplayer
+let preGameUpgradeMenu = false; // For difficulty 8-10
 let antdex = false;
 let antdexReturnState = 'menu';
 let antdexOpenCooldown = 0;
@@ -22,13 +23,18 @@ let intermissionMenuSelection = 0;
 let menuNavigationCooldown = 0;
 
 function getTokensPerFiveRounds() {
-  if (difficulty === 'medium') return 4;
-  if (difficulty === 'hard') return 5;
-  return 2; // easy
+  return difficulty; // Difficulty level = tokens gained every 5 rounds
 }
 
 function getInitialTokensForDifficulty() {
-  return getTokensPerFiveRounds();
+  return difficulty; // Difficulty level = starting tokens
+}
+
+function getDifficultyTier() {
+  if (difficulty <= 3) return 'easy';
+  if (difficulty <= 5) return 'medium';
+  if (difficulty <= 7) return 'hard';
+  return 'insane';
 }
 
 function applyHardModeRandomInitialAbility(antIndex) {
@@ -46,7 +52,8 @@ function applyHardModeRandomInitialAbility(antIndex) {
     { target: 'fireAlternating', category: 'fire', potential: 'firePotential' },
     { target: 'deathLandmine', category: 'death', potential: 'deathPotential' },
     { target: 'pathHighArc', category: 'path', potential: 'pathPotential' },
-    { target: 'pathCurve', category: 'path', potential: 'pathPotential' }
+    { target: 'pathCurve', category: 'path', potential: 'pathPotential' },
+    { target: 'pathAccelerate', category: 'path', potential: 'pathPotential' }
   ];
 
   const trait = random(randomTraits);
@@ -58,12 +65,20 @@ function applyHardModeRandomInitialAbility(antIndex) {
   eval(trait.potential + '[' + antIndex + '] = max(' + trait.potential + '[' + antIndex + '], 0.6)');
   
   // Nudge the selected trait to win its category for expression.
-  // For tiered stats (specialExplosion, pathCurve), cap at 0.9 to prevent unlocking tier 2 without cap investment
+  // For tiered stats (specialExplosion, pathCurve, pathAccelerate), cap at 0.9 to prevent unlocking tier 2 without cap investment
+  // For bulletAccelerateDelay (inverse stat), set to 150 (tier 1, better than default 200)
   let initialValue = 0.9;
-  if (trait.target === 'specialExplosion' || trait.target === 'pathCurve') {
-    initialValue = 0.9; // Start with tier 1 (stays <1 for timed explosions or curved bullets)
+  if (trait.target === 'specialExplosion' || trait.target === 'pathCurve' || trait.target === 'pathAccelerate') {
+    initialValue = 0.9; // Start with tier 1 (stays <1 for timed explosions, curved bullets, or accelerating bullets)
+  } else if (trait.target === 'bulletAccelerateDelay') {
+    initialValue = 150; // Start with tier 1 (150 frames, better than default 200)
   }
-  eval(trait.target + '[' + antIndex + '] = max(' + trait.target + '[' + antIndex + '], ' + initialValue + ')');
+  
+  if (trait.target === 'bulletAccelerateDelay') {
+    eval(trait.target + '[' + antIndex + '] = min(' + trait.target + '[' + antIndex + '], ' + initialValue + ')');
+  } else {
+    eval(trait.target + '[' + antIndex + '] = max(' + trait.target + '[' + antIndex + '], ' + initialValue + ')');
+  }
 
   geneTokenInvestments[antIndex].push({
     target: trait.target,
@@ -124,6 +139,8 @@ let customAntStats = [
     // Path category (mutation-based)
     pathHighArc: 0.1,
     pathCurve: 0.1,
+    pathAccelerate: 0.1,
+    bulletAccelerateDelay: 200,
     pathPotential: 0.3,
     bulletArcDuration: 200,
     bulletCurveStrength: 0.015,
@@ -170,6 +187,8 @@ let customAntStats = [
     // Path category (mutation-based)
     pathHighArc: 0.1,
     pathCurve: 0.1,
+    pathAccelerate: 0.1,
+    bulletAccelerateDelay: 200,
     pathPotential: 0.3,
     bulletArcDuration: 200,
     bulletCurveStrength: 0.015,
@@ -216,6 +235,8 @@ let customAntStats = [
     // Path category (mutation-based)
     pathHighArc: 0.1,
     pathCurve: 0.1,
+    pathAccelerate: 0.1,
+    bulletAccelerateDelay: 200,
     pathPotential: 0.3,
     bulletArcDuration: 200,
     bulletCurveStrength: 0.015,
@@ -449,6 +470,7 @@ let levelEnd = 0;
 
 let deathAnimations = [];
 let floatingTexts = [];
+let speedRings = []; // Sonic boom rings from accelerated bullets
 
 
 let enemyCount = 1;
@@ -511,6 +533,8 @@ let deathPotential = [];
 // Path category (mutation-based)
 let pathHighArc = [];
 let pathCurve = [];  // <1 = curved, >=1 = homing (heat-seeking)
+let pathAccelerate = [];  // Whether to use accelerating bullets (0-1, competes with pathHighArc/pathCurve)
+let bulletAccelerateDelay = [];  // Frames before acceleration starts (200 = slow, 30 = fast, inverse stat)
 let pathPotential = [];
 let bulletArcDuration = [];
 let bulletCurveStrength = [];
@@ -531,6 +555,7 @@ let bulletSize = [];
 let antSize = [];
 let antHealth = [];
 let antMaxHealth = [];
+let antLastHitTime = [];
 let antKnockedBack = [];
 let antKnockbackTimer = [];
 let antKnockbackVelX = [];
@@ -623,6 +648,11 @@ let upgrade18Level = 0; // Shockwave Knockback (max 3, 4→10)
 let upgrade19Level = 0; // Shockwave Bullet Deflection (max 4, 20%→100% bullet conversion)
 let upgrade20Level = 0; // Health Regeneration (max 5, regenerate health after 200 frames)
 let displayedUpgrades = [];  // Array of up to 3 randomly selected upgrade indices (0-9)
+
+// Pre-game upgrade menu variables (insane difficulty 8-10)
+let preGameUpgradeOptions = [];  // Array of 3 starting-viable upgrade indices
+let preGameSelectedUpgrade = 0;  // 0, 1, or 2 for three options
+let preGameEnterPressed = false;  // Track if Enter was pressed to prevent bleed-through
 
 // Free aiming variables
 let freeAimEnabled = false;  // Based on upgrade9Level
@@ -735,21 +765,30 @@ function setup() {
     if (customAntStats[0].autonomy !== undefined) initialAutonomy = customAntStats[0].autonomy;
     console.log(`Using custom ant stats for initial spawn`);
   } else {
-    // Apply difficulty settings
-    if (difficulty === 'easy') {
+    // Apply difficulty settings based on tier
+    const tier = getDifficultyTier();
+    if (tier === 'easy') {
+      // 1-3: Basic settings
       initialAntSize = 1;
       initialFollowValue = 0;
       initialAutonomy = 0;
-    } else if (difficulty === 'medium') {
+    } else if (tier === 'medium') {
+      // 4-5: Keep distance movement
+      initialAntSize = 0.7;
+      initialFollowValue = 0;
+      initialAutonomy = 1;
+    } else if (tier === 'hard') {
+      // 6-7: Keep distance + random ability
       initialAntSize = 0.5;
       initialFollowValue = 0;
       initialAutonomy = 1;
-    } else if (difficulty === 'hard') {
+    } else if (tier === 'insane') {
+      // 8-10: Keep distance + random ability + pre-game upgrade
       initialAntSize = 0.33;
       initialFollowValue = 0;
       initialAutonomy = 1;
     }
-    console.log(`Using difficulty ${difficulty}: size=${initialAntSize}, follow=${initialFollowValue}, autonomy=${initialAutonomy}`);
+    console.log(`Using difficulty ${difficulty} (${tier}): size=${initialAntSize}, follow=${initialFollowValue}, autonomy=${initialAutonomy}`);
   }
   
   while (usedSlots < totalAntSlots && antIndex <= MAX_ANTS) {
@@ -787,6 +826,7 @@ function setup() {
     
     antMaxHealth[i] = antSize[i];
     antHealth[i] = antMaxHealth[i];
+    antLastHitTime[i] = 0;
     antKnockedBack[i] = false;
     antKnockbackTimer[i] = 0;
     antKnockbackVelX[i] = 0;
@@ -824,6 +864,8 @@ function setup() {
     // Path category (mutation-based)
     pathHighArc[i] = 0.1;
     pathCurve[i] = 0.1;
+    pathAccelerate[i] = 0.1;
+    bulletAccelerateDelay[i] = 200;
     pathPotential[i] = 0.3;
     bulletArcDuration[i] = 200;
     bulletCurveStrength[i] = 0.015;
@@ -932,8 +974,8 @@ function setup() {
       investmentAttempts++;
     }
 
-    if (difficulty === 'hard') {
-      geneTokens[i]++; // Dedicated 6th token for random initial ability
+    if (getDifficultyTier() === 'hard' || getDifficultyTier() === 'insane') {
+      geneTokens[i]++; // Extra token for random initial ability
       applyHardModeRandomInitialAbility(i);
     }
   }
@@ -1135,6 +1177,55 @@ function draw() {
     return;
   }
 
+  // Show pre-game upgrade menu (insane difficulty 8-10)
+  if (preGameUpgradeMenu) {
+    drawPreGameUpgradeScreen();
+    
+    // Handle input for pre-game upgrade menu
+    if (preGameUpgradeOptions.length > 0) {
+      let numOptions = preGameUpgradeOptions.length;
+      
+      // Handle left/right arrow navigation
+      if (upgradeKeyDebounce === 0) {
+        if (isLeftPressed()) {
+          preGameSelectedUpgrade = (preGameSelectedUpgrade - 1 + numOptions) % numOptions;
+          upgradeKeyDebounce = 10;
+        } else if (isRightPressed()) {
+          preGameSelectedUpgrade = (preGameSelectedUpgrade + 1) % numOptions;
+          upgradeKeyDebounce = 10;
+        }
+      }
+      
+      // Handle number key selection
+      if (numOptions >= 1 && keyIsDown(49)) {  // 1
+        preGameSelectedUpgrade = 0;
+      } else if (numOptions >= 2 && keyIsDown(50)) {  // 2
+        preGameSelectedUpgrade = 1;
+      } else if (numOptions >= 3 && keyIsDown(51)) {  // 3
+        preGameSelectedUpgrade = 2;
+      }
+      
+      // Confirm selection with Enter (wait for key release between selections)
+      if (isConfirmPressed()) {
+        if (!preGameEnterPressed && upgradeKeyDebounce === 0) {
+          applyPreGameUpgrade(preGameSelectedUpgrade);
+          upgradeKeyDebounce = 20;
+        }
+        preGameEnterPressed = true;
+      } else {
+        preGameEnterPressed = false;
+      }
+      
+      // Skip with Escape
+      if (isBackPressed() && upgradeKeyDebounce === 0) {
+        skipPreGameUpgrade();
+        upgradeKeyDebounce = 20;
+      }
+    }
+    
+    return;  // Don't show other screens while pre-game menu is active
+  }
+
   if (start == true){
       // Check if Tiger Beetle is dashing (for visual effects)
       if (tigerBeetleActive) {
@@ -1147,9 +1238,9 @@ function draw() {
             // Select new entity to flash
             flashTimer = 3; // Flash selection every 3 frames
             
-            // Randomly choose between ant or bullet
+            // Randomly choose between ant, bullet, or landmine
             let choice = random();
-            if (choice < 0.5 && enemyCount > 0) {
+            if (choice < 0.33 && enemyCount > 0) {
               // Flash an ant
               flashingEntities.push({
                 type: 'ant',
@@ -1157,7 +1248,7 @@ function draw() {
                 owner: -1,
                 fade: 255
               });
-            } else {
+            } else if (choice < 0.66) {
               // Flash a bullet - find all bullets
               let allBullets = [];
               for (let i = 1; i <= enemyCount; i++) {
@@ -1181,6 +1272,33 @@ function draw() {
                   owner: -1,
                   fade: 255
                 });
+              }
+            } else {
+              // Flash a landmine - find all enemy landmines
+              let enemyMines = [];
+              for (let m = 0; m < landMines.length; m++) {
+                if (!landMines[m].isPlayerMine) {
+                  enemyMines.push(m);
+                }
+              }
+              if (enemyMines.length > 0) {
+                let mineChoice = enemyMines[floor(random(enemyMines.length))];
+                flashingEntities.push({
+                  type: 'mine',
+                  index: mineChoice,
+                  owner: -1,
+                  fade: 255
+                });
+              } else {
+                // No enemy mines, flash an ant instead
+                if (enemyCount > 0) {
+                  flashingEntities.push({
+                    type: 'ant',
+                    index: floor(random(1, enemyCount + 1)),
+                    owner: -1,
+                    fade: 255
+                  });
+                }
               }
             }
           }
@@ -1235,6 +1353,7 @@ function draw() {
       dashCollision(); // Check for dash collisions with ants
       handleAntKnockback(); // Handle knocked back ants
       drawDeathEffects();
+      drawSpeedRings();
       endGameplayScaling();
       
       // Draw damage flash effects AFTER gameplay (not scaled)
@@ -1520,6 +1639,8 @@ function applyCustomAntsToInitialPopulation() {
     // Path category (mutation-based)
     pathHighArc[i] = s.pathHighArc;
     pathCurve[i] = s.pathCurve;
+    pathAccelerate[i] = s.pathAccelerate;
+    bulletAccelerateDelay[i] = s.bulletAccelerateDelay;
     pathPotential[i] = s.pathPotential;
     bulletArcDuration[i] = s.bulletArcDuration;
     bulletCurveStrength[i] = s.bulletCurveStrength;
@@ -1607,11 +1728,20 @@ function applyDifficultyToInitialPopulation() {
   let followValueSetting = 0;
   let autonomySetting = 0;
 
-  if (difficulty === 'medium') {
+  const tier = getDifficultyTier();
+  if (tier === 'easy') {
+    sizeValue = 1;
+    followValueSetting = 0;
+    autonomySetting = 0;
+  } else if (tier === 'medium') {
+    sizeValue = 0.7;
+    followValueSetting = 0;
+    autonomySetting = 1;
+  } else if (tier === 'hard') {
     sizeValue = 0.5;
     followValueSetting = 0;
     autonomySetting = 1;
-  } else if (difficulty === 'hard') {
+  } else if (tier === 'insane') {
     sizeValue = 0.33;
     followValueSetting = 0;
     autonomySetting = 1;
@@ -1674,6 +1804,7 @@ function applyDifficultyToInitialPopulation() {
     if (bulletCooldownMultiplier[i] === undefined) bulletCooldownMultiplier[i] = 2;
     if (bulletArcDuration[i] === undefined) bulletArcDuration[i] = 200;
     if (bulletCurveStrength[i] === undefined) bulletCurveStrength[i] = 0.015;
+    if (bulletAccelerateDelay[i] === undefined) bulletAccelerateDelay[i] = 200;
     if (specialExplosion[i] === undefined) specialExplosion[i] = 0.2;
     if (specialKnockback[i] === undefined) specialKnockback[i] = 0.2;
     if (specialPotential[i] === undefined) specialPotential[i] = 0.3;
@@ -1685,6 +1816,7 @@ function applyDifficultyToInitialPopulation() {
     if (deathPotential[i] === undefined) deathPotential[i] = 0.3;
     if (pathHighArc[i] === undefined) pathHighArc[i] = 0.1;
     if (pathCurve[i] === undefined) pathCurve[i] = 0.1;
+    if (pathAccelerate[i] === undefined) pathAccelerate[i] = 0.1;
     if (pathPotential[i] === undefined) pathPotential[i] = 0.3;
     if (bulletKnockbackMultiplier[i] === undefined) bulletKnockbackMultiplier[i] = 2;
     if (explosionRadiusMultiplier[i] === undefined) explosionRadiusMultiplier[i] = 1;
@@ -1751,13 +1883,13 @@ function applyDifficultyToInitialPopulation() {
       investmentAttempts++;
     }
 
-    if (difficulty === 'hard') {
-      geneTokens[i]++; // Dedicated 6th token for random initial ability
+    if (getDifficultyTier() === 'hard' || getDifficultyTier() === 'insane') {
+      geneTokens[i]++; // Extra token for random initial ability
       applyHardModeRandomInitialAbility(i);
     }
   }
 
-  console.log(`Applied ${difficulty} difficulty: ${enemyCount} ants, size=${sizeValue}, follow=${followValueSetting}, autonomy=${autonomySetting}`);
+  console.log(`Applied difficulty ${difficulty} (${getDifficultyTier()}): ${enemyCount} ants, size=${sizeValue}, follow=${followValueSetting}, autonomy=${autonomySetting}`);
 }
 
 function syncActualWinnersToCustomStats(topAnts) {
@@ -1796,6 +1928,8 @@ function syncActualWinnersToCustomStats(topAnts) {
         // Path category (mutation-based)
         pathHighArc: pathHighArc[antId],
         pathCurve: pathCurve[antId],
+        pathAccelerate: pathAccelerate[antId],
+        bulletAccelerateDelay: bulletAccelerateDelay[antId],
         pathPotential: pathPotential[antId],
         bulletArcDuration: bulletArcDuration[antId],
         bulletCurveStrength: bulletCurveStrength[antId],
@@ -2171,16 +2305,54 @@ function drawEnemy(){
         pop();
       }
 
-      // Big ant: yellow pulsing aura
-      if (antSize[i] >= 1.5 && antHealth[i] >= 1) {
-        push();
-        noStroke();
-        let bigFlashSpeed = map(antSize[i], 1.5, 3.0, 3, 12);
-        let bigFlashAlpha = 83 + 70 * sin(frameCount * bigFlashSpeed * 0.05);
-        fill(255, 220, 50, bigFlashAlpha);
-        let bigAuraSize = antImageSize * 1.0;
-        ellipse(antX[i], antY[i] - antAirHeight[i], bigAuraSize, bigAuraSize);
-        pop();
+      // Health bar (appears for 1 second after getting hit)
+      if (antLastHitTime[i] > 0) {
+        let timeSinceHit = millis() - antLastHitTime[i];
+        let fadeTime = 1000; // 1 second
+        
+        if (timeSinceHit < fadeTime) {
+          push();
+          let fadeFactor = map(timeSinceHit, 0, fadeTime, 1, 0);
+          
+          // Health bar dimensions (match dash/shockwave style)
+          let barWidth = 30;
+          let barHeight = 5;
+          let barY = antY[i] - antAirHeight[i] + antImageSize * 0.35; // Below ant, closer
+          
+          // Health percentage
+          let healthPercent = antHealth[i] / antMaxHealth[i];
+          
+          // Background (dark grey - match dash/shockwave)
+          fill(50, 50, 50, 220 * fadeFactor);
+          stroke(0, 255 * fadeFactor);
+          strokeWeight(1);
+          rect(antX[i] - barWidth / 2, barY, barWidth, barHeight, 2);
+          
+          // Color based on health: red (<1), yellow (1-1.5), yellow->green (1.5-2), green->blue (2-3)
+          let barColor;
+          if (antHealth[i] < 1) {
+            barColor = color(255, 50, 50); // Red
+          } else if (antHealth[i] < 1.5) {
+            // Yellow
+            barColor = color(255, 220, 50);
+          } else if (antHealth[i] < 2) {
+            // Yellow to green gradient (1.5 to 2)
+            let greenAmount = map(antHealth[i], 1.5, 2, 0, 1, true);
+            barColor = lerpColor(color(255, 220, 50), color(50, 255, 50), greenAmount);
+          } else {
+            // Green to blue gradient (2 to 3)
+            let blueAmount = map(antHealth[i], 2, 3, 0, 1, true);
+            barColor = lerpColor(color(50, 255, 50), color(50, 150, 255), blueAmount);
+          }
+          
+          // Fill (match dash/shockwave style with rounded corners)
+          fill(red(barColor), green(barColor), blue(barColor), 240 * fadeFactor);
+          stroke(0, 255 * fadeFactor);
+          strokeWeight(1);
+          rect(antX[i] - barWidth / 2, barY, barWidth * healthPercent, barHeight, 2);
+          
+          pop();
+        }
       }
 
       // Draw yellow circles if ant is stunned
@@ -2522,6 +2694,7 @@ function enemyInteraction1(){
           } else {
             // Start new knockback and deal damage
             antHealth[i] -= 0.2;
+            antLastHitTime[i] = millis();
             
             // Stun if damaged but not killed
             if (antHealth[i] > 0) {
@@ -2574,6 +2747,7 @@ function dashCollision() {
         // Deal damage based on Horns upgrade (1 + 0.2 per level)
         let dashDamage = 1 + (upgrade12Level * 0.2);
         antHealth[i] -= dashDamage;
+        antLastHitTime[i] = millis();
         
         // Stun if damaged but not killed
         if (antHealth[i] > 0) {
@@ -2748,6 +2922,8 @@ function enemyShoot1() {
           pathType: getPathType(i),
           arcDuration: bulletArcDuration[i],
           curveStrength: bulletCurveStrength[i],
+          accelerateDelay: bulletAccelerateDelay[i],
+          hasAccelerated: false,
           targetX: playerX + shotOffsetX[i],
           targetY: playerY + shotOffsetY[i],
           owner: i
@@ -2857,6 +3033,8 @@ function enemyShoot1() {
               pathType: getPathType(i),
               arcDuration: bulletArcDuration[i],
               curveStrength: bulletCurveStrength[i],
+              accelerateDelay: bulletAccelerateDelay[i],
+              hasAccelerated: false,
               targetX: playerX + shotOffsetX[i],
               targetY: playerY + shotOffsetY[i],
               owner: i
@@ -2948,6 +3126,8 @@ function enemyShoot1() {
                 pathType: getPathType(i),
                 arcDuration: bulletArcDuration[i],
                 curveStrength: bulletCurveStrength[i],
+                accelerateDelay: bulletAccelerateDelay[i],
+                hasAccelerated: false,
                 targetX: playerX + shotOffsetX[i],
                 targetY: playerY + shotOffsetY[i],
                 owner: i
@@ -2983,6 +3163,12 @@ function enemyShoot1() {
       for (let b = enemyBullets[i].length - 1; b >= 0; b--) {
         let bullet = enemyBullets[i][b];
 
+        // Remove bullets that were deflected by shockwave
+        if (bullet.deflected) {
+          enemyBullets[i].splice(b, 1);
+          continue;
+        }
+
         // Handle delay for rapid fire bullets
         if (bullet.delayFrames > 0) {
           bullet.delayFrames--;
@@ -3009,6 +3195,33 @@ function enemyShoot1() {
           const perpY = -bullet.speedX * Math.sign(curveStrength);
           bullet.speedX += perpX * Math.abs(curveStrength);
           bullet.speedY += perpY * Math.abs(curveStrength);
+        }
+        
+        // Accelerate (2): After delay, accelerate continuously and become immune to time death
+        if (pathType === 2) {
+          if (bullet.life >= (bullet.accelerateDelay || 60) && !bullet.hasAccelerated) {
+            bullet.hasAccelerated = true;
+          }
+          
+          if (bullet.hasAccelerated) {
+            // Accelerate by 2% per frame
+            const accelRate = 1.02;
+            bullet.speedX *= accelRate;
+            bullet.speedY *= accelRate;
+            bullet.trueSpeed *= accelRate;
+            
+            // Spawn speed rings every 9 frames
+            if (bullet.life % 9 === 0) {
+              speedRings.push({
+                x: bullet.x,
+                y: bullet.y - bullet.airHeight,
+                size: 8 * bullet.size, // Start smaller
+                maxSize: 25 * bullet.size, // Smaller max size
+                alpha: 255,
+                life: 0
+              });
+            }
+          }
         }
         
         // Homing curve (-2): Gradually turn toward player
@@ -3090,8 +3303,10 @@ function enemyShoot1() {
 
         // Check if bullet has exceeded its lifespan and should fade/disappear
         // High arc bullets (pathType === 1) only die when landing, not from lifespan
+        // Accelerating bullets (pathType === 2) become immune to time death once they start accelerating
         const FADE_DURATION = 30; // Frames to fade out
-        if (bullet.pathType !== 1 && bullet.life > bullet.maxLife + FADE_DURATION) {
+        const isImmuneToTimeDeath = bullet.pathType === 1 || (bullet.pathType === 2 && bullet.hasAccelerated);
+        if (!isImmuneToTimeDeath && bullet.life > bullet.maxLife + FADE_DURATION) {
           // Check bullet death type
           if (getDeathType(i) === 1) {
             // Type 1: Convert to land mine
@@ -3122,13 +3337,17 @@ function enemyShoot1() {
         let shouldDrawBullet = true;
         let bulletFadeAmount = 255;
         
-        // Calculate fade based on bullet lifespan (not for high arc bullets)
-        if (bullet.pathType !== 1 && bullet.life >= bullet.maxLife) {
+        // Check if this is an accelerated bullet (always visible, ignores life cycle fade)
+        const isAcceleratedBullet = bullet.pathType === 2 && bullet.hasAccelerated;
+        
+        // Calculate fade based on bullet lifespan (not for high arc bullets or accelerated bullets)
+        if (bullet.pathType !== 1 && !isAcceleratedBullet && bullet.life >= bullet.maxLife) {
           let fadeProgress = (bullet.life - bullet.maxLife) / FADE_DURATION;
           bulletFadeAmount = Math.floor(255 * (1 - fadeProgress));
         }
         
-        if (tigerBeetleActive && tigerBeetleMoving) {
+        // Accelerated bullets ignore Tiger Beetle flash system - always visible
+        if (tigerBeetleActive && tigerBeetleMoving && !isAcceleratedBullet) {
           // Check if this bullet is in the flashing entities list
           shouldDrawBullet = false;
           for (let f = 0; f < flashingEntities.length; f++) {
@@ -3142,7 +3361,11 @@ function enemyShoot1() {
         }
         
         if (shouldDrawBullet) {
-          // Draw shadow when bullet is airborne
+          // Accelerating bullets (pathType === 2): special rendering
+          const isAccelerating = bullet.pathType === 2;
+          const hasAccelerated = isAccelerating && bullet.hasAccelerated;
+          
+          // Draw shadow when bullet is airborne (normal shadow, not for acceleration effect)
           if (bullet.airHeight > 0) {
             push();
             ellipseMode(CENTER);
@@ -3151,6 +3374,7 @@ function enemyShoot1() {
             // Shadow darkness based on height (higher = lighter shadow)
             let maxHeight = bullet.pathType === 1 ? (bullet.arcDuration * 0.5) : 12;
             let shadowAlpha = map(bullet.airHeight, 0, maxHeight, 150, 30);
+            
             fill(0, 0, 0, shadowAlpha);
             let shadowSize = (20 * bullet.size) * 0.6; // Shadow slightly smaller than bullet
             ellipse(bullet.x, bullet.y, shadowSize, shadowSize);
@@ -3202,7 +3426,8 @@ function enemyShoot1() {
           // Draw bullet image on top of auras
           push();
           // Apply fade (either from Tiger Beetle or bullet lifespan)
-          if (tigerBeetleActive && tigerBeetleMoving || bullet.life >= bullet.maxLife) {
+          // BUT: Accelerated bullets ignore life cycle fade and stay at full opacity
+          if (!hasAccelerated && (tigerBeetleActive && tigerBeetleMoving || bullet.life >= bullet.maxLife)) {
             tint(255, bulletFadeAmount);
           }
           angleMode(DEGREES);
@@ -3346,6 +3571,7 @@ function enemyShoot1() {
           let d = dist(mine.x, mine.y, antX[ai], antY[ai]);
           if (d <= radius) {
             antHealth[ai] -= mine.size;
+            antLastHitTime[ai] = millis();
             // apply simple knockback
             let dx = antX[ai] - mine.x;
             let dy = antY[ai] - mine.y;
@@ -3412,6 +3638,7 @@ function enemyShoot1() {
               let dj = dist(mine.x, mine.y, antX[aj], antY[aj]);
               if (dj <= radius) {
                 antHealth[aj] -= mine.size;
+                antLastHitTime[aj] = millis();
                 // simple knockback
                 let dx = antX[aj] - mine.x;
                 let dy = antY[aj] - mine.y;
@@ -3460,6 +3687,36 @@ function enemyShoot1() {
     }
     
     // Draw land mine as a green circle
+    // Check if should be visible during Tiger Beetle mode
+    let shouldDrawMine = true;
+    let mineFadeAmount = 255;
+    
+    if (tigerBeetleActive && tigerBeetleMoving) {
+      shouldDrawMine = false;
+      for (let f = 0; f < flashingEntities.length; f++) {
+        if (flashingEntities[f].type === 'mine' && flashingEntities[f].index === m) {
+          shouldDrawMine = true;
+          mineFadeAmount = flashingEntities[f].fade;
+          break;
+        }
+      }
+    }
+    
+    if (!shouldDrawMine) {
+      // Skip drawing but still check collisions for gameplay fairness
+      // Check collision with player (for enemy mines)
+      if (!mine.isPlayerMine) {
+        let mineSize = 15 * mine.size;
+        let hitboxSize = (mineSize / 2) + 15;
+        if (dist(playerX, playerY, mine.x, mine.y) < hitboxSize) {
+          let ownerId = Array.isArray(mine.owner) ? random(mine.owner) : mine.owner;
+          handlePlayerHit(ownerId, mine.knockbackBullet, mine.x, mine.y, mine.knockbackMultiplier, mine.trueSpeed, true, mine.size);
+          landMines.splice(m, 1);
+        }
+      }
+      continue;
+    }
+    
     push();
     let mineSize = 15 * mine.size; // Size based on bullet size (includes fusion scaling)
     let fusionCount = mine.fusionCount || 1;
@@ -3482,7 +3739,7 @@ function enemyShoot1() {
       } else {
         mineExplodeFlashSpeed = map(mine.explodeAfter || 800, 800, 100, 2, 10);
       }
-      let mineExplodeFlashAlpha = 83 + 70 * sin(mine.life * mineExplodeFlashSpeed);
+      let mineExplodeFlashAlpha = Math.min(mineFadeAmount, 83 + 70 * sin(mine.life * mineExplodeFlashSpeed));
       fill(80, 220, 80, mineExplodeFlashAlpha);
       let mineExplodeAuraSize = finalSize * 1.35;
       ellipse(mine.x, mine.y, mineExplodeAuraSize, mineExplodeAuraSize);
@@ -3493,7 +3750,7 @@ function enemyShoot1() {
       push();
       noStroke();
       let mineKnockbackFlashSpeed = (mine.knockbackMultiplier || 1) * 6;
-      let mineKnockbackFlashAlpha = 83 + 70 * sin(mine.life * mineKnockbackFlashSpeed);
+      let mineKnockbackFlashAlpha = Math.min(mineFadeAmount, 83 + 70 * sin(mine.life * mineKnockbackFlashSpeed));
       fill(220, 220, 220, mineKnockbackFlashAlpha);
       let mineKnockbackAuraSize = finalSize * 1.2;
       ellipse(mine.x, mine.y, mineKnockbackAuraSize, mineKnockbackAuraSize);
@@ -3504,19 +3761,23 @@ function enemyShoot1() {
     let greenIntensity = min(200 + fusionCount * 10, 255);
     let outlineIntensity = 255;
     
-    fill(0, greenIntensity, 0, 180); // Green with transparency
-    stroke(0, outlineIntensity, 0, 255); // Bright green outline
+    // Apply tiger beetle fade to mine transparency
+    let mineAlpha = map(mineFadeAmount, 0, 255, 0, 180);
+    let outlineAlpha = mineFadeAmount;
+    
+    fill(0, greenIntensity, 0, mineAlpha); // Green with transparency
+    stroke(0, outlineIntensity, 0, outlineAlpha); // Bright green outline
     strokeWeight(fusionCount > 1 ? 3 : 2); // Thicker outline for fused mines
     ellipse(mine.x, mine.y, finalSize, finalSize);
     
     // Draw a small warning symbol in the center
-    fill(255, 255, 0);
+    fill(255, 255, 0, mineFadeAmount);
     noStroke();
     ellipse(mine.x, mine.y, finalSize * 0.3, finalSize * 0.3);
     
     // Display fusion count for fused mines
     if (fusionCount > 1) {
-      fill(255, 255, 255);
+      fill(255, 255, 255, mineFadeAmount);
       textAlign(CENTER, CENTER);
       textSize(finalSize * 0.25);
       text(fusionCount, mine.x, mine.y);
@@ -4018,6 +4279,7 @@ function beetleShoot() {
           // Deal damage to ant with Potent Acid multiplier
           let bulletDamage = 1 + (upgrade13Level * 0.2);
           antHealth[j] -= bulletDamage;
+          antLastHitTime[j] = millis();
           
           // Stun if damaged but not killed
           if (antHealth[j] > 0) {
@@ -4130,28 +4392,14 @@ function handleWindAttack() {
       // Deflect enemy bullets
       for (let cell of nearbyCells) {
         for (let bulletData of cell.enemyBullets) {
-          let i = bulletData.antIndex;
-          let b = bulletData.bulletIndex;
           let bullet = bulletData.bullet;
           let bulletDistance = dist(playerX, playerY, bullet.x, bullet.y);
             
-          if (bulletDistance <= maxRadius) {
+          if (bulletDistance <= maxRadius && !bullet.deflected) {
             // Check if this bullet gets deflected
             if (random() < deflectChance) {
-              // Convert to player bullet - find nearest ant using spatial grid
-              let nearestAntDist = Infinity;
-              let targetAngle = 0;
-              
-              let bulletCells = getNearbyCells(bullet.x, bullet.y);
-              for (let antCell of bulletCells) {
-                for (let j of antCell.ants) {
-                  let distToAnt = dist(bullet.x, bullet.y, antX[j], antY[j]);
-                  if (distToAnt < nearestAntDist) {
-                    nearestAntDist = distToAnt;
-                    targetAngle = atan2(antY[j] - bullet.y, antX[j] - bullet.x) * (180 / PI);
-                  }
-                }
-              }
+              // Deflect bullet away from beetle (center of shockwave)
+              let targetAngle = atan2(bullet.y - playerY, bullet.x - playerX) * (180 / PI);
               
               playerBullets.push({
                 x: bullet.x,
@@ -4159,8 +4407,8 @@ function handleWindAttack() {
                 rotation: targetAngle
               });
               
-              // Remove the enemy bullet
-              enemyBullets[i].splice(b, 1);
+              // Mark bullet for removal (will be removed in main bullet loop)
+              bullet.deflected = true;
             }
           }
         }
@@ -4217,6 +4465,7 @@ function handleWindAttack() {
           if (distance <= maxRadius) {
             // Deal damage
             antHealth[i] -= windDamage;
+            antLastHitTime[i] = millis();
             
             // Stun if damaged but not killed
             if (antHealth[i] > 0) {
@@ -4410,11 +4659,14 @@ function getPathType(antIndex) {
     return 0; // Straight (no token invested)
   }
   // Find the highest value among the non-default options
-  let maxVal = Math.max(
-    pathHighArc[antIndex],
-    pathCurve[antIndex]
-  );
+  let maxVal = Math.max(pathHighArc[antIndex], pathCurve[antIndex], pathAccelerate[antIndex]);
+  
   if (pathHighArc[antIndex] === maxVal) return 1; // High Arc
+  
+  // For accelerate type
+  if (pathAccelerate[antIndex] === maxVal) {
+    return 2; // Accelerate path
+  }
   
   // For curve types, use pathCurve value to determine tier
   if (pathCurve[antIndex] === maxVal) {
@@ -4483,6 +4735,8 @@ const moduleStatCapTiers = {
   bulletArcDuration: { caps: [300, 400, 500, 600], inverse: false },
   bulletCurveStrength: { caps: [0.05, 0.075, 0.1], inverse: false },
   pathCurve: { caps: [1.0, 2.0], inverse: false },  // <1 = curved, >=1 = homing
+  pathAccelerate: { caps: [0.4, 0.6, 0.8, 1.0], inverse: false, start: 0.1 },
+  bulletAccelerateDelay: { caps: [150, 100, 60, 30], inverse: true, start: 200 },  // Frames before acceleration (inverse: lower=better)
   
   // Explosion stats
   explosionProximity: { caps: [400, 600, 800, 1000], inverse: false },
@@ -4661,7 +4915,7 @@ function getTraitCategoryFromStatKey(statKey) {
   if (['specialExplosion', 'specialKnockback', 'specialPotential', 'bulletKnockbackMultiplier'].includes(statKey)) return 'special';
   if (['fireBurst', 'fireRapid', 'fireAlternating', 'firePotential', 'bulletBurstCount', 'bulletBurstSpread', 'bulletCooldownMultiplier'].includes(statKey)) return 'fire';
   if (['deathLandmine', 'deathPotential'].includes(statKey)) return 'death';
-  if (['pathHighArc', 'pathCurve', 'pathPotential', 'bulletArcDuration', 'bulletCurveStrength'].includes(statKey)) return 'path';
+  if (['pathHighArc', 'pathCurve', 'pathAccelerate', 'pathPotential', 'bulletArcDuration', 'bulletCurveStrength'].includes(statKey)) return 'path';
   return null;
 }
 
@@ -4670,7 +4924,7 @@ function getDominantTraitKeyForCategory(customAnt, category) {
     special: ['specialExplosion', 'specialKnockback'],
     fire: ['fireBurst', 'fireRapid', 'fireAlternating'],
     death: ['deathLandmine'],
-    path: ['pathHighArc', 'pathCurve']
+    path: ['pathHighArc', 'pathCurve', 'pathAccelerate']
   };
 
   const traitKeys = traitKeysByCategory[category] || [];
@@ -4799,7 +5053,7 @@ function evaluateAndAllocateTokens(antIndex, currentRound, isInitialSetup = fals
     
     // Ant size unlock varies by difficulty
     if (statName === 'antSize') {
-      if (difficulty === 'hard' && currentRound >= 2) return true;
+      if ((getDifficultyTier() === 'hard' || getDifficultyTier() === 'insane') && currentRound >= 2) return true;
       if (difficulty === 'medium' && currentRound >= 5) return true;
       if (currentRound >= 10) return true; // Easy mode
     }
@@ -5524,6 +5778,35 @@ function drawDeathEffects() {
     t.y -= t.riseSpeed;
     t.opacity -= 5;
     if (t.opacity <= 0) floatingTexts.splice(i, 1);
+  }
+}
+
+function drawSpeedRings() {
+  // Update and draw speed rings (sonic boom trail from accelerated bullets)
+  for (let i = speedRings.length - 1; i >= 0; i--) {
+    let ring = speedRings[i];
+    
+    push();
+    noFill();
+    strokeWeight(2);
+    ellipseMode(CENTER);
+    
+    // Fade out as ring expands
+    let fadeProgress = ring.life / 30; // Fade over 30 frames
+    let alpha = 255 * (1 - fadeProgress);
+    stroke(80, 255, 120, alpha); // Bright green
+    
+    ellipse(ring.x, ring.y, ring.size, ring.size);
+    pop();
+    
+    // Expand ring
+    ring.size += (ring.maxSize - ring.size) * 0.15; // Expand gradually
+    ring.life++;
+    
+    // Remove when fully faded
+    if (ring.life >= 30) {
+      speedRings.splice(i, 1);
+    }
   }
 }
 
@@ -7079,11 +7362,11 @@ function nextRound(){
       timeCount = 60; 
   }
   
-  // antSize mutation rate: varies by difficulty (hard: round 2+, medium: round 5+, easy: round 10+)
+  // antSize mutation rate: varies by difficulty (hard/insane: round 2+, medium: round 5+, easy: round 10+)
   let antSizeMutationRate = 0;
-  if (difficulty === 'hard' && level >= 2) {
+  if ((getDifficultyTier() === 'hard' || getDifficultyTier() === 'insane') && level >= 2) {
     antSizeMutationRate = 0.2;
-  } else if (difficulty === 'medium' && level >= 5) {
+  } else if (getDifficultyTier() === 'medium' && level >= 5) {
     antSizeMutationRate = 0.2;
   } else if (level >= 10) {
     antSizeMutationRate = 0.2;
@@ -7225,19 +7508,30 @@ function nextRound(){
         // Path category (mutation-based)
         pathHighArc[i]    = constrain(s.pathHighArc    + random(-movementMutationRate, movementMutationRate), 0, 1);
         pathCurve[i]    = constrain(s.pathCurve    + random(-movementMutationRate, movementMutationRate), 0, getMaxAllowedValue('pathCurve', i, s.geneTokenInvestments || []));
+        pathAccelerate[i]    = constrain(s.pathAccelerate    + random(-movementMutationRate, movementMutationRate), 0, getMaxAllowedValue('pathAccelerate', i, s.geneTokenInvestments || []));
         pathPotential[i]    = constrain(s.pathPotential    + random(-movementMutationRate, movementMutationRate), 0, 1);
+        // Determine dominant path trait
+        let pathHighArcVal = s.pathHighArc;
+        let pathCurveVal = s.pathCurve;
+        let pathAccelerateVal = s.pathAccelerate;
         // Only mutate arc duration if parent uses high arc
-        if (s.pathPotential > 0.5 && s.pathHighArc >= s.pathCurve) {
+        if (s.pathPotential > 0.5 && pathHighArcVal >= pathCurveVal && pathHighArcVal >= pathAccelerateVal) {
           bulletArcDuration[i] = constrain(s.bulletArcDuration + random(-50, 50), 60, getMaxAllowedValue('bulletArcDuration', i, s.geneTokenInvestments || []));
         } else {
           bulletArcDuration[i] = s.bulletArcDuration;
         }
         // Only mutate curve strength if parent uses curve/homing path
-        if (s.pathPotential > 0.5 && s.pathCurve >= s.pathHighArc) {
+        if (s.pathPotential > 0.5 && pathCurveVal >= pathHighArcVal && pathCurveVal >= pathAccelerateVal) {
           const maxCurve = getMaxAllowedValue('bulletCurveStrength', i, s.geneTokenInvestments || []);
           bulletCurveStrength[i] = constrain(s.bulletCurveStrength + random(-0.005, 0.005), -maxCurve, maxCurve);
         } else {
           bulletCurveStrength[i] = s.bulletCurveStrength;
+        }
+        // Only mutate accelerate delay if parent uses accelerating bullets
+        if (s.pathPotential > 0.5 && pathAccelerateVal >= pathHighArcVal && pathAccelerateVal >= pathCurveVal) {
+          bulletAccelerateDelay[i] = constrain(s.bulletAccelerateDelay + random(-20, 20), getMinAllowedValue('bulletAccelerateDelay', i, s.geneTokenInvestments || []), 200);
+        } else {
+          bulletAccelerateDelay[i] = s.bulletAccelerateDelay;
         }
         angleFromSpawn[i]    = constrain(s.angleFromSpawn + random((-PI / 3), (PI / 3)), 0, TWO_PI);
         bulletSize[i]    = constrain(s.bulletSize    + random(-(movementMutationRate / 2), (movementMutationRate / 2)), 1, 3);
@@ -7335,21 +7629,31 @@ function nextRound(){
         deathPotential[i]    = constrain(deathPotential[parent.id]    + random(-(movementMutationRate/2), (movementMutationRate/2)), 0, 1);
         // Path category (mutation-based)
         pathHighArc[i]    = constrain(pathHighArc[parent.id]    + random(-movementMutationRate, movementMutationRate), 0, 1);
-        pathHighArc[i]    = constrain(pathHighArc[parent.id]    + random(-movementMutationRate, movementMutationRate), 0, 1);
         pathCurve[i]    = constrain(pathCurve[parent.id]    + random(-movementMutationRate, movementMutationRate), 0, getMaxAllowedValue('pathCurve', parent.id));
+        pathAccelerate[i]    = constrain(pathAccelerate[parent.id]    + random(-movementMutationRate, movementMutationRate), 0, getMaxAllowedValue('pathAccelerate', parent.id));
         pathPotential[i]    = constrain(pathPotential[parent.id]    + random(-movementMutationRate, movementMutationRate), 0, 1);
+        // Determine dominant path trait
+        let pathHighArcVal = pathHighArc[parent.id];
+        let pathCurveVal = pathCurve[parent.id];
+        let pathAccelerateVal = pathAccelerate[parent.id];
         // Only mutate arc duration if parent uses high arc
-        if (pathPotential[parent.id] > 0.5 && pathHighArc[parent.id] >= pathCurve[parent.id]) {
+        if (pathPotential[parent.id] > 0.5 && pathHighArcVal >= pathCurveVal && pathHighArcVal >= pathAccelerateVal) {
           bulletArcDuration[i] = constrain(bulletArcDuration[parent.id] + random(-50, 50), 60, getMaxAllowedValue('bulletArcDuration', parent.id));
         } else {
           bulletArcDuration[i] = bulletArcDuration[parent.id];
         }
         // Only mutate curve strength if parent uses curve/homing path
-        if (pathPotential[parent.id] > 0.5 && pathCurve[parent.id] >= pathHighArc[parent.id]) {
+        if (pathPotential[parent.id] > 0.5 && pathCurveVal >= pathHighArcVal && pathCurveVal >= pathAccelerateVal) {
           const maxCurve = getMaxAllowedValue('bulletCurveStrength', parent.id);
           bulletCurveStrength[i] = constrain(bulletCurveStrength[parent.id] + random(-0.005, 0.005), -maxCurve, maxCurve);
         } else {
           bulletCurveStrength[i] = bulletCurveStrength[parent.id];
+        }
+        // Only mutate accelerate delay if parent uses accelerating bullets
+        if (pathPotential[parent.id] > 0.5 && pathAccelerateVal >= pathHighArcVal && pathAccelerateVal >= pathCurveVal) {
+          bulletAccelerateDelay[i] = constrain(bulletAccelerateDelay[parent.id] + random(-20, 20), getMinAllowedValue('bulletAccelerateDelay', parent.id), 200);
+        } else {
+          bulletAccelerateDelay[i] = bulletAccelerateDelay[parent.id];
         }
         // Remove duplicate mutations (these were already handled above)
         angleFromSpawn[i]    = constrain(angleFromSpawn[parent.id] + random((-PI / 3), (PI / 3)), 0, TWO_PI);
@@ -7565,12 +7869,21 @@ function nextRound(){
         ? constrain(pathCurve[winner.id] + random(-movementMutationRate, movementMutationRate), 0, getMaxAllowedValue('pathCurve', winner.id))
         : random(0, 0.9);
       
+      pathAccelerate[i] = winner
+        ? constrain(pathAccelerate[winner.id] + random(-movementMutationRate, movementMutationRate), 0, getMaxAllowedValue('pathAccelerate', winner.id))
+        : random(0, 0.9);
+      
       pathPotential[i] = winner
         ? constrain(pathPotential[winner.id] + random(-movementMutationRate, movementMutationRate), 0, 1)
         : random(0, 1);
       
+      // Determine dominant path trait
+      let pathHighArcVal = winner ? pathHighArc[winner.id] : 0.5;
+      let pathCurveVal = winner ? pathCurve[winner.id] : 0.5;
+      let pathAccelerateVal = winner ? pathAccelerate[winner.id] : 0.5;
+      
       // Only mutate arc duration if winner uses high arc
-      if (winner && pathPotential[winner.id] > 0.5 && pathHighArc[winner.id] >= pathCurve[winner.id]) {
+      if (winner && pathPotential[winner.id] > 0.5 && pathHighArcVal >= pathCurveVal && pathHighArcVal >= pathAccelerateVal) {
         bulletArcDuration[i] = constrain(bulletArcDuration[winner.id] + random(-50, 50), 60, getMaxAllowedValue('bulletArcDuration', winner.id));
       } else if (winner) {
         bulletArcDuration[i] = bulletArcDuration[winner.id];
@@ -7579,13 +7892,22 @@ function nextRound(){
       }
       
       // Only mutate curve strength if winner uses curve/homing path
-      if (winner && pathPotential[winner.id] > 0.5 && pathCurve[winner.id] >= pathHighArc[winner.id]) {
+      if (winner && pathPotential[winner.id] > 0.5 && pathCurveVal >= pathHighArcVal && pathCurveVal >= pathAccelerateVal) {
         const maxCurve = getMaxAllowedValue('bulletCurveStrength', winner.id);
         bulletCurveStrength[i] = constrain(bulletCurveStrength[winner.id] + random(-0.005, 0.005), -maxCurve, maxCurve);
       } else if (winner) {
         bulletCurveStrength[i] = bulletCurveStrength[winner.id];
       } else {
         bulletCurveStrength[i] = random(-0.1, 0.1);
+      }
+      
+      // Only mutate accelerate delay if winner uses accelerating bullets
+      if (winner && pathPotential[winner.id] > 0.5 && pathAccelerateVal >= pathHighArcVal && pathAccelerateVal >= pathCurveVal) {
+        bulletAccelerateDelay[i] = constrain(bulletAccelerateDelay[winner.id] + random(-20, 20), getMinAllowedValue('bulletAccelerateDelay', winner.id), 200);
+      } else if (winner) {
+        bulletAccelerateDelay[i] = bulletAccelerateDelay[winner.id];
+      } else {
+        bulletAccelerateDelay[i] = random(30, 200);
       }
       
       angleFromSpawn[i] = winner 
@@ -8081,14 +8403,14 @@ function drawStartScreen(){
       fill(20);
       rect(0, 0, getMenuWidth(), getMenuHeight());
       
-      // Menu navigation
+      // Menu navigation - left/right to adjust slider
       if (menuNavigationCooldown === 0) {
-        if (isUpPressed()) {
-          difficultySelection = (difficultySelection - 1 + 3) % 3;
-          menuNavigationCooldown = 10;
-        } else if (isDownPressed()) {
-          difficultySelection = (difficultySelection + 1) % 3;
-          menuNavigationCooldown = 10;
+        if (isLeftPressed() || isUpPressed()) {
+          difficultySelection = constrain(difficultySelection - 1, 1, 10);
+          menuNavigationCooldown = 8;
+        } else if (isRightPressed() || isDownPressed()) {
+          difficultySelection = constrain(difficultySelection + 1, 1, 10);
+          menuNavigationCooldown = 8;
         }
       }
       
@@ -8096,61 +8418,103 @@ function drawStartScreen(){
       fill(255);
       textAlign(CENTER);
       textSize(60);
-      text("Select Difficulty", getMenuWidth() / 2, getMenuHeight() * 0.15);
+      text("Select Difficulty", getMenuWidth() / 2, getMenuHeight() * 0.12);
       
-      // Difficulty options
-      let difficulties = [
-        { name: 'Easy', color: [100, 255, 100], desc: 'Normal ants, 2 tokens/5 rounds' },
-        { name: 'Medium', color: [255, 255, 100], desc: 'Smaller ants (0.5), 4 tokens/5 rounds' },
-        { name: 'Hard', color: [255, 100, 100], desc: 'Tiny ants (0.33), 5+ tokens/5 rounds' }
-      ];
-      
-      for (let i = 0; i < 3; i++) {
-        let optY = getMenuHeight() * (0.30 + i * 0.18);
-        let optX = getMenuWidth() / 2;
-        let optW = 450;
-        let optH = 100;
-        
-        push();
-          rectMode(CENTER);
-          if (difficultySelection === i) {
-            fill(255);
-            stroke(difficulties[i].color);
-            strokeWeight(3);
-          } else {
-            fill(50, 50, 50);
-            stroke(100, 100, 100);
-            strokeWeight(2);
-          }
-          rect(optX, optY, optW, optH, 12);
-          
-          // Difficulty name
-          if (difficultySelection === i) {
-            fill(10);
-          } else {
-            fill(255);
-          }
-          textSize(36);
-          textAlign(CENTER, TOP);
-          text(difficulties[i].name, optX, optY - 30);
-          
-          // Description
-          if (difficultySelection === i) {
-            fill(60);
-          } else {
-            fill(180);
-          }
-          textSize(18);
-          text(difficulties[i].desc, optX, optY + 5);
-        pop();
+      // Current difficulty number and tier
+      let tier = 'Easy';
+      let tierColor = [100, 255, 100];
+      if (difficultySelection <= 3) {
+        tier = 'Easy';
+        tierColor = [100, 255, 100];
+      } else if (difficultySelection <= 5) {
+        tier = 'Medium';
+        tierColor = [255, 255, 100];
+      } else if (difficultySelection <= 7) {
+        tier = 'Hard';
+        tierColor = [255, 150, 100];
+      } else {
+        tier = 'Insane';
+        tierColor = [255, 80, 80];
       }
+      
+      fill(tierColor);
+      textSize(80);
+      text(difficultySelection, getMenuWidth() / 2, getMenuHeight() * 0.25);
+      
+      fill(tierColor);
+      textSize(40);
+      text(tier, getMenuWidth() / 2, getMenuHeight() * 0.35);
+      
+      // Slider bar
+      let barX = getMenuWidth() * 0.2;
+      let barY = getMenuHeight() * 0.47;
+      let barW = getMenuWidth() * 0.6;
+      let barH = 20;
+      
+      push();
+        // Background bar
+        fill(60);
+        stroke(120);
+        strokeWeight(2);
+        rectMode(CORNER);
+        rect(barX, barY, barW, barH, 10);
+        
+        // Filled portion
+        let fillW = ((difficultySelection - 1) / 9) * barW;
+        fill(tierColor);
+        noStroke();
+        rect(barX, barY, fillW, barH, 10);
+        
+        // Slider notches
+        stroke(100);
+        strokeWeight(1);
+        for (let i = 1; i <= 10; i++) {
+          let notchX = barX + ((i - 1) / 9) * barW;
+          line(notchX, barY, notchX, barY + barH);
+        }
+        
+        // Slider handle
+        let handleX = barX + ((difficultySelection - 1) / 9) * barW;
+        fill(255);
+        stroke(tierColor);
+        strokeWeight(3);
+        ellipse(handleX, barY + barH / 2, 30, 30);
+      pop();
+      
+      // Description based on tier
+      fill(180);
+      textSize(20);
+      textAlign(CENTER);
+      let descText = '';
+      if (difficultySelection <= 3) {
+        descText = `${difficultySelection} gene tokens to start • Gain ${difficultySelection} every 5 rounds • Normal ant size`;
+      } else if (difficultySelection <= 5) {
+        descText = `${difficultySelection} gene tokens to start • Gain ${difficultySelection} every 5 rounds • Keep Distance movement • Smaller ants`;
+      } else if (difficultySelection <= 7) {
+        descText = `${difficultySelection} gene tokens to start • Gain ${difficultySelection} every 5 rounds • Keep Distance • Random ability • Small ants`;
+      } else {
+        descText = `${difficultySelection} gene tokens to start • Gain ${difficultySelection} every 5 rounds • Keep Distance • Random ability • Tiny ants • Free upgrade!`;
+      }
+      text(descText, getMenuWidth() / 2, getMenuHeight() * 0.58);
+      
+      // Feature list
+      fill(150);
+      textSize(16);
+      textAlign(LEFT);
+      let featY = getMenuHeight() * 0.68;
+      let featX = getMenuWidth() * 0.15;
+      
+      text("• 1-3 (Easy): Basic ants", featX, featY);
+      text("• 4-5 (Medium): Keep Distance behavior", featX, featY + 25);
+      text("• 6-7 (Hard): + Random starting ability", featX, featY + 50);
+      text("• 8-10 (Insane): + Pre-game upgrade", featX, featY + 75);
       
       // Instructions
       let fadeAlpha = map(sin(frameCount * 0.05), -1, 1, 30, 70);
       fill(200, fadeAlpha);
       textSize(18);
       textAlign(CENTER);
-      text('W/S or ↑/↓  Navigate  |  Enter or A  Confirm  |  Esc  Back', getMenuWidth() / 2, getMenuHeight() * 0.85);
+      text('←/→ or ↑/↓  Adjust  |  Enter or A  Confirm  |  Esc  Back', getMenuWidth() / 2, getMenuHeight() * 0.93);
       
       // Back to main menu
       if (keyIsDown(ESCAPE) && menuNavigationCooldown === 0) {
@@ -8162,29 +8526,34 @@ function drawStartScreen(){
       // Confirm selection
       if (isConfirmPressed() && menuNavigationCooldown === 0) {
         // Set difficulty
-        if (difficultySelection === 0) difficulty = 'easy';
-        else if (difficultySelection === 1) difficulty = 'medium';
-        else if (difficultySelection === 2) difficulty = 'hard';
+        difficulty = difficultySelection;
         
-        console.log(`Difficulty set to: ${difficulty}`);
+        console.log(`Difficulty set to: ${difficulty} (${getDifficultyTier()})`);
         
-        // Start appropriate game mode
-        if (pendingGameMode === 'single') {
-          multiplayerMode = false;
-          numPlayers = 1;
-          if (devToolsUseCustomAnts) {
-            applyCustomAntsToInitialPopulation();
-          } else {
-            applyDifficultyToInitialPopulation();
+        // For insane difficulty (8-10), show pre-game upgrade menu
+        if (getDifficultyTier() === 'insane') {
+          preGameUpgradeMenu = true;
+          difficultyMenu = false;
+          menuNavigationCooldown = 20;
+        } else {
+          // Start appropriate game mode
+          if (pendingGameMode === 'single') {
+            multiplayerMode = false;
+            numPlayers = 1;
+            if (devToolsUseCustomAnts) {
+              applyCustomAntsToInitialPopulation();
+            } else {
+              applyDifficultyToInitialPopulation();
+            }
+            start = true;
+            difficultyMenu = false;
+            pendingGameMode = null;
+            titlemusic.stop();
+            gamemusic.play();
+          } else if (pendingGameMode === 'multiplayer') {
+            playerSelectScreen = true;
+            difficultyMenu = false;
           }
-          start = true;
-          difficultyMenu = false;
-          pendingGameMode = null;
-          titlemusic.stop();
-          gamemusic.play();
-        } else if (pendingGameMode === 'multiplayer') {
-          playerSelectScreen = true;
-          difficultyMenu = false;
         }
         
         menuNavigationCooldown = 20;
@@ -8192,6 +8561,218 @@ function drawStartScreen(){
     }
   
   endMenuScaling();
+}
+
+function drawPreGameUpgradeScreen() {
+  // Initialize upgrade options if not already done
+  if (preGameUpgradeOptions.length === 0) {
+    // Only include basic upgrades (no round 5+ locked upgrades)
+    let basicUpgrades = [
+      0,  // Walking Speed
+      1,  // Dash Speed
+      2,  // Dash Cooldown
+      3,  // Add Shield
+      4,  // Add Bullets
+      5,  // Shield Regen (requires shield)
+      6,  // Bullet Reload (requires bullets)
+      7,  // Bullet Speed (requires bullets)
+      8   // Free-Angle Aiming (requires bullets + speed + reload)
+    ];
+    
+    // Filter out upgrades with unmet prerequisites
+    let availableUpgrades = [];
+    for (let i of basicUpgrades) {
+      if (i === 5 && upgrade4Level === 0) continue;  // Shield Regen requires Add Shield
+      if (i === 6 && upgrade5Level === 0) continue;  // Bullet Reload requires Add Bullets
+      if (i === 7 && upgrade5Level === 0) continue;  // Bullet Speed requires Add Bullets
+      if (i === 8) continue;  // Skip Free-Angle Aiming (too complex for first upgrade)
+      availableUpgrades.push(i);
+    }
+    
+    // Select 3 random upgrades
+    preGameUpgradeOptions = [];
+    let numToSelect = min(3, availableUpgrades.length);
+    for (let i = 0; i < numToSelect; i++) {
+      let randomIndex = floor(random(availableUpgrades.length));
+      preGameUpgradeOptions.push(availableUpgrades[randomIndex]);
+      availableUpgrades.splice(randomIndex, 1);
+    }
+    preGameSelectedUpgrade = 0;
+  }
+  
+  beginMenuScaling();
+  
+  // Dark background
+  imageMode(CORNER);
+  fill(20);
+  rect(0, 0, getMenuWidth(), getMenuHeight());
+  
+  // Title
+  fill(255, 80, 80);
+  textAlign(CENTER);
+  textSize(60);
+  text("INSANE MODE BONUS", getMenuWidth() / 2, getMenuHeight() * 0.12);
+  
+  fill(255);
+  textSize(32);
+  text("Choose One Free Upgrade", getMenuWidth() / 2, getMenuHeight() * 0.20);
+  
+  // Define upgrade names and descriptions
+  let upgradeNames = [
+    'Walking Speed', 'Dash Speed', 'Dash Cooldown', 'Add Shield', 
+    'Add Bullets', 'Shield Regeneration', 'Bullet Reload', 'Bullet Speed', 
+    'Free-Angle Aiming'
+  ];
+  let upgradeDescriptions = [
+    'Increase your movement speed.',
+    'Increase dash velocity.',
+    'Reduce time between dashes.',
+    'Gain 1 shield capacity.',
+    'Gain 2 bullet capacity.',
+    'Regenerate shields over time.',
+    'Faster bullet reload speed.',
+    'Increase bullet velocity.',
+    'Aim with mouse or right stick.'
+  ];
+  
+  // Draw upgrade options as cards
+  let cardWidth = 300;
+  let cardHeight = 350;
+  let spacing = 40;
+  let totalWidth = (cardWidth * preGameUpgradeOptions.length) + (spacing * (preGameUpgradeOptions.length - 1));
+  let startX = (getMenuWidth() - totalWidth) / 2 + cardWidth / 2;
+  
+  for (let i = 0; i < preGameUpgradeOptions.length; i++) {
+    let upgradeId = preGameUpgradeOptions[i];
+    let x = startX + i * (cardWidth + spacing);
+    let y = getMenuHeight() * 0.5;
+    
+    push();
+      // Card background
+      rectMode(CENTER);
+      if (preGameSelectedUpgrade === i) {
+        // Selected card - bright border
+        fill(80);
+        stroke(255, 255, 100);
+        strokeWeight(6);
+        // Pulsing effect
+        let pulseOffset = sin(frameCount * 0.1) * 5;
+        rect(x, y + pulseOffset, cardWidth, cardHeight, 15);
+      } else {
+        // Unselected card
+        fill(50);
+        stroke(120);
+        strokeWeight(2);
+        rect(x, y, cardWidth, cardHeight, 15);
+      }
+      
+      // Upgrade name
+      fill(255);
+      noStroke();
+      textSize(28);
+      textAlign(CENTER, TOP);
+      text(upgradeNames[upgradeId], x, y - cardHeight / 2 + 20, cardWidth - 30);
+      
+      // Description
+      fill(200);
+      textSize(18);
+      text(upgradeDescriptions[upgradeId], x, y - cardHeight / 2 + 90, cardWidth - 30);
+      
+      // Level indicator
+      fill(255, 255, 100);
+      textSize(22);
+      text('Level: 0 → 1', x, y + cardHeight / 2 - 50);
+      
+      // Selection hint
+      if (preGameSelectedUpgrade === i) {
+        fill(255, 255, 100, map(sin(frameCount * 0.1), -1, 1, 100, 255));
+        textSize(20);
+        text('[ SELECTED ]', x, y + cardHeight / 2 - 20);
+      }
+    pop();
+  }
+  
+  // Instructions
+  let fadeAlpha = map(sin(frameCount * 0.05), -1, 1, 30, 70);
+  fill(200, fadeAlpha);
+  textSize(18);
+  textAlign(CENTER);
+  text('←/→  Select  |  1/2/3  Quick Select  |  Enter or A  Confirm  |  Esc or B  Skip', getMenuWidth() / 2, getMenuHeight() * 0.88);
+  
+  // Skip hint
+  fill(150);
+  textSize(16);
+  text('(You can skip this bonus upgrade if you prefer)', getMenuWidth() / 2, getMenuHeight() * 0.93);
+  
+  endMenuScaling();
+}
+
+function applyPreGameUpgrade(selectionIndex) {
+  // Get the actual upgrade ID from the displayed upgrades
+  let upgradeId = preGameUpgradeOptions[selectionIndex];
+  
+  // Increment upgrade level
+  if (upgradeId === 0) upgrade1Level++;
+  else if (upgradeId === 1) upgrade2Level++;
+  else if (upgradeId === 2) upgrade3Level++;
+  else if (upgradeId === 3) upgrade4Level++;
+  else if (upgradeId === 4) upgrade5Level++;
+  else if (upgradeId === 5) upgrade6Level++;
+  else if (upgradeId === 6) upgrade7Level++;
+  else if (upgradeId === 7) upgrade8Level++;
+  else if (upgradeId === 8) upgrade9Level++;
+  
+  // Update upgrade booleans to apply effects
+  updateUpgradeBooleans();
+  
+  let upgradeNames = ['Walking Speed', 'Dash Speed', 'Dash Cooldown', 'Add Shield', 'Add Bullets', 'Shield Regeneration', 'Bullet Reload', 'Bullet Speed', 'Free-Angle Aiming'];
+  console.log(`Pre-game bonus upgrade applied: ${upgradeNames[upgradeId]}`);
+  
+  // Reset menu state
+  preGameUpgradeMenu = false;
+  preGameUpgradeOptions = [];
+  
+  // Start appropriate game mode
+  if (pendingGameMode === 'single') {
+    multiplayerMode = false;
+    numPlayers = 1;
+    if (devToolsUseCustomAnts) {
+      applyCustomAntsToInitialPopulation();
+    } else {
+      applyDifficultyToInitialPopulation();
+    }
+    start = true;
+    pendingGameMode = null;
+    titlemusic.stop();
+    gamemusic.play();
+  } else if (pendingGameMode === 'multiplayer') {
+    playerSelectScreen = true;
+  }
+}
+
+function skipPreGameUpgrade() {
+  console.log('Pre-game upgrade skipped');
+  
+  // Reset menu state
+  preGameUpgradeMenu = false;
+  preGameUpgradeOptions = [];
+  
+  // Start game without bonus upgrade
+  if (pendingGameMode === 'single') {
+    multiplayerMode = false;
+    numPlayers = 1;
+    if (devToolsUseCustomAnts) {
+      applyCustomAntsToInitialPopulation();
+    } else {
+      applyDifficultyToInitialPopulation();
+    }
+    start = true;
+    pendingGameMode = null;
+    titlemusic.stop();
+    gamemusic.play();
+  } else if (pendingGameMode === 'multiplayer') {
+    playerSelectScreen = true;
+  }
 }
 
 function antdexScreen() {
@@ -10749,6 +11330,10 @@ function drawAntsTab(fadeAlpha) {
       help: 'Mutation stat for high arc path (0-1)' },
     { name: 'Path: Curve', key: 'pathCurve', min: 0, max: 2, step: 0.01,
       help: 'Mutation stat for curved/homing path (0-2, <1=curved, >=1=homing)' },
+    { name: 'Path: Accelerate', key: 'pathAccelerate', min: 0, max: 1, step: 0.01,
+      help: 'Mutation stat for accelerating bullets (0-1)' },
+    { name: 'Bullet Accelerate Delay', key: 'bulletAccelerateDelay', min: 30, max: 200, step: 1, integer: true,
+      help: 'Frames before bullet accelerates (200=slow, 30=fast, inverse stat)' },
     { name: 'Path Potential', key: 'pathPotential', min: 0, max: 1, step: 0.01,
       help: 'If >0.5, use highest path trait; else straight' },
     { name: 'Bullet Arc Duration', key: 'bulletArcDuration', min: 60, max: 600, step: 1,
