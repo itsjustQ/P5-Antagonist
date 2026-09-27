@@ -47,6 +47,7 @@ function applyHardModeRandomInitialAbility(antIndex) {
   const randomTraits = [
     { target: 'specialExplosion', category: 'special', potential: 'specialPotential' },
     { target: 'specialKnockback', category: 'special', potential: 'specialPotential' },
+    { target: 'specialCamo', category: 'special', potential: 'specialPotential' },
     { target: 'fireBurst', category: 'fire', potential: 'firePotential' },
     { target: 'fireRapid', category: 'fire', potential: 'firePotential' },
     { target: 'fireAlternating', category: 'fire', potential: 'firePotential' },
@@ -65,11 +66,11 @@ function applyHardModeRandomInitialAbility(antIndex) {
   eval(trait.potential + '[' + antIndex + '] = max(' + trait.potential + '[' + antIndex + '], 0.6)');
   
   // Nudge the selected trait to win its category for expression.
-  // For tiered stats (specialExplosion, pathCurve, pathAccelerate), cap at 0.9 to prevent unlocking tier 2 without cap investment
+  // For tiered stats (specialExplosion, pathCurve, pathAccelerate, deathLandmine, fireAlternating, specialCamo), cap at 0.9 to prevent unlocking tier 2 without cap investment
   // For bulletAccelerateDelay (inverse stat), set to 150 (tier 1, better than default 200)
   let initialValue = 0.9;
-  if (trait.target === 'specialExplosion' || trait.target === 'pathCurve' || trait.target === 'pathAccelerate') {
-    initialValue = 0.9; // Start with tier 1 (stays <1 for timed explosions, curved bullets, or accelerating bullets)
+  if (trait.target === 'specialExplosion' || trait.target === 'pathCurve' || trait.target === 'pathAccelerate' || trait.target === 'deathLandmine' || trait.target === 'fireAlternating' || trait.target === 'specialCamo') {
+    initialValue = 0.9; // Start with tier 1 (stays <1 for timed explosions, curved bullets, accelerating bullets, smears, alternating fire, or camouflage)
   } else if (trait.target === 'bulletAccelerateDelay') {
     initialValue = 150; // Start with tier 1 (150 frames, better than default 200)
   }
@@ -120,12 +121,16 @@ let customAntStats = [
     followValue: 0,
     autonomy: 0,
     distanceFromAnchor: 200,
+    anchorOffsetX: 0,
+    anchorOffsetY: 0,
     // Special category (mutation-based)
     specialExplosion: 0.2,
     specialKnockback: 0.2,
-    specialPotential: 0.3,
+    specialCamo: 0.2,
+specialPotential: 0.3,
     bulletKnockbackMultiplier: 2,
-    // Fire category (mutation-based)
+    bulletCamoFlashRate: 2.5,
+// Fire category (mutation-based)
     fireBurst: 0.1,
     fireRapid: 0.1,
     fireAlternating: 0.1,
@@ -147,8 +152,8 @@ let customAntStats = [
     explosionProximity: 200,
     angleFromSpawn: Math.PI,
     bulletSize: 1,
-    explosionRadiusMultiplier: 1,
-    explosionResidueMultiplier: 1,
+    radiusMultiplier: 1,
+    residueMultiplier: 1,
     bulletExplodeAfter: 800,
     antSize: 1,
     // Gene Token System
@@ -168,12 +173,16 @@ let customAntStats = [
     followValue: 0,
     autonomy: 0,
     distanceFromAnchor: 200,
+    anchorOffsetX: 0,
+    anchorOffsetY: 0,
     // Special category (mutation-based)
     specialExplosion: 0.2,
     specialKnockback: 0.2,
-    specialPotential: 0.3,
+    specialCamo: 0.2,
+specialPotential: 0.3,
     bulletKnockbackMultiplier: 2,
-    // Fire category (mutation-based)
+    bulletCamoFlashRate: 2.5,
+// Fire category (mutation-based)
     fireBurst: 0.1,
     fireRapid: 0.1,
     fireAlternating: 0.1,
@@ -195,8 +204,8 @@ let customAntStats = [
     explosionProximity: 200,
     angleFromSpawn: Math.PI,
     bulletSize: 1,
-    explosionRadiusMultiplier: 1,
-    explosionResidueMultiplier: 1,
+    radiusMultiplier: 1,
+    residueMultiplier: 1,
     bulletExplodeAfter: 800,
     antSize: 1,
     // Gene Token System
@@ -216,12 +225,16 @@ let customAntStats = [
     followValue: 0,
     autonomy: 0,
     distanceFromAnchor: 200,
+    anchorOffsetX: 0,
+    anchorOffsetY: 0,
     // Special category (mutation-based)
     specialExplosion: 0.2,
     specialKnockback: 0.2,
-    specialPotential: 0.3,
+    specialCamo: 0.2,
+specialPotential: 0.3,
     bulletKnockbackMultiplier: 2,
-    // Fire category (mutation-based)
+    bulletCamoFlashRate: 2.5,
+// Fire category (mutation-based)
     fireBurst: 0.1,
     fireRapid: 0.1,
     fireAlternating: 0.1,
@@ -243,8 +256,8 @@ let customAntStats = [
     explosionProximity: 200,
     angleFromSpawn: Math.PI,
     bulletSize: 1,
-    explosionRadiusMultiplier: 1,
-    explosionResidueMultiplier: 1,
+    radiusMultiplier: 1,
+    residueMultiplier: 1,
     bulletExplodeAfter: 800,
     antSize: 1,
     // Gene Token System
@@ -362,12 +375,15 @@ let noSpecialDiscovered = false;       // No special
 let timeExplosionDiscovered = false;   // Time-based explosion
 let proximityExplosionDiscovered = false; // Proximity explosion
 let knockbackDiscovered = false;       // Knockback bullets
+let camouflageDiscovered = false;      // Camouflage bullets (flashing opacity)
+let ghostBulletDiscovered = false;     // Ghost bullets (invisible until near the beetle)
 
 // Fire type discoveries
 let normalFireDiscovered = false;      // Normal fire mode
 let burstFireDiscovered = false;       // Burst fire mode
 let rapidFireDiscovered = false;       // Rapid fire mode
 let alternatingFireDiscovered = false; // Alternating cooldown fire mode
+let hitReloadFireDiscovered = false;   // Hit reload fire mode (long cooldown, resets on hit)
 
 // Explosion Fuse discoveries (100-800, Time Explosion only)
 let fuseMinDiscovered = false;         // 100-250
@@ -420,6 +436,7 @@ let cooldownMultiplierMaxDiscovered = false; // 4.5-5.5 (exotic)
 
 // Bullet Death Type discovery
 let landmineConversionDiscovered = false;  // Bullets convert to landmines (deathType === 1)
+let smearDeathDiscovered = false;          // Bullets leave a damaging smear when they fade (deathType === -1)
 
 // Bullet Path Type discoveries
 let clockwiseCurveDiscovered = false;      // Bullets curve clockwise (pathType === -1)
@@ -510,8 +527,10 @@ let autonomy = [];
 // Special category (mutation-based)
 let specialExplosion = [];
 let specialKnockback = [];
+let specialCamo = [];  // <1 = camouflage (flashing opacity), >=1 = ghost (invisible until near the beetle)
 let specialPotential = [];
 let bulletKnockbackMultiplier = [];
+let bulletCamoFlashRate = []; // Camouflage bullets: opacity flashes per second (lower = better, longer invisible stretches)
 
 // Fire category (mutation-based)
 let fireBurst = [];
@@ -522,6 +541,7 @@ let bulletBurstCount = [];
 let bulletBurstSpread = [];
 let bulletCooldownMultiplier = [];
 let antAlternatingCooldownState = []; // For alternating cooldown fire type: 0 = fast, 1 = slow
+let antHitReloadFlashFrame = []; // For hit reload fire type: frame the reload flash started
 let antRapidFireActive = []; // Tracks if ant is currently in rapid fire sequence
 let antRapidFireCount = []; // How many bullets left to fire in rapid fire sequence
 let antRapidFireNextFrame = []; // Frame when next rapid fire bullet should spawn
@@ -547,6 +567,8 @@ let standingPointY = [];
 let anchorPointX = [];
 let anchorPointY = [];
 let distanceFromAnchor = [];
+let anchorOffsetX = []; // Keep Distance: offset added to the anchor target's X
+let anchorOffsetY = []; // Keep Distance: offset added to the anchor target's Y
 let spawnX = [];
 let spawnY = [];
 let angleFromSpawn = [];
@@ -578,12 +600,13 @@ let geneTokenLastRoundGained = []; // Track when ant last gained tokens
 let bulletSplitCount = []; // NEW: how many pieces (1–5)
 let bulletSpread = [];     // NEW: spread angle in degrees (or radians)
 
-let explosionRadiusMultiplier = [];
-let explosionResidueMultiplier = [];
+let radiusMultiplier = [];
+let residueMultiplier = [];
 
 let enemyExplosions = [];
 let enemyArcExplosionLinks = [];
 let enemyGroundImpacts = [];
+let enemySmears = []; // Lingering damage patches left by fading bullets (smear death type)
 let bulletExplodeAfter = [];
 
 let buttons = {};
@@ -839,8 +862,8 @@ function setup() {
     bulletSplitCount[i] = 1;          // no split by default
     bulletSpread[i] = 0;              // 0° spread (all bullets same direction)
     bulletExplodeAfter[i] = 800; 
-    explosionRadiusMultiplier[i] = 1;
-    explosionResidueMultiplier[i] = 1;
+    radiusMultiplier[i] = 1;
+    residueMultiplier[i] = 1;
     shotOffsetX[i] = 0;
     shotOffsetY[i] = 0;
     followValue[i] = initialFollowValue;
@@ -848,9 +871,11 @@ function setup() {
     // Special category (mutation-based)
     specialExplosion[i] = 0.2;
     specialKnockback[i] = 0.2;
+    specialCamo[i] = 0.2;
     specialPotential[i] = 0.3;
     bulletKnockbackMultiplier[i] = 2;
-    // Fire category (mutation-based)
+    bulletCamoFlashRate[i] = 2.5;
+// Fire category (mutation-based)
     fireBurst[i] = 0.1;
     fireRapid[i] = 0.1;
     fireAlternating[i] = 0.1;
@@ -900,8 +925,8 @@ function setup() {
         explodeOnTermination[i] = false;
         triggerExplodeViaProximity[i] = true;
       }
-    } else if (specialType === -1){
-      // Type -1 = Knockback (no explosions)
+    } else {
+      // Knockback (-1), Camouflage (2), or Ghost (-2): no explosions
       explodeOnTermination[i] = false;
       triggerExplodeViaProximity[i] = false;
     }
@@ -909,6 +934,8 @@ function setup() {
     standingPointX[i] = width / 2;
     standingPointY[i] = height / 2;
     distanceFromAnchor[i] = 200;
+    anchorOffsetX[i] = 0;
+    anchorOffsetY[i] = 0;
     angleFromSpawn[i] = PI;
     if (Math.round(autonomy[i]) === 0){
       followTarget[i] = true;
@@ -1343,6 +1370,7 @@ function draw() {
       enemyInteraction1(); // Beetle Eats Enemy
       enemyShoot1();
       drawEnemyArcExplosionLinks();
+      drawEnemySmears();
       drawEnemyExplosions();
       drawEnemyGroundImpacts();
       detectKeyboardInput();
@@ -1620,11 +1648,15 @@ function applyCustomAntsToInitialPopulation() {
     followValue[i] = s.followValue;
     autonomy[i] = s.autonomy;
     distanceFromAnchor[i] = s.distanceFromAnchor;
+    anchorOffsetX[i] = s.anchorOffsetX;
+    anchorOffsetY[i] = s.anchorOffsetY;
     // Special category (mutation-based)
     specialExplosion[i] = s.specialExplosion;
     specialKnockback[i] = s.specialKnockback;
+    specialCamo[i] = s.specialCamo;
     specialPotential[i] = s.specialPotential;
     bulletKnockbackMultiplier[i] = s.bulletKnockbackMultiplier;
+    bulletCamoFlashRate[i] = s.bulletCamoFlashRate;
     // Fire category (mutation-based)
     fireBurst[i] = s.fireBurst;
     fireRapid[i] = s.fireRapid;
@@ -1647,8 +1679,8 @@ function applyCustomAntsToInitialPopulation() {
     explosionProximity[i] = s.explosionProximity;
     angleFromSpawn[i] = s.angleFromSpawn;
     bulletSize[i] = s.bulletSize;
-    explosionRadiusMultiplier[i] = s.explosionRadiusMultiplier;
-    explosionResidueMultiplier[i] = s.explosionResidueMultiplier;
+    radiusMultiplier[i] = s.radiusMultiplier;
+    residueMultiplier[i] = s.residueMultiplier;
     bulletExplodeAfter[i] = s.bulletExplodeAfter;
     antSize[i] = s.antSize;
     
@@ -1688,8 +1720,8 @@ function applyCustomAntsToInitialPopulation() {
         explodeOnTermination[i] = false;
         triggerExplodeViaProximity[i] = true;
       }
-    } else if (specialType === -1){
-      // Type -1 = Knockback (no explosions)
+    } else {
+      // Knockback (-1), Camouflage (2), or Ghost (-2): no explosions
       explodeOnTermination[i] = false;
       triggerExplodeViaProximity[i] = false;
     }
@@ -1783,6 +1815,8 @@ function applyDifficultyToInitialPopulation() {
     if (standingPointX[i] === undefined) standingPointX[i] = width / 2;
     if (standingPointY[i] === undefined) standingPointY[i] = height / 2;
     if (distanceFromAnchor[i] === undefined) distanceFromAnchor[i] = 200;
+    if (anchorOffsetX[i] === undefined) anchorOffsetX[i] = 0;
+    if (anchorOffsetY[i] === undefined) anchorOffsetY[i] = 0;
     if (angleFromSpawn[i] === undefined) angleFromSpawn[i] = PI;
     if (enemyBullets[i] === undefined) enemyBullets[i] = [];
     if (antPoints[i] === undefined) antPoints[i] = 0;
@@ -1807,6 +1841,7 @@ function applyDifficultyToInitialPopulation() {
     if (bulletAccelerateDelay[i] === undefined) bulletAccelerateDelay[i] = 200;
     if (specialExplosion[i] === undefined) specialExplosion[i] = 0.2;
     if (specialKnockback[i] === undefined) specialKnockback[i] = 0.2;
+    if (specialCamo[i] === undefined) specialCamo[i] = 0.2;
     if (specialPotential[i] === undefined) specialPotential[i] = 0.3;
     if (fireBurst[i] === undefined) fireBurst[i] = 0.1;
     if (fireRapid[i] === undefined) fireRapid[i] = 0.1;
@@ -1819,8 +1854,9 @@ function applyDifficultyToInitialPopulation() {
     if (pathAccelerate[i] === undefined) pathAccelerate[i] = 0.1;
     if (pathPotential[i] === undefined) pathPotential[i] = 0.3;
     if (bulletKnockbackMultiplier[i] === undefined) bulletKnockbackMultiplier[i] = 2;
-    if (explosionRadiusMultiplier[i] === undefined) explosionRadiusMultiplier[i] = 1;
-    if (explosionResidueMultiplier[i] === undefined) explosionResidueMultiplier[i] = 1;
+    if (bulletCamoFlashRate[i] === undefined) bulletCamoFlashRate[i] = 2.5;
+    if (radiusMultiplier[i] === undefined) radiusMultiplier[i] = 1;
+    if (residueMultiplier[i] === undefined) residueMultiplier[i] = 1;
     if (bulletSpread[i] === undefined) bulletSpread[i] = 0;
     if (bulletSplitCount[i] === undefined) bulletSplitCount[i] = 1;
     if (antRapidFireCount[i] === undefined) antRapidFireCount[i] = 0;
@@ -1909,11 +1945,15 @@ function syncActualWinnersToCustomStats(topAnts) {
         followValue: followValue[antId],
         autonomy: autonomy[antId],
         distanceFromAnchor: distanceFromAnchor[antId],
+        anchorOffsetX: anchorOffsetX[antId],
+        anchorOffsetY: anchorOffsetY[antId],
         // Special category (mutation-based)
         specialExplosion: specialExplosion[antId],
         specialKnockback: specialKnockback[antId],
+        specialCamo: specialCamo[antId],
         specialPotential: specialPotential[antId],
         bulletKnockbackMultiplier: bulletKnockbackMultiplier[antId],
+        bulletCamoFlashRate: bulletCamoFlashRate[antId],
         // Fire category (mutation-based)
         fireBurst: fireBurst[antId],
         fireRapid: fireRapid[antId],
@@ -1936,8 +1976,8 @@ function syncActualWinnersToCustomStats(topAnts) {
         explosionProximity: explosionProximity[antId],
         angleFromSpawn: angleFromSpawn[antId],
         bulletSize: bulletSize[antId],
-        explosionRadiusMultiplier: explosionRadiusMultiplier[antId],
-        explosionResidueMultiplier: explosionResidueMultiplier[antId],
+        radiusMultiplier: radiusMultiplier[antId],
+        residueMultiplier: residueMultiplier[antId],
         bulletExplodeAfter: bulletExplodeAfter[antId],
         antSize: antSize[antId],
         // Gene Token System
@@ -2292,6 +2332,19 @@ function drawEnemy(){
         let antImageSize = 45 + (15 * antSize[i]);
         image(ant, 0, 0, antImageSize, antImageSize);
       pop();
+
+      // Hit reload ant: white flash after its bullet hits; the ant refires as the flash ends
+      if (antHitReloadFlashFrame[i] !== undefined) {
+        let flashAge = frameCount - antHitReloadFlashFrame[i];
+        if (flashAge >= 0 && flashAge < HIT_RELOAD_FLASH_FRAMES) {
+          let flashT = flashAge / HIT_RELOAD_FLASH_FRAMES;
+          push();
+          noStroke();
+          fill(255, 255, 255, 200 * (1 - flashT));
+          ellipse(antX[i], antY[i] - antAirHeight[i], antImageSize * lerp(0.5, 0.9, flashT));
+          pop();
+        }
+      }
 
       // Small ant: blue pulsing aura
       if (antSize[i] < 0.8 && antHealth[i] >= 1) {
@@ -2956,6 +3009,9 @@ function enemyShoot1() {
             // Slow cooldown: cooldown * multiplier
             currentCooldown = bulletCooldown[i] * Math.max(1, multiplier);
           }
+        } else if (fireType === -2) {
+          // Type -2: Hit reload - long cooldown, reset whenever a bullet hits the player (see handlePlayerHit)
+          currentCooldown = bulletCooldown[i] * HIT_RELOAD_COOLDOWN_MULTIPLIER;
         }
         
         // Use cooldown tracking instead of modulo for proper reset capability
@@ -3325,8 +3381,14 @@ function enemyShoot1() {
                 triggerExplodeViaProximity: triggerExplodeViaProximity[i] || false,
                 explosionProximity: explosionProximity[i] || 0,
                 explodeAfter: bullet.explodeAfter || bulletExplodeAfter[i],
+                meltAfter: getMineMeltFrames(i),
+                stealthType: getMineStealthType(i),
+                camoFlashRate: bulletCamoFlashRate[i],
                 fusionCount: 1 // Track how many mines have been fused
             });
+          } else if (getDeathType(i) === -1) {
+            // Type -1: Leave a damaging smear where the bullet faded
+            spawnEnemySmear(bullet.x, bullet.y, bullet.size, i, bullet.speedX, bullet.speedY);
           }
           // Type 0: Just fade and remove (default behavior)
           enemyBullets[i].splice(b, 1);
@@ -3360,6 +3422,10 @@ function enemyShoot1() {
           }
         }
         
+        // Camouflage / Ghost specials: scale everything drawn for this bullet by a stealth opacity
+        const bulletStealth = getBulletStealthAlpha(bullet, i);
+        if (bulletStealth <= 0.01) shouldDrawBullet = false;
+
         if (shouldDrawBullet) {
           // Accelerating bullets (pathType === 2): special rendering
           const isAccelerating = bullet.pathType === 2;
@@ -3375,7 +3441,7 @@ function enemyShoot1() {
             let maxHeight = bullet.pathType === 1 ? (bullet.arcDuration * 0.5) : 12;
             let shadowAlpha = map(bullet.airHeight, 0, maxHeight, 150, 30);
             
-            fill(0, 0, 0, shadowAlpha);
+            fill(0, 0, 0, shadowAlpha * bulletStealth);
             let shadowSize = (20 * bullet.size) * 0.6; // Shadow slightly smaller than bullet
             ellipse(bullet.x, bullet.y, shadowSize, shadowSize);
             smooth();
@@ -3388,7 +3454,7 @@ function enemyShoot1() {
             noStroke();
             let flashSpeed = (bullet.knockbackMultiplier || 1) * 6;
             let flashAlpha = 83 + 70 * sin(bullet.life * flashSpeed);
-            fill(220, 220, 220, flashAlpha);
+            fill(220, 220, 220, flashAlpha * bulletStealth);
             let auraSize = (25 * bullet.size) + 5 * sin(bullet.life * 0.2);
             ellipse(bullet.x, bullet.y - bullet.airHeight, auraSize, auraSize);
             pop();
@@ -3400,7 +3466,7 @@ function enemyShoot1() {
             noStroke();
             let homingFlashSpeed = map(abs(bullet.curveStrength), 0.015, 0.1, 3, 12);
             let homingFlashAlpha = 83 + 70 * sin(bullet.life * homingFlashSpeed);
-            fill(255, 60, 60, homingFlashAlpha);
+            fill(255, 60, 60, homingFlashAlpha * bulletStealth);
             let homingAuraSize = (30 * bullet.size) + 5 * sin(bullet.life * 0.2);
             ellipse(bullet.x, bullet.y - bullet.airHeight, homingAuraSize, homingAuraSize);
             pop();
@@ -3417,7 +3483,7 @@ function enemyShoot1() {
               explodeFlashSpeed = map(bullet.explodeAfter, 800, 100, 2, 10);
             }
             let explodeFlashAlpha = 83 + 70 * sin(bullet.life * explodeFlashSpeed);
-            fill(80, 220, 80, explodeFlashAlpha);
+            fill(80, 220, 80, explodeFlashAlpha * bulletStealth);
               let explodeAuraSize = (25 * bullet.size) + 5 * sin(bullet.life * 0.2);
             ellipse(bullet.x, bullet.y - bullet.airHeight, explodeAuraSize, explodeAuraSize);
             pop();
@@ -3428,7 +3494,9 @@ function enemyShoot1() {
           // Apply fade (either from Tiger Beetle or bullet lifespan)
           // BUT: Accelerated bullets ignore life cycle fade and stay at full opacity
           if (!hasAccelerated && (tigerBeetleActive && tigerBeetleMoving || bullet.life >= bullet.maxLife)) {
-            tint(255, bulletFadeAmount);
+            tint(255, bulletFadeAmount * bulletStealth);
+          } else if (bulletStealth < 1) {
+            tint(255, 255 * bulletStealth);
           }
           angleMode(DEGREES);
           imageMode(CENTER);
@@ -3443,8 +3511,8 @@ function enemyShoot1() {
           if (getDeathType(i) === 1) {
             push();
             noStroke();
-            let mineFlashSpeed = map(deathLandmine[i], 0.3, 1.0, 2, 8);
-            fill(255, 255, 0, 220);
+            let mineFlashSpeed = map(deathLandmine[i], 1.0, 2.0, 2, 8, true);
+            fill(255, 255, 0, 220 * bulletStealth);
             let mineCoreSize = (6 * bullet.size) + 2.5 * sin(bullet.life * mineFlashSpeed * 0.2);
             ellipse(bullet.x, bullet.y - bullet.airHeight, mineCoreSize, mineCoreSize);
             pop();
@@ -3501,9 +3569,17 @@ function enemyShoot1() {
               triggerExplodeViaProximity: triggerExplodeViaProximity[bullet.owner] || false,
               explosionProximity: explosionProximity[bullet.owner] || 0,
               explodeAfter: bullet.explodeAfter || bulletExplodeAfter[bullet.owner],
+              meltAfter: getMineMeltFrames(bullet.owner),
+              stealthType: getMineStealthType(bullet.owner),
+              camoFlashRate: bulletCamoFlashRate[bullet.owner],
               fusionCount: 1
             });
           } else {
+            // Smear death: leave a streak where the lofted bullet lands (on top of its normal impact)
+            if (deathType === -1) {
+              spawnEnemySmear(bullet.x, bullet.y, bullet.size, bullet.owner, bullet.speedX, bullet.speedY);
+            }
+
             let hasExplosionSpecial = explodeOnTermination[bullet.owner] || triggerExplodeViaProximity[bullet.owner];
 
             // Explosion special: explode on ground impact like a normal triggered explosion.
@@ -3511,8 +3587,8 @@ function enemyShoot1() {
               spawnEnemyExplosion(bullet.x, bullet.y, bullet.size, bullet.owner);
             } else if (bullet.knockbackBullet) {
               // Knockback special: white impact burst with AoE direct-hit-equivalent effect.
-              let knockbackRadius = (18 * bullet.size) * (0.9 + 0.45 * (bullet.knockbackMultiplier || 1));
-              spawnEnemyGroundImpact(bullet.x, bullet.y, knockbackRadius, true);
+              let knockbackRadius = (18 * bullet.size) * (0.9 + 0.45 * (bullet.knockbackMultiplier || 1)) * (radiusMultiplier[bullet.owner] || 1);
+              spawnEnemyGroundImpact(bullet.x, bullet.y, knockbackRadius, true, residueMultiplier[bullet.owner] || 1);
               let distToPlayer = dist(playerX, playerY, bullet.x, bullet.y);
               if (distToPlayer <= knockbackRadius) {
                 handlePlayerHit(
@@ -3527,9 +3603,22 @@ function enemyShoot1() {
                 );
               }
             } else {
-              // Non-special high-arc bullets create a small ground impact AoE visual.
-              let defaultImpactRadius = 22 * bullet.size;
-              spawnEnemyGroundImpact(bullet.x, bullet.y, defaultImpactRadius, false);
+              // Non-special high-arc bullets create a small ground impact AoE that damages the player.
+              let defaultImpactRadius = 22 * bullet.size * (radiusMultiplier[bullet.owner] || 1);
+              spawnEnemyGroundImpact(bullet.x, bullet.y, defaultImpactRadius, false, residueMultiplier[bullet.owner] || 1);
+              let distToPlayer = dist(playerX, playerY, bullet.x, bullet.y);
+              if (distToPlayer <= defaultImpactRadius) {
+                handlePlayerHit(
+                  bullet.owner,
+                  false,
+                  bullet.x,
+                  bullet.y,
+                  1,
+                  10,
+                  false,
+                  bullet.size
+                );
+              }
             }
           }
           // Type 0 or other: Just disappear
@@ -3554,6 +3643,14 @@ function enemyShoot1() {
     
     // Track mine lifetime for time-based explosion fuses
     mine.life = (mine.life || 0) + 1;
+
+    // Mines melt away after 5 seconds x owner's residue multiplier
+    let meltAfter = mine.meltAfter || MINE_MELT_BASE_FRAMES;
+    if (mine.life >= meltAfter) {
+      landMines.splice(m, 1);
+      continue;
+    }
+    let meltProgress = constrain((mine.life - (meltAfter - MINE_MELT_FADE_FRAMES)) / MINE_MELT_FADE_FRAMES, 0, 1);
 
     // Handle time-based explosion (fuse)
     if (mine.explodeOnTermination && mine.life >= (mine.explodeAfter || 0)) {
@@ -3727,7 +3824,10 @@ function enemyShoot1() {
       pulseFactor = 1 + 0.1 * sin(frameCount * 0.15);
     }
     
-    let finalSize = mineSize * pulseFactor;
+    let finalSize = mineSize * pulseFactor * (1 - 0.5 * meltProgress);
+    mineFadeAmount *= (1 - meltProgress);
+    // Camouflage / Ghost mines inherit their owner's stealth
+    mineFadeAmount *= getStealthAlpha(mine, mine.stealthType || 0, mine.camoFlashRate);
 
     // Draw inherited special auras for mines created by special bullets.
     if (mine.explodeOnTermination || mine.triggerExplodeViaProximity) {
@@ -3862,6 +3962,13 @@ function enemyShoot1() {
   }
 }
 
+const MINE_MELT_BASE_FRAMES = 300; // 5 seconds at 60fps
+const MINE_MELT_FADE_FRAMES = 60;  // Final second spent visibly melting
+
+function getMineMeltFrames(ownerId) {
+  return MINE_MELT_BASE_FRAMES * (residueMultiplier[ownerId] || 1);
+}
+
 // Categorize bullet speed into tiers and return damage multiplier and knockback tier
 function getBulletSpeedTier(speed) {
   if (speed <= 2) {
@@ -3879,6 +3986,18 @@ function getBulletSpeedTier(speed) {
 
 function handlePlayerHit(i, isKnockbackBullet = false, bulletX = 0, bulletY = 0, knockbackMult = 1, bulletSpeed = 5, isMine = false, customBulletSize = null){
   if (end == false){
+    // Hit reload fire type: a bullet hit starts a short white flash, and the ant fires again
+    // the moment the flash ends. Hits during an active flash don't restart it.
+    if (!isMine && getFireType(i) === -2) {
+      const flashActive = antHitReloadFlashFrame[i] !== undefined &&
+        frameCount - antHitReloadFlashFrame[i] < HIT_RELOAD_FLASH_FRAMES;
+      if (!flashActive) {
+        antHitReloadFlashFrame[i] = frameCount;
+        // Back-date the last shot so the cooldown finishes exactly when the flash does
+        antLastShotFrame[i] = frameCount + HIT_RELOAD_FLASH_FRAMES - bulletCooldown[i] * HIT_RELOAD_COOLDOWN_MULTIPLIER;
+      }
+    }
+
     // Calculate damage based on bullet speed tier and size (mines use size only)
     // Use passed customBulletSize or fall back to bulletSize[i] for backwards compatibility
     let actualBulletSize = customBulletSize !== null ? customBulletSize : bulletSize[i];
@@ -4583,6 +4702,38 @@ function getNearestAnt(index) {
 }
 
 // Helper functions to determine winning trait based on mutation stats
+const GHOST_BULLET_REVEAL_DISTANCE = 150;      // Ghost bullets start fading in within this distance of the beetle
+const GHOST_BULLET_FULL_REVEAL_DISTANCE = 100; // ...and are fully visible within this distance
+
+// Opacity multiplier (0-1) for camouflage and ghost bullets; 1 for every other bullet.
+function getBulletStealthAlpha(bullet, ownerId) {
+  return getStealthAlpha(bullet, getSpecialType(ownerId), bulletCamoFlashRate[ownerId]);
+}
+
+// Shared by bullets and landmines. obj needs x, y and life.
+// stealthType: 2 = Camouflage, -2 = Ghost, anything else = fully visible.
+function getStealthAlpha(obj, stealthType, flashRate) {
+  if (stealthType === 2) {
+    // Camouflage: opacity pulses between nearly invisible and fully visible, lingering low
+    const rate = flashRate || 2.5; // flashes per second
+    const wave = 0.5 + 0.5 * Math.sin((obj.life || 0) * rate * Math.PI * 2 / 60);
+    return 0.08 + 0.92 * wave * wave;
+  }
+  if (stealthType === -2) {
+    // Ghost: invisible beyond the reveal distance, fading in to fully visible at the full-reveal
+    // distance (and back out the same way when it gets away from the beetle)
+    const d = dist(obj.x, obj.y, playerX, playerY);
+    return constrain((GHOST_BULLET_REVEAL_DISTANCE - d) / (GHOST_BULLET_REVEAL_DISTANCE - GHOST_BULLET_FULL_REVEAL_DISTANCE), 0, 1);
+  }
+  return 1;
+}
+
+// Stealth type a new landmine inherits from its owner's special (2 = Camouflage, -2 = Ghost, 0 = none)
+function getMineStealthType(ownerId) {
+  const specialType = getSpecialType(ownerId);
+  return (specialType === 2 || specialType === -2) ? specialType : 0;
+}
+
 function getSpecialType(antIndex) {
   // If potential <= 0.5, return default (none)
   if (specialPotential[antIndex] <= 0.5) {
@@ -4598,12 +4749,18 @@ function getSpecialType(antIndex) {
   // Find the highest value among the non-default options
   let maxVal = Math.max(
     specialExplosion[antIndex],
-    specialKnockback[antIndex]
+    specialKnockback[antIndex],
+    specialCamo[antIndex]
   );
   if (specialExplosion[antIndex] === maxVal) return 1; // Explosion
   if (specialKnockback[antIndex] === maxVal) return -1; // Knockback
+  // specialCamo: <1 = Camouflage (tier 1), >=1 = Ghost (tier 2)
+  if (specialCamo[antIndex] === maxVal) return specialCamo[antIndex] >= 1 ? -2 : 2;
   return 0; // None (fallback)
 }
+
+const HIT_RELOAD_COOLDOWN_MULTIPLIER = 3; // Hit reload fire type: cooldown length relative to base cooldown
+const HIT_RELOAD_FLASH_FRAMES = 15;       // Hit reload fire type: flash length; the ant refires when it ends
 
 function getFireType(antIndex) {
   // If potential <= 0.5, return default (normal)
@@ -4625,7 +4782,8 @@ function getFireType(antIndex) {
   );
   if (fireBurst[antIndex] === maxVal) return 1; // Burst
   if (fireRapid[antIndex] === maxVal) return 2; // Rapid
-  if (fireAlternating[antIndex] === maxVal) return -1; // Alternating
+  // fireAlternating: <1 = Alternating (tier 1), >=1 = Hit Reload (tier 2)
+  if (fireAlternating[antIndex] === maxVal) return fireAlternating[antIndex] >= 1 ? -2 : -1;
   return 0; // Normal (fallback)
 }
 
@@ -4641,8 +4799,9 @@ function getDeathType(antIndex) {
   if (!hasInvestment) {
     return 0; // Fading (no token invested)
   }
-  // Only one non-default option
-  if (deathLandmine[antIndex] > 0) return 1; // Landmine
+  // deathLandmine: <1 = Smear (tier 1), >=1 = Landmine (tier 2)
+  if (deathLandmine[antIndex] >= 1) return 1; // Landmine (tier 2)
+  if (deathLandmine[antIndex] > 0) return -1; // Smear (tier 1, base)
   return 0; // Fading (fallback)
 }
 
@@ -4724,7 +4883,9 @@ const moduleStatCapTiers = {
   
   // Special category mutation stats (can be capped)
   specialExplosion: { caps: [1.0, 2.0], inverse: false },  // <1 = timed, >=1 = proximity
-  bulletKnockbackMultiplier: { caps: [2, 3, 4, 5], inverse: false },
+  specialCamo: { caps: [1.0, 2.0], inverse: false },  // <1 = camouflage, >=1 = ghost
+  bulletCamoFlashRate: { caps: [1.5, 1.0, 0.75, 0.5, 0.25], inverse: true, start: 3 },  // Flashes/sec (lower = better)
+bulletKnockbackMultiplier: { caps: [2, 3, 4, 5], inverse: false },
   
   // Fire category supporting stats
   bulletBurstCount: { caps: [3, 4, 5, 5.5], inverse: false },
@@ -4735,14 +4896,16 @@ const moduleStatCapTiers = {
   bulletArcDuration: { caps: [300, 400, 500, 600], inverse: false },
   bulletCurveStrength: { caps: [0.05, 0.075, 0.1], inverse: false },
   pathCurve: { caps: [1.0, 2.0], inverse: false },  // <1 = curved, >=1 = homing
+  deathLandmine: { caps: [1.0, 2.0], inverse: false },  // <1 = smear, >=1 = landmine
+  fireAlternating: { caps: [1.0, 2.0], inverse: false },  // <1 = alternating, >=1 = hit reload
   pathAccelerate: { caps: [0.4, 0.6, 0.8, 1.0], inverse: false, start: 0.1 },
   bulletAccelerateDelay: { caps: [150, 100, 60, 30], inverse: true, start: 200 },  // Frames before acceleration (inverse: lower=better)
   
   // Explosion stats
   explosionProximity: { caps: [400, 600, 800, 1000], inverse: false },
   bulletSize: { caps: [1.5, 2.0, 2.5, 3.0], inverse: false },
-  explosionRadiusMultiplier: { caps: [1.5, 2.0, 2.5, 3.0], inverse: false },
-  explosionResidueMultiplier: { caps: [1.5, 2.0, 2.5, 3.0], inverse: false },
+  radiusMultiplier: { caps: [1.5, 2.0, 2.5, 3.0], inverse: false },
+  residueMultiplier: { caps: [1.5, 2.0, 2.5, 3.0], inverse: false },
   bulletExplodeAfter: { caps: [600, 500, 400, 200, 100], inverse: true, start: 800 },
   
   // Ant size
@@ -4750,7 +4913,7 @@ const moduleStatCapTiers = {
 };
 
 // Get max mutatable value for a stat based on an ant's unlocked cap tiers.
-// For threshold-gated stats (specialExplosion, pathCurve): caps mark functional tier thresholds.
+// For threshold-gated stats (specialExplosion, pathCurve, deathLandmine, fireAlternating, specialCamo): caps mark functional tier thresholds.
 //   - No tokens: must stay strictly below caps[0]
 //   - Tier 0 token: can reach caps[0] but must stay strictly below caps[1]
 // For scaling stats (knockback, burst, etc.): caps[0] is natural uncapped max, tokens extend range.
@@ -4773,7 +4936,7 @@ function getMaxAllowedValue(statName, antId, investmentsOverride) {
   }
   
   // Stats that use threshold gates (caps mark functional tier thresholds, not just range limits)
-  const thresholdGatedStats = ['specialExplosion', 'pathCurve'];
+  const thresholdGatedStats = ['specialExplosion', 'pathCurve', 'deathLandmine', 'fireAlternating', 'specialCamo'];
   
   if (thresholdGatedStats.includes(statName)) {
     if (unlockedTier < 0) {
@@ -4837,7 +5000,7 @@ function getRequiredCapTierForValue(statName, value) {
   const tierInfo = moduleStatCapTiers[statName];
   if (!tierInfo) return -1;
 
-  const thresholdGatedStats = ['specialExplosion', 'pathCurve'];
+  const thresholdGatedStats = ['specialExplosion', 'pathCurve', 'deathLandmine', 'fireAlternating', 'specialCamo'];
   let requiredTier = -1;
 
   if (thresholdGatedStats.includes(statName)) {
@@ -4912,7 +5075,7 @@ function syncCustomAntCapInvestmentsForStat(customAnt, statName) {
 
 function getTraitCategoryFromStatKey(statKey) {
   if (!statKey) return null;
-  if (['specialExplosion', 'specialKnockback', 'specialPotential', 'bulletKnockbackMultiplier'].includes(statKey)) return 'special';
+  if (['specialExplosion', 'specialKnockback', 'specialCamo', 'specialPotential', 'bulletKnockbackMultiplier', 'bulletCamoFlashRate'].includes(statKey)) return 'special';
   if (['fireBurst', 'fireRapid', 'fireAlternating', 'firePotential', 'bulletBurstCount', 'bulletBurstSpread', 'bulletCooldownMultiplier'].includes(statKey)) return 'fire';
   if (['deathLandmine', 'deathPotential'].includes(statKey)) return 'death';
   if (['pathHighArc', 'pathCurve', 'pathAccelerate', 'pathPotential', 'bulletArcDuration', 'bulletCurveStrength'].includes(statKey)) return 'path';
@@ -4921,7 +5084,7 @@ function getTraitCategoryFromStatKey(statKey) {
 
 function getDominantTraitKeyForCategory(customAnt, category) {
   const traitKeysByCategory = {
-    special: ['specialExplosion', 'specialKnockback'],
+    special: ['specialExplosion', 'specialKnockback', 'specialCamo'],
     fire: ['fireBurst', 'fireRapid', 'fireAlternating'],
     death: ['deathLandmine'],
     path: ['pathHighArc', 'pathCurve', 'pathAccelerate']
@@ -4998,7 +5161,9 @@ function evaluateAndAllocateTokens(antIndex, currentRound, isInitialSetup = fals
     
     // Special category mutation stats (can be capped)
     specialExplosion: { caps: [1.0, 2.0], inverse: false },  // <1 = timed, >=1 = proximity
-    bulletKnockbackMultiplier: { caps: [2, 3, 4, 5], inverse: false },
+    specialCamo: { caps: [1.0, 2.0], inverse: false },  // <1 = camouflage, >=1 = ghost
+    bulletCamoFlashRate: { caps: [1.5, 1.0, 0.75, 0.5, 0.25], inverse: true, start: 3 },  // Flashes/sec (lower = better)
+bulletKnockbackMultiplier: { caps: [2, 3, 4, 5], inverse: false },
     
     // Fire category supporting stats
     bulletBurstCount: { caps: [3, 4, 5, 5.5], inverse: false },
@@ -5009,12 +5174,18 @@ function evaluateAndAllocateTokens(antIndex, currentRound, isInitialSetup = fals
     bulletArcDuration: { caps: [300, 400, 500, 600], inverse: false },
     bulletCurveStrength: { caps: [0.05, 0.075, 0.1], inverse: false },
     pathCurve: { caps: [1.0, 2.0], inverse: false },  // <1 = curved, >=1 = homing
+
+    // Death category mutation stats (can be capped)
+    deathLandmine: { caps: [1.0, 2.0], inverse: false },  // <1 = smear, >=1 = landmine
+
+    // Fire category mutation stats (can be capped)
+    fireAlternating: { caps: [1.0, 2.0], inverse: false },  // <1 = alternating, >=1 = hit reload
     
     // Explosion stats
     explosionProximity: { caps: [400, 600, 800, 1000], inverse: false },
     bulletSize: { caps: [1.5, 2.0, 2.5, 3.0], inverse: false },
-    explosionRadiusMultiplier: { caps: [1.5, 2.0, 2.5, 3.0], inverse: false },
-    explosionResidueMultiplier: { caps: [1.5, 2.0, 2.5, 3.0], inverse: false },
+    radiusMultiplier: { caps: [1.5, 2.0, 2.5, 3.0], inverse: false },
+    residueMultiplier: { caps: [1.5, 2.0, 2.5, 3.0], inverse: false },
     bulletExplodeAfter: { caps: [600, 500, 400, 200, 100], inverse: true, start: 800 },
     
     // Ant size
@@ -5027,6 +5198,7 @@ function evaluateAndAllocateTokens(antIndex, currentRound, isInitialSetup = fals
     const specialType = getSpecialType(antIndex);
     const fireType = getFireType(antIndex);
     const pathType = getPathType(antIndex);
+    const deathType = getDeathType(antIndex);
     
     // Always expressed stats
     if (['bulletSpeed', 'bulletCooldown', 'antSpeed', 'bulletSize'].includes(statName)) {
@@ -5036,20 +5208,26 @@ function evaluateAndAllocateTokens(antIndex, currentRound, isInitialSetup = fals
     // Special category stats
     if (statName === 'specialExplosion' && specialType === 1) return true; // Explosion (mutation stat)
     if (statName === 'bulletKnockbackMultiplier' && specialType === -1) return true; // Knockback
+    if (statName === 'specialCamo' && (specialType === 2 || specialType === -2)) return true; // Camouflage or Ghost (mutation stat)
+    if (statName === 'bulletCamoFlashRate' && specialType === 2) return true; // Camouflage
     if (statName === 'explosionProximity' && specialType === 1) return true; // Explosion
-    if (statName === 'explosionRadiusMultiplier' && specialType === 1) return true; // Explosion
-    if (statName === 'explosionResidueMultiplier' && specialType === 1) return true; // Explosion
+    if (statName === 'radiusMultiplier' && (specialType === 1 || pathType === 1 || deathType === -1)) return true; // Explosion, High Arc, or Smear
+    if (statName === 'residueMultiplier' && (specialType === 1 || pathType === 1 || deathType === 1 || deathType === -1)) return true; // Explosion, High Arc, Landmine, or Smear
     if (statName === 'bulletExplodeAfter' && specialType === 1) return true; // Explosion
     
     // Fire category stats
     if (statName === 'bulletBurstCount' && fireType === 1) return true; // Burst
     if (statName === 'bulletBurstSpread' && fireType === 1) return true; // Burst
     if (statName === 'bulletCooldownMultiplier' && fireType === -1) return true; // Alternating
+    if (statName === 'fireAlternating' && (fireType === -1 || fireType === -2)) return true; // Alternating or Hit Reload (mutation stat)
     
     // Path category stats
     if (statName === 'bulletArcDuration' && pathType === 1) return true; // High Arc
     if (statName === 'bulletCurveStrength' && (pathType === -1 || pathType === -2)) return true; // Clockwise or Homing
     if (statName === 'pathCurve' && (pathType === -1 || pathType === -2)) return true; // Curve (mutation stat)
+
+    // Death category stats
+    if (statName === 'deathLandmine' && (deathType === -1 || deathType === 1)) return true; // Smear or Landmine (mutation stat)
     
     // Ant size unlock varies by difficulty
     if (statName === 'antSize') {
@@ -5174,6 +5352,10 @@ function evaluateAndAllocateTokens(antIndex, currentRound, isInitialSetup = fals
           bestMutationValue = specialKnockback[antIndex];
           bestMutation = 'specialKnockback';
         }
+        if (specialCamo[antIndex] > bestMutationValue) {
+          bestMutationValue = specialCamo[antIndex];
+          bestMutation = 'specialCamo';
+        }
       } else if (category === 'fire') {
         if (fireBurst[antIndex] > bestMutationValue) {
           bestMutationValue = fireBurst[antIndex];
@@ -5266,7 +5448,8 @@ function updateTokenInvestments(antIndex, currentRound) {
         if (investment.category === 'special') {
           maxOtherValue = Math.max(
             investment.target !== 'specialExplosion' ? specialExplosion[antIndex] : 0,
-            investment.target !== 'specialKnockback' ? specialKnockback[antIndex] : 0
+            investment.target !== 'specialKnockback' ? specialKnockback[antIndex] : 0,
+            investment.target !== 'specialCamo' ? specialCamo[antIndex] : 0
           );
         } else if (investment.category === 'fire') {
           maxOtherValue = Math.max(
@@ -5328,7 +5511,9 @@ function getStatCapForAnt(antIndex, statName) {
     
     // Special category mutation stats (can be capped)
     specialExplosion: { caps: [1.0, 2.0], inverse: false },  // <1 = timed, >=1 = proximity
-    bulletKnockbackMultiplier: { caps: [2, 3, 4, 5], inverse: false },
+    specialCamo: { caps: [1.0, 2.0], inverse: false },  // <1 = camouflage, >=1 = ghost
+    bulletCamoFlashRate: { caps: [1.5, 1.0, 0.75, 0.5, 0.25], inverse: true, start: 3 },  // Flashes/sec (lower = better)
+bulletKnockbackMultiplier: { caps: [2, 3, 4, 5], inverse: false },
     
     // Fire category supporting stats
     bulletBurstCount: { caps: [3, 4, 5, 5.5], inverse: false },
@@ -5339,12 +5524,18 @@ function getStatCapForAnt(antIndex, statName) {
     bulletArcDuration: { caps: [300, 400, 500, 600], inverse: false },
     bulletCurveStrength: { caps: [0.05, 0.075, 0.1], inverse: false },
     pathCurve: { caps: [1.0, 2.0], inverse: false },  // <1 = curved, >=1 = homing
+
+    // Death category mutation stats (can be capped)
+    deathLandmine: { caps: [1.0, 2.0], inverse: false },  // <1 = smear, >=1 = landmine
+
+    // Fire category mutation stats (can be capped)
+    fireAlternating: { caps: [1.0, 2.0], inverse: false },  // <1 = alternating, >=1 = hit reload
     
     // Explosion stats
     explosionProximity: { caps: [400, 600, 800, 1000], inverse: false },
     bulletSize: { caps: [1.5, 2.0, 2.5, 3.0], inverse: false },
-    explosionRadiusMultiplier: { caps: [1.5, 2.0, 2.5, 3.0], inverse: false },
-    explosionResidueMultiplier: { caps: [1.5, 2.0, 2.5, 3.0], inverse: false },
+    radiusMultiplier: { caps: [1.5, 2.0, 2.5, 3.0], inverse: false },
+    residueMultiplier: { caps: [1.5, 2.0, 2.5, 3.0], inverse: false },
     bulletExplodeAfter: { caps: [600, 500, 400, 200, 100], inverse: true, start: 800 },
     
     // Ant size
@@ -5460,6 +5651,10 @@ function fuseLandMines() {
     triggerExplodeViaProximity: mine1.triggerExplodeViaProximity || mine2.triggerExplodeViaProximity,
     explosionProximity: Math.max(mine1.explosionProximity || 0, mine2.explosionProximity || 0),
     explodeAfter: Math.min(mine1.explodeAfter || Infinity, mine2.explodeAfter || Infinity),
+    meltAfter: Math.max(mine1.meltAfter || MINE_MELT_BASE_FRAMES, mine2.meltAfter || MINE_MELT_BASE_FRAMES),
+    // Fused mines only stay hidden if both halves were hidden the same way; use the more visible flash rate
+    stealthType: (mine1.stealthType || 0) === (mine2.stealthType || 0) ? (mine1.stealthType || 0) : 0,
+    camoFlashRate: Math.max(mine1.camoFlashRate || 2.5, mine2.camoFlashRate || 2.5),
     fusionCount: newFusionCount
   };
   
@@ -5484,8 +5679,8 @@ function spawnEnemyExplosion(x, y, size, ownerId, radiusScale = 1) {
   const BASE_LIFE       = 10;  // frames for size 1 (~0.3 sec)
   const LIFE_PER_SIZE   = 20;
 
-  let radius  = (BASE_RADIUS + RADIUS_PER_SIZE * (size - 1)) * explosionRadiusMultiplier[ownerId] * radiusScale;
-  let maxLife = (BASE_LIFE   + LIFE_PER_SIZE   * (size - 1)) * explosionResidueMultiplier[ownerId];
+  let radius  = (BASE_RADIUS + RADIUS_PER_SIZE * (size - 1)) * radiusMultiplier[ownerId] * radiusScale;
+  let maxLife = (BASE_LIFE   + LIFE_PER_SIZE   * (size - 1)) * residueMultiplier[ownerId];
 
   enemyExplosions.push({
     x: x,
@@ -5546,7 +5741,7 @@ function drawEnemyArcExplosionLinks() {
   }
 }
 
-function spawnEnemyGroundImpact(x, y, radius, isKnockbackImpact = false) {
+function spawnEnemyGroundImpact(x, y, radius, isKnockbackImpact = false, residueScale = 1) {
   const baseLife = isKnockbackImpact ? 12 : 9;
   const lifeScale = isKnockbackImpact ? 0.08 : 0.06;
 
@@ -5554,7 +5749,7 @@ function spawnEnemyGroundImpact(x, y, radius, isKnockbackImpact = false) {
     x: x,
     y: y,
     radius: radius,
-    maxLife: baseLife + radius * lifeScale,
+    maxLife: (baseLife + radius * lifeScale) * residueScale,
     life: 0,
     isKnockbackImpact: isKnockbackImpact
   });
@@ -5586,6 +5781,91 @@ function drawEnemyGroundImpacts() {
 
     if (impact.life >= impact.maxLife) {
       enemyGroundImpacts.splice(i, 1);
+    }
+  }
+}
+
+// Smear: tier-1 death effect. A small explosion-like patch left where a bullet fades out.
+// Area scales with radiusMultiplier, lifetime scales with residueMultiplier.
+// The smear streaks forward along the bullet's direction of travel (velX, velY).
+function spawnEnemySmear(x, y, size, ownerId, velX = 0, velY = 0) {
+  const BASE_RADIUS     = 14;  // radius for size 1 (smaller than an explosion)
+  const RADIUS_PER_SIZE = 16;
+  const BASE_LIFE       = 90;  // frames for size 1 (~1.5 sec, lingers longer than an explosion)
+  const LIFE_PER_SIZE   = 30;
+
+  let radius  = (BASE_RADIUS + RADIUS_PER_SIZE * (size - 1)) * (radiusMultiplier[ownerId] || 1);
+  let maxLife = (BASE_LIFE   + LIFE_PER_SIZE   * (size - 1)) * (residueMultiplier[ownerId] || 1);
+
+  // Direction of travel in radians. Uses Math.* directly because the global
+  // angleMode is DEGREES during gameplay, which would break p5's cos/sin here.
+  let dirAngle = (velX === 0 && velY === 0) ? Math.random() * Math.PI * 2 : Math.atan2(velY, velX);
+  let dirX = Math.cos(dirAngle);
+  let dirY = Math.sin(dirAngle);
+
+  // Streak shape: lobes spread along the travel direction, tapering toward the front
+  let lobes = [];
+  let lobeCount = floor(random(4, 7));
+  for (let k = 0; k < lobeCount; k++) {
+    let along = lerp(-0.3, 1.4, k / (lobeCount - 1)) * radius;
+    let side = random(-0.2, 0.2) * radius;
+    lobes.push({
+      dx: dirX * along - dirY * side,
+      dy: dirY * along + dirX * side,
+      scale: lerp(0.8, 0.35, k / (lobeCount - 1)) * random(0.85, 1.1)
+    });
+  }
+
+  enemySmears.push({
+    x: x,
+    y: y,
+    radius: radius,
+    maxLife: maxLife,
+    life: 0,
+    size: size,
+    ownerId: ownerId,
+    lobes: lobes
+  });
+}
+
+function drawEnemySmears() {
+  for (let i = enemySmears.length - 1; i >= 0; i--) {
+    let s = enemySmears[i];
+    s.life++;
+
+    let t = s.life / s.maxLife;
+    // Quick spread-in, then slow fade
+    let grow = min(1, s.life / 8);
+    let alpha = lerp(150, 0, t * t);
+    let currentRadius = s.radius * grow * (0.95 + 0.05 * Math.sin(s.life * 0.15));
+
+    // Damage ticks while the player stands anywhere on the streak (weaker than an explosion since it lingers)
+    let touching = dist(playerX, playerY, s.x, s.y) < currentRadius * 0.65;
+    for (let lobe of s.lobes) {
+      if (touching) break;
+      touching = dist(playerX, playerY, s.x + lobe.dx * grow, s.y + lobe.dy * grow) < currentRadius * lobe.scale;
+    }
+    if (touching) {
+      handleExplosionDamage(s.size * 0.25, s.ownerId);
+    }
+
+    if (!(tigerBeetleActive && tigerBeetleMoving)) {
+      push();
+      noStroke();
+      fill(0, 255, 0, alpha * 0.45);
+      for (let lobe of s.lobes) {
+        ellipse(s.x + lobe.dx * grow, s.y + lobe.dy * grow, currentRadius * 2 * lobe.scale);
+      }
+      fill(0, 170, 0, alpha * 0.8);
+      ellipse(s.x, s.y, currentRadius * 1.3);
+      for (let lobe of s.lobes) {
+        ellipse(s.x + lobe.dx * grow, s.y + lobe.dy * grow, currentRadius * 1.1 * lobe.scale);
+      }
+      pop();
+    }
+
+    if (s.life >= s.maxLife) {
+      enemySmears.splice(i, 1);
     }
   }
 }
@@ -5708,9 +5988,9 @@ function autonomousAntMovement(){
       anchorPointY[i] = standingPointY[i];
     }
 
-    // --- Calculate movement ---
-    let dx = anchorPointX[i] - antX[i];
-    let dy = anchorPointY[i] - antY[i];
+    // --- Calculate movement (anchor shifted by genetic offset, like shotOffset for bullets) ---
+    let dx = (anchorPointX[i] + anchorOffsetX[i]) - antX[i];
+    let dy = (anchorPointY[i] + anchorOffsetY[i]) - antY[i];
     let dist = sqrt(dx * dx + dy * dy);
     const ideal = distanceFromAnchor[i];
 
@@ -7288,6 +7568,9 @@ function printWinningAntStats() {
     console.log(
       `   standingPointX: ${safeFixed(standingPointX[ant.id])}, standingPointY: ${standingPointY[ant.id]}, distanceFromAnchor: ${safeFixed(distanceFromAnchor[ant.id])}`
     );
+    console.log(
+      `   anchorOffsetX: ${safeFixed(anchorOffsetX[ant.id])}, anchorOffsetY: ${safeFixed(anchorOffsetY[ant.id])}`
+    );
   }
 
   console.log(`
@@ -7458,35 +7741,57 @@ function nextRound(){
         // Only mutate distance if parent uses KeepDistance (autonomy near 1)
         if (Math.round(s.autonomy) === 1) {
           distanceFromAnchor[i] = constrain(s.distanceFromAnchor + random(-100, 100), 0.1, 1000);
+          anchorOffsetX[i] = constrain((s.anchorOffsetX || 0) + random(-50, 50), -500, 500);
+          anchorOffsetY[i] = constrain((s.anchorOffsetY || 0) + random(-50, 50), -500, 500);
         } else {
           distanceFromAnchor[i] = s.distanceFromAnchor;
+          anchorOffsetX[i] = s.anchorOffsetX || 0;
+          anchorOffsetY[i] = s.anchorOffsetY || 0;
         }
         // Special category (mutation-based)
         specialExplosion[i]    = constrain(s.specialExplosion    + random(-movementMutationRate, movementMutationRate), 0, getMaxAllowedValue('specialExplosion', i, s.geneTokenInvestments || []));
         specialKnockback[i]    = constrain(s.specialKnockback    + random(-movementMutationRate, movementMutationRate), 0, 1);
+        specialCamo[i]    = constrain((s.specialCamo || 0)    + random(-movementMutationRate, movementMutationRate), 0, getMaxAllowedValue('specialCamo', i, s.geneTokenInvestments || []));
         specialPotential[i]    = constrain(s.specialPotential    + random(-movementMutationRate, movementMutationRate), 0, 1);
         // Only mutate explosion stats if parent has specialPotential > 0.5 AND uses explosion
-        if (s.specialPotential > 0.5 && s.specialExplosion >= Math.max(s.specialKnockback)) {
+        if (s.specialPotential > 0.5 && s.specialExplosion >= Math.max(s.specialKnockback, s.specialCamo || 0)) {
           explosionProximity[i] = constrain(s.explosionProximity + random(-100, 100), 0.1, 1000);
-          explosionRadiusMultiplier[i] = constrain(s.explosionRadiusMultiplier + random(-0.2, 0.2), 0.5, 3);
-          explosionResidueMultiplier[i] = constrain(s.explosionResidueMultiplier + random(-0.2, 0.2), 0.5, 3);
           bulletExplodeAfter[i] = constrain(s.bulletExplodeAfter + random(-50, 50), getMinAllowedValue('bulletExplodeAfter', i, s.geneTokenInvestments || []), 800);
         } else {
           explosionProximity[i] = s.explosionProximity;
-          explosionRadiusMultiplier[i] = s.explosionRadiusMultiplier;
-          explosionResidueMultiplier[i] = s.explosionResidueMultiplier;
           bulletExplodeAfter[i] = s.bulletExplodeAfter;
         }
+        // Only mutate radius if parent uses explosion or high arc; residue also if parent uses landmines
+        const sUsesExplosion = s.specialPotential > 0.5 && s.specialExplosion >= Math.max(s.specialKnockback, s.specialCamo || 0);
+        const sUsesHighArc = s.pathPotential > 0.5 && s.pathHighArc >= s.pathCurve && s.pathHighArc >= s.pathAccelerate;
+        const sUsesLandmine = s.deathPotential > 0.5 && s.deathLandmine > 0;
+        const sUsesSmear = sUsesLandmine && s.deathLandmine < 1;
+        if (sUsesExplosion || sUsesHighArc || sUsesSmear) {
+          radiusMultiplier[i] = constrain(s.radiusMultiplier + random(-0.2, 0.2), 0.5, 3);
+        } else {
+          radiusMultiplier[i] = s.radiusMultiplier;
+        }
+        if (sUsesExplosion || sUsesHighArc || sUsesLandmine) {
+          residueMultiplier[i] = constrain(s.residueMultiplier + random(-0.2, 0.2), 0.5, 3);
+        } else {
+          residueMultiplier[i] = s.residueMultiplier;
+        }
         // Only mutate knockback multiplier if parent uses knockback
-        if (s.specialPotential > 0.5 && s.specialKnockback > Math.max(s.specialExplosion)) {
+        if (s.specialPotential > 0.5 && s.specialKnockback > Math.max(s.specialExplosion, s.specialCamo || 0)) {
           bulletKnockbackMultiplier[i] = constrain(s.bulletKnockbackMultiplier + random(-0.5, 0.5), 2, getMaxAllowedValue('bulletKnockbackMultiplier', i, s.geneTokenInvestments || []));
         } else {
           bulletKnockbackMultiplier[i] = s.bulletKnockbackMultiplier;
         }
+        // Only mutate camouflage flash rate if parent uses camouflage
+        if (s.specialPotential > 0.5 && (s.specialCamo || 0) > Math.max(s.specialExplosion, s.specialKnockback) && s.specialCamo < 1) {
+          bulletCamoFlashRate[i] = constrain((s.bulletCamoFlashRate || 2.5) + random(-0.2, 0.2), getMinAllowedValue('bulletCamoFlashRate', i, s.geneTokenInvestments || []), 3);
+        } else {
+          bulletCamoFlashRate[i] = s.bulletCamoFlashRate || 2.5;
+        }
         // Fire category (mutation-based)
         fireBurst[i]    = constrain(s.fireBurst    + random(-movementMutationRate, movementMutationRate), 0, 1);
         fireRapid[i]    = constrain(s.fireRapid    + random(-movementMutationRate, movementMutationRate), 0, 1);
-        fireAlternating[i]    = constrain(s.fireAlternating    + random(-movementMutationRate, movementMutationRate), 0, 1);
+        fireAlternating[i]    = constrain(s.fireAlternating    + random(-movementMutationRate, movementMutationRate), 0, getMaxAllowedValue('fireAlternating', i, s.geneTokenInvestments || []));
         firePotential[i]    = constrain(s.firePotential    + random(-movementMutationRate, movementMutationRate), 0, 1);
         // Only mutate burst/rapid stats if parent uses burst or rapid fire
         if (s.firePotential > 0.5 && (s.fireBurst >= Math.max(s.fireRapid, s.fireAlternating) || s.fireRapid >= Math.max(s.fireBurst, s.fireAlternating))) {
@@ -7503,7 +7808,7 @@ function nextRound(){
           bulletCooldownMultiplier[i] = s.bulletCooldownMultiplier;
         }
         // Death category (mutation-based)
-        deathLandmine[i]    = constrain(s.deathLandmine    + random(-(movementMutationRate/2), (movementMutationRate/2)), 0, 1);
+        deathLandmine[i]    = constrain(s.deathLandmine    + random(-(movementMutationRate/2), (movementMutationRate/2)), 0, getMaxAllowedValue('deathLandmine', i, s.geneTokenInvestments || []));
         deathPotential[i]    = constrain(s.deathPotential    + random(-(movementMutationRate/2), (movementMutationRate/2)), 0, 1);
         // Path category (mutation-based)
         pathHighArc[i]    = constrain(s.pathHighArc    + random(-movementMutationRate, movementMutationRate), 0, 1);
@@ -7535,8 +7840,8 @@ function nextRound(){
         }
         angleFromSpawn[i]    = constrain(s.angleFromSpawn + random((-PI / 3), (PI / 3)), 0, TWO_PI);
         bulletSize[i]    = constrain(s.bulletSize    + random(-(movementMutationRate / 2), (movementMutationRate / 2)), 1, 3);
-        explosionRadiusMultiplier[i] = constrain(s.explosionRadiusMultiplier + random(-0.2, 0.2), 0.5, 3);
-        explosionResidueMultiplier[i] = constrain(s.explosionResidueMultiplier + random(-0.2, 0.2), 0.5, 3);
+        radiusMultiplier[i] = constrain(s.radiusMultiplier + random(-0.2, 0.2), 0.5, 3);
+        residueMultiplier[i] = constrain(s.residueMultiplier + random(-0.2, 0.2), 0.5, 3);
         bulletExplodeAfter[i] = constrain(s.bulletExplodeAfter + random(-50, 50), getMinAllowedValue('bulletExplodeAfter', i, s.geneTokenInvestments || []), 800);
         antSize[i] = constrain(s.antSize + random(-antSizeMutationRate, antSizeMutationRate), 0.3, 3);
         // Cap ant speed based on ant size (small ants can be faster, large ants slower)
@@ -7580,35 +7885,57 @@ function nextRound(){
         // Only mutate distance if parent uses KeepDistance (autonomy near 1)
         if (Math.round(autonomy[parent.id]) === 1) {
           distanceFromAnchor[i] = constrain(distanceFromAnchor[parent.id] + random(-100, 100), 0.1, 1000);
+          anchorOffsetX[i] = constrain(anchorOffsetX[parent.id] + random(-50, 50), -500, 500);
+          anchorOffsetY[i] = constrain(anchorOffsetY[parent.id] + random(-50, 50), -500, 500);
         } else {
           distanceFromAnchor[i] = distanceFromAnchor[parent.id];
+          anchorOffsetX[i] = anchorOffsetX[parent.id];
+          anchorOffsetY[i] = anchorOffsetY[parent.id];
         }
         // Special category (mutation-based)
         specialExplosion[i]    = constrain(specialExplosion[parent.id]    + random(-movementMutationRate, movementMutationRate), 0, getMaxAllowedValue('specialExplosion', parent.id));
         specialKnockback[i]    = constrain(specialKnockback[parent.id]    + random(-movementMutationRate, movementMutationRate), 0, 1);
+        specialCamo[i]    = constrain(specialCamo[parent.id]    + random(-movementMutationRate, movementMutationRate), 0, getMaxAllowedValue('specialCamo', parent.id));
         specialPotential[i]    = constrain(specialPotential[parent.id]    + random(-movementMutationRate, movementMutationRate), 0, 1);
         // Only mutate explosion stats if parent has specialPotential > 0.5 AND uses explosion
-        if (specialPotential[parent.id] > 0.5 && specialExplosion[parent.id] >= Math.max(specialKnockback[parent.id])) {
+        if (specialPotential[parent.id] > 0.5 && specialExplosion[parent.id] >= Math.max(specialKnockback[parent.id], specialCamo[parent.id])) {
           explosionProximity[i] = constrain(explosionProximity[parent.id] + random(-100, 100), 0.1, 1000);
-          explosionRadiusMultiplier[i] = constrain(explosionRadiusMultiplier[parent.id] + random(-0.2, 0.2), 0.5, 3);
-          explosionResidueMultiplier[i] = constrain(explosionResidueMultiplier[parent.id] + random(-0.2, 0.2), 0.5, 3);
           bulletExplodeAfter[i] = constrain(bulletExplodeAfter[parent.id] + random(-50, 50), getMinAllowedValue('bulletExplodeAfter', parent.id), 800);
         } else {
           explosionProximity[i] = explosionProximity[parent.id];
-          explosionRadiusMultiplier[i] = explosionRadiusMultiplier[parent.id];
-          explosionResidueMultiplier[i] = explosionResidueMultiplier[parent.id];
           bulletExplodeAfter[i] = bulletExplodeAfter[parent.id];
         }
+        // Only mutate radius if parent uses explosion or high arc; residue also if parent uses landmines
+        const parentUsesExplosion = specialPotential[parent.id] > 0.5 && specialExplosion[parent.id] >= Math.max(specialKnockback[parent.id], specialCamo[parent.id]);
+        const parentUsesHighArc = pathPotential[parent.id] > 0.5 && pathHighArc[parent.id] >= pathCurve[parent.id] && pathHighArc[parent.id] >= pathAccelerate[parent.id];
+        const parentUsesLandmine = deathPotential[parent.id] > 0.5 && deathLandmine[parent.id] > 0;
+        const parentUsesSmear = parentUsesLandmine && deathLandmine[parent.id] < 1;
+        if (parentUsesExplosion || parentUsesHighArc || parentUsesSmear) {
+          radiusMultiplier[i] = constrain(radiusMultiplier[parent.id] + random(-0.2, 0.2), 0.5, 3);
+        } else {
+          radiusMultiplier[i] = radiusMultiplier[parent.id];
+        }
+        if (parentUsesExplosion || parentUsesHighArc || parentUsesLandmine) {
+          residueMultiplier[i] = constrain(residueMultiplier[parent.id] + random(-0.2, 0.2), 0.5, 3);
+        } else {
+          residueMultiplier[i] = residueMultiplier[parent.id];
+        }
         // Only mutate knockback multiplier if parent uses knockback
-        if (specialPotential[parent.id] > 0.5 && specialKnockback[parent.id] > Math.max(specialExplosion[parent.id])) {
+        if (specialPotential[parent.id] > 0.5 && specialKnockback[parent.id] > Math.max(specialExplosion[parent.id], specialCamo[parent.id])) {
           bulletKnockbackMultiplier[i] = constrain(bulletKnockbackMultiplier[parent.id] + random(-0.5, 0.5), 2, getMaxAllowedValue('bulletKnockbackMultiplier', parent.id));
         } else {
           bulletKnockbackMultiplier[i] = bulletKnockbackMultiplier[parent.id];
         }
+        // Only mutate camouflage flash rate if parent uses camouflage
+        if (specialPotential[parent.id] > 0.5 && specialCamo[parent.id] > Math.max(specialExplosion[parent.id], specialKnockback[parent.id]) && specialCamo[parent.id] < 1) {
+          bulletCamoFlashRate[i] = constrain(bulletCamoFlashRate[parent.id] + random(-0.2, 0.2), getMinAllowedValue('bulletCamoFlashRate', parent.id), 3);
+        } else {
+          bulletCamoFlashRate[i] = bulletCamoFlashRate[parent.id];
+        }
         // Fire category (mutation-based)
         fireBurst[i]    = constrain(fireBurst[parent.id]    + random(-movementMutationRate, movementMutationRate), 0, 1);
         fireRapid[i]    = constrain(fireRapid[parent.id]    + random(-movementMutationRate, movementMutationRate), 0, 1);
-        fireAlternating[i]    = constrain(fireAlternating[parent.id]    + random(-movementMutationRate, movementMutationRate), 0, 1);
+        fireAlternating[i]    = constrain(fireAlternating[parent.id]    + random(-movementMutationRate, movementMutationRate), 0, getMaxAllowedValue('fireAlternating', parent.id));
         firePotential[i]    = constrain(firePotential[parent.id]    + random(-movementMutationRate, movementMutationRate), 0, 1);
         // Only mutate burst/rapid stats if parent uses burst or rapid fire
         if (firePotential[parent.id] > 0.5 && (fireBurst[parent.id] >= Math.max(fireRapid[parent.id], fireAlternating[parent.id]) || fireRapid[parent.id] >= Math.max(fireBurst[parent.id], fireAlternating[parent.id]))) {
@@ -7625,7 +7952,7 @@ function nextRound(){
           bulletCooldownMultiplier[i] = bulletCooldownMultiplier[parent.id];
         }
         // Death category (mutation-based)
-        deathLandmine[i]    = constrain(deathLandmine[parent.id]    + random(-(movementMutationRate/2), (movementMutationRate/2)), 0, 1);
+        deathLandmine[i]    = constrain(deathLandmine[parent.id]    + random(-(movementMutationRate/2), (movementMutationRate/2)), 0, getMaxAllowedValue('deathLandmine', parent.id));
         deathPotential[i]    = constrain(deathPotential[parent.id]    + random(-(movementMutationRate/2), (movementMutationRate/2)), 0, 1);
         // Path category (mutation-based)
         pathHighArc[i]    = constrain(pathHighArc[parent.id]    + random(-movementMutationRate, movementMutationRate), 0, 1);
@@ -7705,8 +8032,8 @@ function nextRound(){
           explodeOnTermination[i] = false;
           triggerExplodeViaProximity[i] = true;
         }
-      } else if (specialType === -1){
-        // Type -1 = Knockback (no explosions)
+      } else {
+        // Knockback (-1), Camouflage (2), or Ghost (-2): no explosions
         explodeOnTermination[i] = false;
         triggerExplodeViaProximity[i] = false;
       }
@@ -7776,10 +8103,16 @@ function nextRound(){
       // Only mutate distance if winner uses KeepDistance (autonomy near 1)
       if (winner && Math.round(autonomy[winner.id]) === 1) {
         distanceFromAnchor[i] = constrain(distanceFromAnchor[winner.id] + random(-100, 100), 0.1, 1000);
+        anchorOffsetX[i] = constrain(anchorOffsetX[winner.id] + random(-50, 50), -500, 500);
+        anchorOffsetY[i] = constrain(anchorOffsetY[winner.id] + random(-50, 50), -500, 500);
       } else if (winner) {
         distanceFromAnchor[i] = distanceFromAnchor[winner.id];
+        anchorOffsetX[i] = anchorOffsetX[winner.id];
+        anchorOffsetY[i] = anchorOffsetY[winner.id];
       } else {
         distanceFromAnchor[i] = random(0.1, 1000);
+        anchorOffsetX[i] = random(-500, 500);
+        anchorOffsetY[i] = random(-500, 500);
       }
       
       // Special category (mutation-based)
@@ -7790,13 +8123,17 @@ function nextRound(){
       specialKnockback[i] = winner
         ? constrain(specialKnockback[winner.id] + random(-movementMutationRate, movementMutationRate), 0, 1)
         : random(0, 1);
+
+      specialCamo[i] = winner
+        ? constrain(specialCamo[winner.id] + random(-movementMutationRate, movementMutationRate), 0, getMaxAllowedValue('specialCamo', winner.id))
+        : random(0, 0.9);
       
       specialPotential[i] = winner
         ? constrain(specialPotential[winner.id] + random(-movementMutationRate, movementMutationRate), 0, 1)
         : random(0, 1);
       
       // Only mutate explosion stats if winner has specialPotential > 0.5 AND uses explosion
-      if (winner && specialPotential[winner.id] > 0.5 && specialExplosion[winner.id] >= Math.max(specialKnockback[winner.id])) {
+      if (winner && specialPotential[winner.id] > 0.5 && specialExplosion[winner.id] >= Math.max(specialKnockback[winner.id], specialCamo[winner.id])) {
         explosionProximity[i] = constrain(explosionProximity[winner.id] + random(-100, 100), 0.1, 1000);
       } else if (winner) {
         explosionProximity[i] = explosionProximity[winner.id];
@@ -7805,12 +8142,21 @@ function nextRound(){
       }
       
       // Only mutate knockback multiplier if winner uses knockback
-      if (winner && specialPotential[winner.id] > 0.5 && specialKnockback[winner.id] > Math.max(specialExplosion[winner.id])) {
+      if (winner && specialPotential[winner.id] > 0.5 && specialKnockback[winner.id] > Math.max(specialExplosion[winner.id], specialCamo[winner.id])) {
         bulletKnockbackMultiplier[i] = constrain(bulletKnockbackMultiplier[winner.id] + random(-0.5, 0.5), 2, getMaxAllowedValue('bulletKnockbackMultiplier', winner.id));
       } else if (winner) {
         bulletKnockbackMultiplier[i] = bulletKnockbackMultiplier[winner.id];
       } else {
         bulletKnockbackMultiplier[i] = 2; // Start at minimum
+      }
+
+      // Only mutate camouflage flash rate if winner uses camouflage
+      if (winner && specialPotential[winner.id] > 0.5 && specialCamo[winner.id] > Math.max(specialExplosion[winner.id], specialKnockback[winner.id]) && specialCamo[winner.id] < 1) {
+        bulletCamoFlashRate[i] = constrain(bulletCamoFlashRate[winner.id] + random(-0.2, 0.2), getMinAllowedValue('bulletCamoFlashRate', winner.id), 3);
+      } else if (winner) {
+        bulletCamoFlashRate[i] = bulletCamoFlashRate[winner.id];
+      } else {
+        bulletCamoFlashRate[i] = random(1.5, 3);
       }
       
       // Fire category (mutation-based)
@@ -7823,7 +8169,7 @@ function nextRound(){
         : random(0, 1);
       
       fireAlternating[i] = winner
-        ? constrain(fireAlternating[winner.id] + random(-movementMutationRate, movementMutationRate), 0, 1)
+        ? constrain(fireAlternating[winner.id] + random(-movementMutationRate, movementMutationRate), 0, getMaxAllowedValue('fireAlternating', winner.id))
         : random(0, 1);
       
       firePotential[i] = winner
@@ -7853,7 +8199,7 @@ function nextRound(){
       
       // Death category (mutation-based)
       deathLandmine[i] = winner
-        ? constrain(deathLandmine[winner.id] + random(-(movementMutationRate/2), (movementMutationRate/2)), 0, 1)
+        ? constrain(deathLandmine[winner.id] + random(-(movementMutationRate/2), (movementMutationRate/2)), 0, getMaxAllowedValue('deathLandmine', winner.id))
         : random(0, 1);
       
       deathPotential[i] = winner
@@ -7919,18 +8265,34 @@ function nextRound(){
         : random(1, 3);
 
       // Explosion stats - only mutate if winner uses explosions
-      if (winner && specialPotential[winner.id] > 0.5 && specialExplosion[winner.id] >= Math.max(specialKnockback[winner.id])) {
-        explosionRadiusMultiplier[i] = constrain(explosionRadiusMultiplier[winner.id] + random(-0.2, 0.2), 0.5, 3);
-        explosionResidueMultiplier[i] = constrain(explosionResidueMultiplier[winner.id] + random(-0.2, 0.2), 0.5, 3);
+      const winnerUsesExplosion = winner && specialPotential[winner.id] > 0.5 && specialExplosion[winner.id] >= Math.max(specialKnockback[winner.id], specialCamo[winner.id]);
+      const winnerUsesHighArc = winner && pathPotential[winner.id] > 0.5 && pathHighArc[winner.id] >= pathCurve[winner.id] && pathHighArc[winner.id] >= pathAccelerate[winner.id];
+      if (winnerUsesExplosion) {
         bulletExplodeAfter[i] = constrain(bulletExplodeAfter[winner.id] + random(-50, 50), getMinAllowedValue('bulletExplodeAfter', winner.id), 800);
       } else if (winner) {
-        explosionRadiusMultiplier[i] = explosionRadiusMultiplier[winner.id];
-        explosionResidueMultiplier[i] = explosionResidueMultiplier[winner.id];
         bulletExplodeAfter[i] = bulletExplodeAfter[winner.id];
       } else {
-        explosionRadiusMultiplier[i] = random(0.5, 3);
-        explosionResidueMultiplier[i] = random(0.5, 3);
         bulletExplodeAfter[i] = random(100, 800);
+      }
+
+      // Radius stat - only mutate if winner uses explosions or high arc
+      const winnerUsesLandmine = winner && deathPotential[winner.id] > 0.5 && deathLandmine[winner.id] > 0;
+      const winnerUsesSmear = winnerUsesLandmine && deathLandmine[winner.id] < 1;
+      if (winnerUsesExplosion || winnerUsesHighArc || winnerUsesSmear) {
+        radiusMultiplier[i] = constrain(radiusMultiplier[winner.id] + random(-0.2, 0.2), 0.5, 3);
+      } else if (winner) {
+        radiusMultiplier[i] = radiusMultiplier[winner.id];
+      } else {
+        radiusMultiplier[i] = random(0.5, 3);
+      }
+
+      // Residue stat - only mutate if winner uses explosions, high arc, or landmines
+      if (winnerUsesExplosion || winnerUsesHighArc || winnerUsesLandmine) {
+        residueMultiplier[i] = constrain(residueMultiplier[winner.id] + random(-0.2, 0.2), 0.5, 3);
+      } else if (winner) {
+        residueMultiplier[i] = residueMultiplier[winner.id];
+      } else {
+        residueMultiplier[i] = random(0.5, 3);
       }
       
       antSize[i] = winner 
@@ -7990,8 +8352,8 @@ function nextRound(){
           explodeOnTermination[i] = false;
           triggerExplodeViaProximity[i] = true;
         }
-      } else if (specialType2 === -1){
-        // Type -1 = Knockback (no explosions)
+      } else {
+        // Knockback (-1), Camouflage (2), or Ghost (-2): no explosions
         explodeOnTermination[i] = false;
         triggerExplodeViaProximity[i] = false;
       }
@@ -9304,10 +9666,16 @@ function updateAntDexEntries() {
   
   if (knockbackDiscovered === true) storeItem('knockbackPreviouslyDiscovered', knockbackDiscovered);
   if (getItem('knockbackPreviouslyDiscovered') === true) knockbackDiscovered = getItem('knockbackPreviouslyDiscovered');
+  if (camouflageDiscovered === true) storeItem('camouflagePreviouslyDiscovered', camouflageDiscovered);
+  if (getItem('camouflagePreviouslyDiscovered') === true) camouflageDiscovered = getItem('camouflagePreviouslyDiscovered');
+  if (ghostBulletDiscovered === true) storeItem('ghostBulletPreviouslyDiscovered', ghostBulletDiscovered);
+  if (getItem('ghostBulletPreviouslyDiscovered') === true) ghostBulletDiscovered = getItem('ghostBulletPreviouslyDiscovered');
 
   // Fire Types
   if (alternatingFireDiscovered === true) storeItem('alternatingFirePreviouslyDiscovered', alternatingFireDiscovered);
   if (getItem('alternatingFirePreviouslyDiscovered') === true) alternatingFireDiscovered = getItem('alternatingFirePreviouslyDiscovered');
+  if (hitReloadFireDiscovered === true) storeItem('hitReloadFirePreviouslyDiscovered', hitReloadFireDiscovered);
+  if (getItem('hitReloadFirePreviouslyDiscovered') === true) hitReloadFireDiscovered = getItem('hitReloadFirePreviouslyDiscovered');
 
   if (normalFireDiscovered === true) storeItem('normalFirePreviouslyDiscovered', normalFireDiscovered);
   if (getItem('normalFirePreviouslyDiscovered') === true) normalFireDiscovered = getItem('normalFirePreviouslyDiscovered');
@@ -9429,6 +9797,10 @@ function updateAntDexEntries() {
   
   if (cooldownMultiplierMaxDiscovered === true) storeItem('cooldownMultiplierMaxPreviouslyDiscovered', cooldownMultiplierMaxDiscovered);
   if (getItem('cooldownMultiplierMaxPreviouslyDiscovered') === true) cooldownMultiplierMaxDiscovered = getItem('cooldownMultiplierMaxPreviouslyDiscovered');
+
+  // Bullet Death Type: Smear
+  if (smearDeathDiscovered === true) storeItem('smearDeathPreviouslyDiscovered', smearDeathDiscovered);
+  if (getItem('smearDeathPreviouslyDiscovered') === true) smearDeathDiscovered = getItem('smearDeathPreviouslyDiscovered');
 
   // Bullet Death Type: Landmine Conversion
   if (landmineConversionDiscovered === true) storeItem('landmineConversionPreviouslyDiscovered', landmineConversionDiscovered);
@@ -9689,11 +10061,23 @@ function updateAntDexEntries() {
         knockbackDiscovered = true;
         triggerDiscoveryPopup();
       }
+      if (!camouflageDiscovered && specialType === 2) {
+        camouflageDiscovered = true;
+        triggerDiscoveryPopup();
+      }
+      if (!ghostBulletDiscovered && specialType === -2) {
+        ghostBulletDiscovered = true;
+        triggerDiscoveryPopup();
+      }
 
       // Fire Type discoveries
       const fireType = getFireType(i);
       if (!alternatingFireDiscovered && fireType === -1) {
         alternatingFireDiscovered = true;
+        triggerDiscoveryPopup();
+      }
+      if (!hitReloadFireDiscovered && fireType === -2) {
+        hitReloadFireDiscovered = true;
         triggerDiscoveryPopup();
       }
       if (!normalFireDiscovered && fireType === 0) {
@@ -9759,9 +10143,9 @@ function updateAntDexEntries() {
         }
       }
 
-      // 57-61: Explosion Radius (Any Explosion type)
-      if (specialType === 1) {
-        const rad = explosionRadiusMultiplier[i];
+      // 57-61: Radius (Any Explosion type, High Arc path, or Smear death)
+      if (specialType === 1 || getPathType(i) === 1 || getDeathType(i) === -1) {
+        const rad = radiusMultiplier[i];
         if (!radiusMinDiscovered && rad >= 0.5 && rad <= 1.0) {
           radiusMinDiscovered = true;
           triggerDiscoveryPopup();
@@ -9784,9 +10168,9 @@ function updateAntDexEntries() {
         }
       }
 
-      // 62-66: Explosion Residue (Any Explosion type)
-      if (specialType === 1) {
-        const res = explosionResidueMultiplier[i];
+      // 62-66: Residue (Any Explosion type, High Arc path, Landmine death, or Smear death)
+      if (specialType === 1 || getPathType(i) === 1 || getDeathType(i) === 1 || getDeathType(i) === -1) {
+        const res = residueMultiplier[i];
         if (!residueMinDiscovered && res >= 0.5 && res <= 1.0) {
           residueMinDiscovered = true;
           triggerDiscoveryPopup();
@@ -9888,6 +10272,10 @@ function updateAntDexEntries() {
       const deathType = getDeathType(i);
       if (!landmineConversionDiscovered && deathType === 1) {
         landmineConversionDiscovered = true;
+        triggerDiscoveryPopup();
+      }
+      if (!smearDeathDiscovered && deathType === -1) {
+        smearDeathDiscovered = true;
         triggerDiscoveryPopup();
       }
 
@@ -10376,6 +10764,20 @@ function updateAntDexEntries() {
       discovered: knockbackDiscovered
     },
 
+    // Camouflage / Ghost Specials
+    {
+      name: "Camouflage Bullet Ants",
+      desc: "Bullets (and landmines they become) flicker in and out of sight. Slower flickering keeps them hidden longer and is genetic.",
+      stats: "Special: Camouflage • Flash Rate: 0.25-3 per second",
+      discovered: camouflageDiscovered
+    },
+    {
+      name: "Ghost Bullet Ants",
+      desc: "Bullets (and landmines they become) stay invisible and only appear within 150 pixels of the beetle. Misses vanish again.",
+      stats: "Special: Ghost",
+      discovered: ghostBulletDiscovered
+    },
+
     // 68-72: Knockback Multiplier
     {
       name: "Minimum Knockback Ants",
@@ -10415,6 +10817,12 @@ function updateAntDexEntries() {
       desc: "Alternate between fast and slow shots. Each shot toggles cooldown speed. Affected by cooldown multiplier.",
       stats: "Fire Type: Alternating",
       discovered: alternatingFireDiscovered
+    },
+    {
+      name: "Hit Reload Ants",
+      desc: "Fire on a cooldown 3x longer than normal, but every bullet that hits the beetle instantly reloads them for another shot.",
+      stats: "Fire Type: Hit Reload",
+      discovered: hitReloadFireDiscovered
     },
     {
       name: "Normal Fire Ants",
@@ -10499,6 +10907,14 @@ function updateAntDexEntries() {
       stats: "Cooldown Multiplier: 4.5-5.5x",
       discovered: cooldownMultiplierMaxDiscovered,
       category: 'exotic'
+    },
+
+    // Bullet Death Type - Smear
+    {
+      name: "Smear Ants",
+      desc: "Bullets leave a small damaging smear where they fade out. Radius and residue stats control its size and how long it lingers.",
+      stats: "Death Type: Smear",
+      discovered: smearDeathDiscovered
     },
 
     // 83: Bullet Death Type - Landmine Conversion
@@ -11286,6 +11702,10 @@ function drawAntsTab(fadeAlpha) {
     { name: 'Autonomy', key: 'autonomy', min: -0.5, max: 1.5, step: 0.01,
       help: '0=FollowTarget, 1=KeepDistance' },
     { name: 'Distance From Anchor', key: 'distanceFromAnchor', min: 0.1, max: 1000, step: 1 },
+    { name: 'Anchor Offset X', key: 'anchorOffsetX', min: -500, max: 500, step: 1,
+      help: 'KeepDistance: shifts the anchor target on X' },
+    { name: 'Anchor Offset Y', key: 'anchorOffsetY', min: -500, max: 500, step: 1,
+      help: 'KeepDistance: shifts the anchor target on Y' },
     { name: 'Gene Tokens Available', key: 'geneTokens', min: 0, max: 99, step: 1, integer: true,
       help: 'Unspent token count for this ant' },
     
@@ -11299,6 +11719,10 @@ function drawAntsTab(fadeAlpha) {
       help: 'If >0.5, use highest special trait; else none' },
     { name: 'Knockback Multiplier', key: 'bulletKnockbackMultiplier', min: 2, max: 5, step: 0.1,
       help: 'Multiplies knockback strength (2-5)' },
+    { name: 'Special: Camouflage', key: 'specialCamo', min: 0, max: 2, step: 0.01,
+      help: 'Mutation stat for hidden bullets (0-2, <1=camouflage, >=1=ghost)' },
+    { name: 'Camo Flash Rate', key: 'bulletCamoFlashRate', min: 0.25, max: 3, step: 0.05,
+      help: 'Camouflage opacity flashes per second (0.25-3, lower = better)' },
     
     // Fire category (mutation-based)
     { name: '── FIRE CATEGORY ──', key: null, min: 0, max: 0, step: 0 }, // Header
@@ -11306,8 +11730,8 @@ function drawAntsTab(fadeAlpha) {
       help: 'Mutation stat for burst fire (0-1)' },
     { name: 'Fire: Rapid', key: 'fireRapid', min: 0, max: 1, step: 0.01,
       help: 'Mutation stat for rapid fire (0-1)' },
-    { name: 'Fire: Alternating', key: 'fireAlternating', min: 0, max: 1, step: 0.01,
-      help: 'Mutation stat for alternating cooldown (0-1)' },
+    { name: 'Fire: Alternating', key: 'fireAlternating', min: 0, max: 2, step: 0.01,
+      help: 'Mutation stat for fire cooldown (0-2, <1=alternating, >=1=hit reload)' },
     { name: 'Fire Potential', key: 'firePotential', min: 0, max: 1, step: 0.01,
       help: 'If >0.5, use highest fire trait; else normal' },
     { name: 'Bullet Burst Count', key: 'bulletBurstCount', min: 1.5, max: 5.5, step: 0.01,
@@ -11319,8 +11743,8 @@ function drawAntsTab(fadeAlpha) {
     
     // Death category (mutation-based)
     { name: '── DEATH CATEGORY ──', key: null, min: 0, max: 0, step: 0 }, // Header
-    { name: 'Death: Landmine', key: 'deathLandmine', min: 0, max: 1, step: 0.01,
-      help: 'Mutation stat for landmine conversion (0-1)' },
+    { name: 'Death: Landmine', key: 'deathLandmine', min: 0, max: 2, step: 0.01,
+      help: 'Mutation stat for bullet death (0-2, <1=smear, >=1=landmine)' },
     { name: 'Death Potential', key: 'deathPotential', min: 0, max: 1, step: 0.01,
       help: 'If >0.5, use highest death trait; else fading' },
     
@@ -11345,8 +11769,8 @@ function drawAntsTab(fadeAlpha) {
     { name: 'Angle From Spawn', key: 'angleFromSpawn', min: 0, max: 6.28, step: 0.01,
       help: 'Radians (0-2π)' },
     { name: 'Bullet Size', key: 'bulletSize', min: 1, max: 3, step: 0.01 },
-    { name: 'Explosion Radius Mult', key: 'explosionRadiusMultiplier', min: 0.5, max: 3, step: 0.01 },
-    { name: 'Explosion Residue Mult', key: 'explosionResidueMultiplier', min: 0.5, max: 3, step: 0.01 },
+    { name: 'Radius Mult', key: 'radiusMultiplier', min: 0.5, max: 3, step: 0.01 },
+    { name: 'Residue Mult', key: 'residueMultiplier', min: 0.5, max: 3, step: 0.01 },
     { name: 'Bullet Explode After', key: 'bulletExplodeAfter', min: 100, max: 800, step: 1 },
     { name: 'Ant Size', key: 'antSize', min: 0.3, max: 3, step: 0.01,
       help: 'Sprite & hitbox size (mutates: Hard R2+, Medium R5+, Easy R10+)' }
@@ -11526,17 +11950,21 @@ function drawAntsTab(fadeAlpha) {
       bulletCooldown: { caps: [150, 120, 100, 90, 79], inverse: true },
       antSpeed: { caps: [2, 2.5, 3, 3.5], inverse: false },
       specialExplosion: { caps: [1.0, 2.0], inverse: false },
-      bulletKnockbackMultiplier: { caps: [2, 3, 4, 5], inverse: false },
+      specialCamo: { caps: [1.0, 2.0], inverse: false },
+      bulletCamoFlashRate: { caps: [1.5, 1.0, 0.75, 0.5, 0.25], inverse: true },
+bulletKnockbackMultiplier: { caps: [2, 3, 4, 5], inverse: false },
       bulletBurstCount: { caps: [3, 4, 5, 5.5], inverse: false },
       bulletBurstSpread: { caps: [2.0, 2.5, 3.0, 3.14], inverse: false },
       bulletCooldownMultiplier: { caps: [3, 4, 5, 5.5], inverse: false },
       bulletArcDuration: { caps: [300, 400, 500, 600], inverse: false },
       bulletCurveStrength: { caps: [0.05, 0.075, 0.1], inverse: false },
       pathCurve: { caps: [1.0, 2.0], inverse: false },
+      deathLandmine: { caps: [1.0, 2.0], inverse: false },
+      fireAlternating: { caps: [1.0, 2.0], inverse: false },
       explosionProximity: { caps: [400, 600, 800, 1000], inverse: false },
       bulletSize: { caps: [1.5, 2.0, 2.5, 3.0], inverse: false },
-      explosionRadiusMultiplier: { caps: [1.5, 2.0, 2.5, 3.0], inverse: false },
-      explosionResidueMultiplier: { caps: [1.5, 2.0, 2.5, 3.0], inverse: false },
+      radiusMultiplier: { caps: [1.5, 2.0, 2.5, 3.0], inverse: false },
+      residueMultiplier: { caps: [1.5, 2.0, 2.5, 3.0], inverse: false },
       bulletExplodeAfter: { caps: [600, 500, 400, 200, 100], inverse: true },
       antSize: { caps: [1.5, 2.0, 2.5, 3.0], inverse: false }
     };
