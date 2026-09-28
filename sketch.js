@@ -48,6 +48,7 @@ function applyHardModeRandomInitialAbility(antIndex) {
     { target: 'specialExplosion', category: 'special', potential: 'specialPotential' },
     { target: 'specialKnockback', category: 'special', potential: 'specialPotential' },
     { target: 'specialCamo', category: 'special', potential: 'specialPotential' },
+    { target: 'specialRecoil', category: 'special', potential: 'specialPotential' },
     { target: 'fireBurst', category: 'fire', potential: 'firePotential' },
     { target: 'fireRapid', category: 'fire', potential: 'firePotential' },
     { target: 'fireAlternating', category: 'fire', potential: 'firePotential' },
@@ -66,10 +67,10 @@ function applyHardModeRandomInitialAbility(antIndex) {
   eval(trait.potential + '[' + antIndex + '] = max(' + trait.potential + '[' + antIndex + '], 0.6)');
   
   // Nudge the selected trait to win its category for expression.
-  // For tiered stats (specialExplosion, pathCurve, pathAccelerate, deathLandmine, fireAlternating, specialCamo), cap at 0.9 to prevent unlocking tier 2 without cap investment
+  // For tiered stats (specialExplosion, pathCurve, pathAccelerate, deathLandmine, fireAlternating, fireBurst, pathHighArc, specialKnockback, specialCamo, specialRecoil), cap at 0.9 to prevent unlocking tier 2 without cap investment
   // For bulletAccelerateDelay (inverse stat), set to 150 (tier 1, better than default 200)
   let initialValue = 0.9;
-  if (trait.target === 'specialExplosion' || trait.target === 'pathCurve' || trait.target === 'pathAccelerate' || trait.target === 'deathLandmine' || trait.target === 'fireAlternating' || trait.target === 'specialCamo') {
+  if (trait.target === 'specialExplosion' || trait.target === 'pathCurve' || trait.target === 'pathAccelerate' || trait.target === 'deathLandmine' || trait.target === 'fireAlternating' || trait.target === 'fireBurst' || trait.target === 'pathHighArc' || trait.target === 'specialKnockback' || trait.target === 'specialCamo' || trait.target === 'specialRecoil') {
     initialValue = 0.9; // Start with tier 1 (stays <1 for timed explosions, curved bullets, accelerating bullets, smears, alternating fire, or camouflage)
   } else if (trait.target === 'bulletAccelerateDelay') {
     initialValue = 150; // Start with tier 1 (150 frames, better than default 200)
@@ -127,6 +128,7 @@ let customAntStats = [
     specialExplosion: 0.2,
     specialKnockback: 0.2,
     specialCamo: 0.2,
+    specialRecoil: 0.2,
 specialPotential: 0.3,
     bulletKnockbackMultiplier: 2,
     bulletCamoFlashRate: 2.5,
@@ -137,6 +139,7 @@ specialPotential: 0.3,
     firePotential: 0.3,
     bulletBurstCount: 2,
     bulletBurstSpread: 1.5,
+    bulletBurstDelay: 40,
     bulletCooldownMultiplier: 2,
     // Death category (mutation-based)
     deathLandmine: 0.3,
@@ -154,7 +157,7 @@ specialPotential: 0.3,
     bulletSize: 1,
     radiusMultiplier: 1,
     residueMultiplier: 1,
-    bulletExplodeAfter: 800,
+    bulletExplodeAfter: 400,
     antSize: 1,
     // Gene Token System
     geneTokens: 2,
@@ -179,6 +182,7 @@ specialPotential: 0.3,
     specialExplosion: 0.2,
     specialKnockback: 0.2,
     specialCamo: 0.2,
+    specialRecoil: 0.2,
 specialPotential: 0.3,
     bulletKnockbackMultiplier: 2,
     bulletCamoFlashRate: 2.5,
@@ -189,6 +193,7 @@ specialPotential: 0.3,
     firePotential: 0.3,
     bulletBurstCount: 2,
     bulletBurstSpread: 1.5,
+    bulletBurstDelay: 40,
     bulletCooldownMultiplier: 2,
     // Death category (mutation-based)
     deathLandmine: 0.3,
@@ -206,7 +211,7 @@ specialPotential: 0.3,
     bulletSize: 1,
     radiusMultiplier: 1,
     residueMultiplier: 1,
-    bulletExplodeAfter: 800,
+    bulletExplodeAfter: 400,
     antSize: 1,
     // Gene Token System
     geneTokens: 2,
@@ -231,6 +236,7 @@ specialPotential: 0.3,
     specialExplosion: 0.2,
     specialKnockback: 0.2,
     specialCamo: 0.2,
+    specialRecoil: 0.2,
 specialPotential: 0.3,
     bulletKnockbackMultiplier: 2,
     bulletCamoFlashRate: 2.5,
@@ -241,6 +247,7 @@ specialPotential: 0.3,
     firePotential: 0.3,
     bulletBurstCount: 2,
     bulletBurstSpread: 1.5,
+    bulletBurstDelay: 40,
     bulletCooldownMultiplier: 2,
     // Death category (mutation-based)
     deathLandmine: 0.3,
@@ -258,7 +265,7 @@ specialPotential: 0.3,
     bulletSize: 1,
     radiusMultiplier: 1,
     residueMultiplier: 1,
-    bulletExplodeAfter: 800,
+    bulletExplodeAfter: 400,
     antSize: 1,
     // Gene Token System
     geneTokens: 2,
@@ -375,8 +382,11 @@ let noSpecialDiscovered = false;       // No special
 let timeExplosionDiscovered = false;   // Time-based explosion
 let proximityExplosionDiscovered = false; // Proximity explosion
 let knockbackDiscovered = false;       // Knockback bullets
+let vacuumDiscovered = false;          // Vacuum bullets (pull the beetle in at close range)
 let camouflageDiscovered = false;      // Camouflage bullets (flashing opacity)
 let ghostBulletDiscovered = false;     // Ghost bullets (invisible until near the beetle)
+let recoilDiscovered = false;          // Recoil (firing pushes the ant back)
+let launchDiscovered = false;          // Launch (recoil plus a hop into the air)
 
 // Fire type discoveries
 let normalFireDiscovered = false;      // Normal fire mode
@@ -384,9 +394,10 @@ let burstFireDiscovered = false;       // Burst fire mode
 let rapidFireDiscovered = false;       // Rapid fire mode
 let alternatingFireDiscovered = false; // Alternating cooldown fire mode
 let hitReloadFireDiscovered = false;   // Hit reload fire mode (long cooldown, resets on hit)
+let delayedBurstFireDiscovered = false; // Delayed burst fire mode (one bullet that splits into a burst)
 
-// Explosion Fuse discoveries (100-800, Time Explosion only)
-let fuseMinDiscovered = false;         // 100-250
+// Explosion Fuse discoveries (40-800, Time Explosion only)
+let fuseMinDiscovered = false;         // 40-250
 let fuseLowDiscovered = false;         // 251-400
 let fuseMedDiscovered = false;         // 401-550
 let fuseHighDiscovered = false;        // 551-700
@@ -442,6 +453,7 @@ let smearDeathDiscovered = false;          // Bullets leave a damaging smear whe
 let clockwiseCurveDiscovered = false;      // Bullets curve clockwise (pathType === -1)
 let homingCurveDiscovered = false;         // Bullets curve toward player (pathType === -2)
 let highArcDiscovered = false;             // Bullets arc high and land (pathType === 1)
+let splitArcDiscovered = false;            // High arc bullets split into 3 at their peak
 
 // Burst Spread discoveries (PI/3 to PI = 60° to 180°, Burst Fire only)
 let burstSpreadMinDiscovered = false;     // 60-84°
@@ -528,6 +540,7 @@ let autonomy = [];
 let specialExplosion = [];
 let specialKnockback = [];
 let specialCamo = [];  // <1 = camouflage (flashing opacity), >=1 = ghost (invisible until near the beetle)
+let specialRecoil = [];  // <1 = recoil (firing pushes the ant back), >=1 = launch (recoil also hops the ant into the air)
 let specialPotential = [];
 let bulletKnockbackMultiplier = [];
 let bulletCamoFlashRate = []; // Camouflage bullets: opacity flashes per second (lower = better, longer invisible stretches)
@@ -539,6 +552,7 @@ let fireAlternating = [];
 let firePotential = [];
 let bulletBurstCount = [];
 let bulletBurstSpread = [];
+let bulletBurstDelay = []; // Delayed burst fire type: frames before the shot splits (max DELAYED_BURST_MAX_DELAY)
 let bulletCooldownMultiplier = [];
 let antAlternatingCooldownState = []; // For alternating cooldown fire type: 0 = fast, 1 = slow
 let antHitReloadFlashFrame = []; // For hit reload fire type: frame the reload flash started
@@ -586,6 +600,11 @@ let antStunned = [];
 let antStunTimer = [];
 let antLastShotFrame = [];
 let antAirHeight = [];
+let antRecoilVelX = [];     // Recoil push from firing (special type 3 / -3), decays separately from knockback
+let antRecoilVelY = [];
+let antRecoilAirTimer = []; // Launch (special type -3): frames left in the hop after firing
+let antRecoilAirDuration = []; // Launch: total frames of the current hop (scales with the shot that caused it)
+let antRecoilAirPeak = [];     // Launch: peak height (px) of the current hop
 const ANT_SPAWN_BUFFER = 20;
 let antMoveX = [];
 let antMoveY = [];
@@ -859,9 +878,12 @@ function setup() {
     antLastShotFrame[i] = 0;
     antAlternatingCooldownState[i] = 0;
     antAirHeight[i] = 0;
+    antRecoilVelX[i] = 0;
+    antRecoilVelY[i] = 0;
+    antRecoilAirTimer[i] = 0;
     bulletSplitCount[i] = 1;          // no split by default
     bulletSpread[i] = 0;              // 0° spread (all bullets same direction)
-    bulletExplodeAfter[i] = 800; 
+    bulletExplodeAfter[i] = 400; 
     radiusMultiplier[i] = 1;
     residueMultiplier[i] = 1;
     shotOffsetX[i] = 0;
@@ -872,6 +894,7 @@ function setup() {
     specialExplosion[i] = 0.2;
     specialKnockback[i] = 0.2;
     specialCamo[i] = 0.2;
+    specialRecoil[i] = 0.2;
     specialPotential[i] = 0.3;
     bulletKnockbackMultiplier[i] = 2;
     bulletCamoFlashRate[i] = 2.5;
@@ -882,6 +905,7 @@ function setup() {
     firePotential[i] = 0.3;
     bulletBurstCount[i] = 2;
     bulletBurstSpread[i] = 1.5; // Below first cap (2.0)
+    bulletBurstDelay[i] = 40;
     bulletCooldownMultiplier[i] = 2;
     // Death category (mutation-based)
     deathLandmine[i] = 0.3;
@@ -896,6 +920,7 @@ function setup() {
     bulletCurveStrength[i] = 0.015;
     bulletBurstCount[i] = 2;
     bulletBurstSpread[i] = 1.5; // Below first cap (2.0)
+    bulletBurstDelay[i] = 40;
     bulletCooldownMultiplier[i] = 2;
     antAlternatingCooldownState[i] = 0; // Start with fast cooldown
     antRapidFireActive[i] = false;
@@ -926,7 +951,7 @@ function setup() {
         triggerExplodeViaProximity[i] = true;
       }
     } else {
-      // Knockback (-1), Camouflage (2), or Ghost (-2): no explosions
+      // Knockback (-1), Camouflage (2), Ghost (-2), Recoil (3), or Launch (-3): no explosions
       explodeOnTermination[i] = false;
       triggerExplodeViaProximity[i] = false;
     }
@@ -1571,6 +1596,7 @@ function applyCustomAntsToInitialPopulation() {
   
   // Use first place ant stats for all initial ants
   let s = customAntStats[0];
+  ensureCustomAntTierCaps(s);
   console.log("Custom ant stats:", s);
   
   // Check if we need to respawn ants due to size change
@@ -1622,6 +1648,9 @@ function applyCustomAntsToInitialPopulation() {
         antLastShotFrame[i] = 0;
         antAlternatingCooldownState[i] = 0;
         antAirHeight[i] = 0;
+        antRecoilVelX[i] = 0;
+        antRecoilVelY[i] = 0;
+        antRecoilAirTimer[i] = 0;
         antPoints[i] = 0;
         antLives[i] = 1;
         geneTokens[i] = 2;
@@ -1654,6 +1683,7 @@ function applyCustomAntsToInitialPopulation() {
     specialExplosion[i] = s.specialExplosion;
     specialKnockback[i] = s.specialKnockback;
     specialCamo[i] = s.specialCamo;
+    specialRecoil[i] = s.specialRecoil || 0;
     specialPotential[i] = s.specialPotential;
     bulletKnockbackMultiplier[i] = s.bulletKnockbackMultiplier;
     bulletCamoFlashRate[i] = s.bulletCamoFlashRate;
@@ -1664,6 +1694,7 @@ function applyCustomAntsToInitialPopulation() {
     firePotential[i] = s.firePotential;
     bulletBurstCount[i] = s.bulletBurstCount;
     bulletBurstSpread[i] = s.bulletBurstSpread;
+    bulletBurstDelay[i] = s.bulletBurstDelay ?? 40;
     bulletCooldownMultiplier[i] = s.bulletCooldownMultiplier;
     // Death category (mutation-based)
     deathLandmine[i] = s.deathLandmine;
@@ -1674,7 +1705,7 @@ function applyCustomAntsToInitialPopulation() {
     pathAccelerate[i] = s.pathAccelerate;
     bulletAccelerateDelay[i] = s.bulletAccelerateDelay;
     pathPotential[i] = s.pathPotential;
-    bulletArcDuration[i] = s.bulletArcDuration;
+    bulletArcDuration[i] = Math.max(s.bulletArcDuration ?? 200, HIGH_ARC_MIN_DURATION);
     bulletCurveStrength[i] = s.bulletCurveStrength;
     explosionProximity[i] = s.explosionProximity;
     angleFromSpawn[i] = s.angleFromSpawn;
@@ -1683,6 +1714,9 @@ function applyCustomAntsToInitialPopulation() {
     residueMultiplier[i] = s.residueMultiplier;
     bulletExplodeAfter[i] = s.bulletExplodeAfter;
     antSize[i] = s.antSize;
+    // Gene tokens: use the custom ant's investments so its trait tokens and tier caps actually apply
+    geneTokenInvestments[i] = JSON.parse(JSON.stringify(s.geneTokenInvestments || []));
+    if (s.geneTokens !== undefined) geneTokens[i] = s.geneTokens;
     
     // Apply ant speed cap based on ant size (small ants = faster, large ants = slower)
     let maxAntSpeedCap = 4.5 - antSize[i];
@@ -1721,7 +1755,7 @@ function applyCustomAntsToInitialPopulation() {
         triggerExplodeViaProximity[i] = true;
       }
     } else {
-      // Knockback (-1), Camouflage (2), or Ghost (-2): no explosions
+      // Knockback (-1), Camouflage (2), Ghost (-2), Recoil (3), or Launch (-3): no explosions
       explodeOnTermination[i] = false;
       triggerExplodeViaProximity[i] = false;
     }
@@ -1831,10 +1865,14 @@ function applyDifficultyToInitialPopulation() {
     if (antAlternatingCooldownState[i] === undefined) antAlternatingCooldownState[i] = 0;
     if (antRapidFireActive[i] === undefined) antRapidFireActive[i] = false;
     if (antAirHeight[i] === undefined) antAirHeight[i] = 0;
+    if (antRecoilVelX[i] === undefined) antRecoilVelX[i] = 0;
+    if (antRecoilVelY[i] === undefined) antRecoilVelY[i] = 0;
+    if (antRecoilAirTimer[i] === undefined) antRecoilAirTimer[i] = 0;
     if (explosionProximity[i] === undefined) explosionProximity[i] = 200;
-    if (bulletExplodeAfter[i] === undefined) bulletExplodeAfter[i] = 800;
+    if (bulletExplodeAfter[i] === undefined) bulletExplodeAfter[i] = 400;
     if (bulletBurstCount[i] === undefined) bulletBurstCount[i] = 2;
     if (bulletBurstSpread[i] === undefined) bulletBurstSpread[i] = 1.5;
+    if (bulletBurstDelay[i] === undefined) bulletBurstDelay[i] = 40;
     if (bulletCooldownMultiplier[i] === undefined) bulletCooldownMultiplier[i] = 2;
     if (bulletArcDuration[i] === undefined) bulletArcDuration[i] = 200;
     if (bulletCurveStrength[i] === undefined) bulletCurveStrength[i] = 0.015;
@@ -1842,6 +1880,7 @@ function applyDifficultyToInitialPopulation() {
     if (specialExplosion[i] === undefined) specialExplosion[i] = 0.2;
     if (specialKnockback[i] === undefined) specialKnockback[i] = 0.2;
     if (specialCamo[i] === undefined) specialCamo[i] = 0.2;
+    if (specialRecoil[i] === undefined) specialRecoil[i] = 0.2;
     if (specialPotential[i] === undefined) specialPotential[i] = 0.3;
     if (fireBurst[i] === undefined) fireBurst[i] = 0.1;
     if (fireRapid[i] === undefined) fireRapid[i] = 0.1;
@@ -1951,6 +1990,7 @@ function syncActualWinnersToCustomStats(topAnts) {
         specialExplosion: specialExplosion[antId],
         specialKnockback: specialKnockback[antId],
         specialCamo: specialCamo[antId],
+        specialRecoil: specialRecoil[antId],
         specialPotential: specialPotential[antId],
         bulletKnockbackMultiplier: bulletKnockbackMultiplier[antId],
         bulletCamoFlashRate: bulletCamoFlashRate[antId],
@@ -1961,6 +2001,7 @@ function syncActualWinnersToCustomStats(topAnts) {
         firePotential: firePotential[antId],
         bulletBurstCount: bulletBurstCount[antId],
         bulletBurstSpread: bulletBurstSpread[antId],
+        bulletBurstDelay: bulletBurstDelay[antId],
         bulletCooldownMultiplier: bulletCooldownMultiplier[antId],
         // Death category (mutation-based)
         deathLandmine: deathLandmine[antId],
@@ -2715,6 +2756,9 @@ function enemyInteraction1(){
         antAlternatingCooldownState[i] = 0;
         antRapidFireActive[i] = false;
         antAirHeight[i] = 0;
+        antRecoilVelX[i] = 0;
+        antRecoilVelY[i] = 0;
+        antRecoilAirTimer[i] = 0;
         antLives[i]++;
         console.log("Ant", i, "lives:", antLives[i]);
 
@@ -2790,8 +2834,8 @@ function dashCollision() {
   
   for (let cell of nearbyCells) {
     for (let i of cell.ants) {
-      // Skip if ant is already knocked back (can only be hit once per dash)
-      if (antKnockedBack[i]) continue;
+      // Skip if ant is already knocked back (can only be hit once per dash) or airborne
+      if (antKnockedBack[i] || antAirHeight[i] > 0) continue;
       
       let antHitboxSize = 20.25 + (6.75 * antSize[i]);
       if(playerX > (antX[i] - antHitboxSize) && playerY > (antY[i] - antHitboxSize) && 
@@ -2851,6 +2895,9 @@ function dashCollision() {
           antAlternatingCooldownState[i] = 0;
           antRapidFireActive[i] = false;
           antAirHeight[i] = 0;
+          antRecoilVelX[i] = 0;
+          antRecoilVelY[i] = 0;
+          antRecoilAirTimer[i] = 0;
           
           if(!sGetHit1.isPlaying() || !sGetHit2.isPlaying()) {
             sHit = round(random(1,2));
@@ -2912,7 +2959,32 @@ function handleAntKnockback() {
     } else {
       antAirHeight[i] = 0;
     }
-    
+
+    // Recoil from firing (special type 3 / -3) - slides on top of any knockback
+    if (antRecoilVelX[i] !== 0 || antRecoilVelY[i] !== 0) {
+      antX[i] += antRecoilVelX[i];
+      antY[i] += antRecoilVelY[i];
+      // Less friction while hopping, so a launch carries the ant further than a ground recoil
+      const recoilFriction = antRecoilAirTimer[i] > 0 ? RECOIL_AIR_FRICTION : RECOIL_GROUND_FRICTION;
+      antRecoilVelX[i] *= recoilFriction;
+      antRecoilVelY[i] *= recoilFriction;
+      if (Math.abs(antRecoilVelX[i]) < 0.02 && Math.abs(antRecoilVelY[i]) < 0.02) {
+        antRecoilVelX[i] = 0;
+        antRecoilVelY[i] = 0;
+      }
+      antX[i] = constrain(antX[i], sideBuffer, getGameplayWidth() - sideBuffer);
+      antY[i] = constrain(antY[i], scoreBarHeight + 15, getGameplayHeight() - expBarHeight - expBarBuffer);
+    }
+
+    // Launch hop: airborne (immune to ground attacks) for antRecoilAirDuration frames after each shot
+    if (antRecoilAirTimer[i] > 0) {
+      antRecoilAirTimer[i]--;
+      if (antRecoilAirTimer[i] > 0) {
+        const hopProgress = 1 - antRecoilAirTimer[i] / antRecoilAirDuration[i];
+        antAirHeight[i] = Math.max(antAirHeight[i], Math.sin(hopProgress * Math.PI) * antRecoilAirPeak[i]);
+      }
+    }
+
     // Handle stun timer
     if (antStunned[i] && antStunTimer[i] > 0) {
       antStunTimer[i]--;
@@ -2968,11 +3040,13 @@ function enemyShoot1() {
           size: actualBulletSize,
           trueSpeed: actualBulletSpeed,
           knockbackBullet: (getSpecialType(i) === -1),
+          vacuumBullet: isVacuumKnockback(i),
           knockbackMultiplier: bulletKnockbackMultiplier[i],
           delayFrames: 0,
           airHeight: 0,
           airProgress: 0,
           pathType: getPathType(i),
+          splitAtApex: isSplitArc(i),
           arcDuration: bulletArcDuration[i],
           curveStrength: bulletCurveStrength[i],
           accelerateDelay: bulletAccelerateDelay[i],
@@ -2983,6 +3057,7 @@ function enemyShoot1() {
         };
         
         enemyBullets[i].push(bullet);
+        applyFiringRecoil(i, bullet);
         
         // Decrement count and schedule next bullet
         antRapidFireCount[i]--;
@@ -3082,11 +3157,13 @@ function enemyShoot1() {
               size: actualBulletSize,
               trueSpeed: actualBulletSpeed,
               knockbackBullet: (getSpecialType(i) === -1),
+              vacuumBullet: isVacuumKnockback(i),
               knockbackMultiplier: bulletKnockbackMultiplier[i],
               delayFrames: 0,
               airHeight: 0,
               airProgress: 0,
               pathType: getPathType(i),
+              splitAtApex: isSplitArc(i),
               arcDuration: bulletArcDuration[i],
               curveStrength: bulletCurveStrength[i],
               accelerateDelay: bulletAccelerateDelay[i],
@@ -3097,6 +3174,7 @@ function enemyShoot1() {
             };
             
             enemyBullets[i].push(bullet);
+            applyFiringRecoil(i, bullet);
             
             // Set up rapid fire sequence for remaining bullets
             if (bulletsToFire > 1) {
@@ -3112,6 +3190,7 @@ function enemyShoot1() {
           // Type 1 or default: Fire all bullets immediately
           else {
             // Fire bullets based on type
+            let volleyBullet = null; // Last bullet of the volley, sizes the recoil kick
             for (let b = 0; b < bulletsToFire; b++) {
               let bulletVx = vx;
               let bulletVy = vy;
@@ -3175,11 +3254,13 @@ function enemyShoot1() {
                 size: actualBulletSize,
                 trueSpeed: actualBulletSpeed,
                 knockbackBullet: (getSpecialType(i) === -1),
+                vacuumBullet: isVacuumKnockback(i),
                 knockbackMultiplier: bulletKnockbackMultiplier[i],
                 delayFrames: 0,
                 airHeight: 0,
                 airProgress: 0,
                 pathType: getPathType(i),
+                splitAtApex: isSplitArc(i),
                 arcDuration: bulletArcDuration[i],
                 curveStrength: bulletCurveStrength[i],
                 accelerateDelay: bulletAccelerateDelay[i],
@@ -3189,13 +3270,34 @@ function enemyShoot1() {
                 owner: i
               };
 
+              // Type 3: Delayed burst - one full-size bullet that splits into a burst after bulletBurstDelay frames
+              if (fireType === 3) {
+                const burstCount = constrain(Math.round(bulletBurstCount[i]), 2, 5);
+                const burstSize = bulletSize[i] / (1 + (burstCount - 1) / 4);
+                // Split bullets move at the speed a level 1 burst from this ant would have
+                const burstVx = ((playerX + shotOffsetX[i]) - antX[i] + 1) / (bulletSpeed[i] * (burstSize ** burstSize));
+                const burstVy = ((playerY + shotOffsetY[i]) - antY[i] + 1) / (bulletSpeed[i] * (burstSize ** burstSize));
+                bullet.delayedBurst = {
+                  at: Math.round(Math.min(bulletBurstDelay[i], DELAYED_BURST_MAX_DELAY)),
+                  count: burstCount,
+                  size: burstSize,
+                  speed: Math.sqrt(burstVx * burstVx + burstVy * burstVy),
+                  spread: bulletBurstSpread[i]
+                };
+              }
+
               enemyBullets[i].push(bullet);
+              volleyBullet = bullet;
             }
+            // One recoil kick per volley, even for bursts
+            if (volleyBullet) applyFiringRecoil(i, volleyBullet);
             
             // Log bullet firing
             let speedTier = getBulletSpeedTier(trueBulletSpeed);
-            let fireTypeName = ['Single', 'Burst', 'Rapid', 'Alt'][fireType + 1] || 'Unknown';
-            if (fireType === 1) {
+            let fireTypeName = { '-2': 'Hit Reload', '-1': 'Alt', 0: 'Single', 1: 'Burst', 2: 'Rapid', 3: 'Delayed Burst' }[fireType] || 'Unknown';
+            if (fireType === 3) {
+              console.log(`Ant ${i} fired a ${fireTypeName} bullet (splits into ${Math.round(bulletBurstCount[i])} after ${Math.round(bulletBurstDelay[i])}f) - Speed: ${trueBulletSpeed.toFixed(3)} px/f`);
+            } else if (fireType === 1) {
               let spreadDegrees = (bulletBurstSpread[i] * 180 / Math.PI).toFixed(1);
               console.log(`Ant ${i} fired ${bulletsToFire} ${fireTypeName} bullets with ${spreadDegrees}° spread - Speed: ${trueBulletSpeed.toFixed(3)} px/f`);
             } else {
@@ -3301,7 +3403,7 @@ function enemyShoot1() {
         if (pathType === 1) {
           // High arc mode: Use arcDuration and scale height with duration
           bullet.airProgress = Math.min(bullet.life / bullet.arcDuration, 1);
-          // Arc height scales with arcDuration (60-600 frames -> 30-300px peak)
+          // Arc height scales with arcDuration (130-600 frames -> 65-300px peak)
           let arcHeight = bullet.arcDuration * 0.5; // 0.5 pixels per frame of duration
           bullet.airHeight = Math.sin(bullet.airProgress * Math.PI) * arcHeight;
         } else {
@@ -3318,6 +3420,25 @@ function enemyShoot1() {
         
         // Calculate angle based on actual movement direction
         bullet.visualAngle = Math.atan2(visualVelocityY, visualVelocityX) * 180 / Math.PI;
+
+        // Delayed burst: split into the burst once the delay has elapsed
+        if (bullet.delayedBurst && bullet.life >= bullet.delayedBurst.at) {
+          spawnDelayedBurst(bullet, i);
+          enemyBullets[i].splice(b, 1);
+          continue;
+        }
+
+        // Split arc: split at the top of the arc
+        if (bullet.splitAtApex && bullet.life >= bullet.arcDuration / 2) {
+          spawnSplitArc(bullet);
+          enemyBullets[i].splice(b, 1);
+          continue;
+        }
+
+        // Vacuum bullets pull the beetle in at close range
+        if (bullet.vacuumBullet) {
+          applyVacuumPull(bullet);
+        }
 
         // --- EXPLOSION TRIGGER ---
         let shouldExplode = false;
@@ -3460,6 +3581,28 @@ function enemyShoot1() {
             pop();
           }
 
+          // Vacuum bullets: purple aura with rings sweeping inward; brighter, thicker, faster and more
+          // numerous rings the stronger the pull (knockback multiplier 2-5)
+          if (bullet.vacuumBullet) {
+            const vacuumPower = constrain(((bullet.knockbackMultiplier || 2) - 2) / 3, 0, 1);
+            const vacuumAuraSize = 30 * bullet.size;
+            const vacuumY = bullet.y - bullet.airHeight;
+            push();
+            noStroke();
+            fill(190, 90, 255, (50 + 60 * vacuumPower) * bulletStealth);
+            ellipse(bullet.x, vacuumY, vacuumAuraSize, vacuumAuraSize);
+            noFill();
+            strokeWeight(1 + 1.5 * vacuumPower);
+            const ringCount = 2 + Math.round(2 * vacuumPower);
+            for (let r = 0; r < ringCount; r++) {
+              const ringT = ((bullet.life * (0.02 + 0.03 * vacuumPower)) + r / ringCount) % 1;
+              const ringSize = vacuumAuraSize * (1 - ringT);
+              stroke(215, 140, 255, (120 + 135 * vacuumPower) * ringT * bulletStealth);
+              ellipse(bullet.x, vacuumY, ringSize, ringSize);
+            }
+            pop();
+          }
+
           // Homing bullets: red pulsing aura
           if (bullet.pathType === -2) {
             push();
@@ -3469,6 +3612,19 @@ function enemyShoot1() {
             fill(255, 60, 60, homingFlashAlpha * bulletStealth);
             let homingAuraSize = (30 * bullet.size) + 5 * sin(bullet.life * 0.2);
             ellipse(bullet.x, bullet.y - bullet.airHeight, homingAuraSize, homingAuraSize);
+            pop();
+          }
+
+          // Splitting bullets (delayed burst / split arc): orange aura that swells and pulses faster as the split nears
+          const splitFrame = getBulletSplitFrame(bullet);
+          if (splitFrame !== null) {
+            push();
+            noStroke();
+            let burstProgress = constrain(bullet.life / splitFrame, 0, 1);
+            let burstFlashAlpha = 83 + 70 * sin(bullet.life * (4 + 16 * burstProgress));
+            fill(255, 150, 40, burstFlashAlpha * bulletStealth);
+            let burstAuraSize = (20 + 12 * burstProgress) * bullet.size;
+            ellipse(bullet.x, bullet.y - bullet.airHeight, burstAuraSize, burstAuraSize);
             pop();
           }
 
@@ -3665,6 +3821,7 @@ function enemyShoot1() {
         const RADIUS_PER_SIZE = 40;
         let radius = (BASE_RADIUS + RADIUS_PER_SIZE * (mine.size - 1));
         for (let ai = 1; ai <= enemyCount; ai++) {
+          if (antAirHeight[ai] > 0) continue; // Airborne ants are above ground-level blasts
           let d = dist(mine.x, mine.y, antX[ai], antY[ai]);
           if (d <= radius) {
             antHealth[ai] -= mine.size;
@@ -3702,6 +3859,9 @@ function enemyShoot1() {
               antLastShotFrame[ai] = 0;
               antAlternatingCooldownState[ai] = 0;
               antAirHeight[ai] = 0;
+              antRecoilVelX[ai] = 0;
+              antRecoilVelY[ai] = 0;
+              antRecoilAirTimer[ai] = 0;
             }
           }
         }
@@ -3725,6 +3885,7 @@ function enemyShoot1() {
       } else {
         // Player-owned mine: check ants for proximity
         for (let ai = 1; ai <= enemyCount; ai++) {
+          if (antAirHeight[ai] > 0) continue; // Airborne ants don't trip ground mines
           let d = dist(antX[ai], antY[ai], mine.x, mine.y);
           if (d <= (mine.explosionProximity || 0)) {
             // Apply explosion damage to nearby ants (same as time-based)
@@ -3732,6 +3893,7 @@ function enemyShoot1() {
             const RADIUS_PER_SIZE = 40;
             let radius = (BASE_RADIUS + RADIUS_PER_SIZE * (mine.size - 1));
             for (let aj = 1; aj <= enemyCount; aj++) {
+              if (antAirHeight[aj] > 0) continue; // Airborne ants are above ground-level blasts
               let dj = dist(mine.x, mine.y, antX[aj], antY[aj]);
               if (dj <= radius) {
                 antHealth[aj] -= mine.size;
@@ -3769,6 +3931,9 @@ function enemyShoot1() {
                   antLastShotFrame[aj] = 0;
                   antAlternatingCooldownState[aj] = 0;
                   antAirHeight[aj] = 0;
+                  antRecoilVelX[aj] = 0;
+                  antRecoilVelY[aj] = 0;
+                  antRecoilAirTimer[aj] = 0;
                 }
               }
             }
@@ -3903,6 +4068,7 @@ function enemyShoot1() {
       
       for (let cell of nearbyCells) {
         for (let i of cell.ants) {
+          if (antAirHeight[i] > 0) continue; // Airborne ants pass over mines
           let antHitboxSize = 20.25 + (6.75 * antSize[i]);
           let mineHitboxSize = (mineSize / 2);
           if (dist(antX[i], antY[i], mine.x, mine.y) < antHitboxSize + mineHitboxSize) {
@@ -3947,6 +4113,9 @@ function enemyShoot1() {
               antAlternatingCooldownState[i] = 0;
               antRapidFireActive[i] = false;
               antAirHeight[i] = 0;
+              antRecoilVelX[i] = 0;
+              antRecoilVelY[i] = 0;
+              antRecoilAirTimer[i] = 0;
             }
             
             mineHit = true;
@@ -4625,6 +4794,9 @@ function handleWindAttack() {
               antAlternatingCooldownState[i] = 0;
               antRapidFireActive[i] = false;
               antAirHeight[i] = 0;
+              antRecoilVelX[i] = 0;
+              antRecoilVelY[i] = 0;
+              antRecoilAirTimer[i] = 0;
             }
           }
         }
@@ -4750,17 +4922,150 @@ function getSpecialType(antIndex) {
   let maxVal = Math.max(
     specialExplosion[antIndex],
     specialKnockback[antIndex],
-    specialCamo[antIndex]
+    specialCamo[antIndex],
+    specialRecoil[antIndex]
   );
   if (specialExplosion[antIndex] === maxVal) return 1; // Explosion
   if (specialKnockback[antIndex] === maxVal) return -1; // Knockback
   // specialCamo: <1 = Camouflage (tier 1), >=1 = Ghost (tier 2)
   if (specialCamo[antIndex] === maxVal) return specialCamo[antIndex] >= 1 ? -2 : 2;
+  // specialRecoil: <1 = Recoil (tier 1), >=1 = Launch (tier 2)
+  if (specialRecoil[antIndex] === maxVal) return specialRecoil[antIndex] >= 1 ? -3 : 3;
   return 0; // None (fallback)
+}
+
+// Recoil (special tier 1): each shot pushes the ant directly away from where it's aiming.
+// Launch (special tier 2): same push, plus a short hop into the air where ground attacks can't reach it.
+// Both scale with the bullet fired: bigger and faster bullets kick harder and launch higher/longer.
+const RECOIL_SPEED = 3.4;            // Initial push (px/frame) for a size 1 ant firing a size 1 bullet at the reference speed
+const RECOIL_REFERENCE_SPEED = 1.5;  // Bullet speed (px/frame) that counts as "normal" for recoil
+const RECOIL_MIN_SPEED_FACTOR = 0.5; // Speed contribution is clamped so very slow/fast bullets stay sane
+const RECOIL_MAX_SPEED_FACTOR = 3;
+const RECOIL_GROUND_FRICTION = 0.92; // Velocity kept per frame on the ground (higher = longer, smoother slide)
+const RECOIL_AIR_FRICTION = 0.95;    // Velocity kept per frame while hopping
+const LAUNCH_AIR_FRAMES = 30;        // Hop duration for a normal shot (recoil strength 1)
+const LAUNCH_AIR_HEIGHT = 25;        // Peak hop height (px) for a normal shot
+const LAUNCH_MAX_HOP_SCALE = 2;      // Caps how much a strong shot can stretch the hop
+
+// Recoil strength for a bullet: average of its size (1-3) and its speed relative to the reference,
+// so size and speed each add to the kick independently (~0.75x for small slow shots, up to 3x).
+function getRecoilStrength(bullet) {
+  const sizeFactor = bullet.size || 1;
+  const speedFactor = constrain((bullet.trueSpeed || RECOIL_REFERENCE_SPEED) / RECOIL_REFERENCE_SPEED,
+    RECOIL_MIN_SPEED_FACTOR, RECOIL_MAX_SPEED_FACTOR);
+  return (sizeFactor + speedFactor) / 2;
+}
+
+function applyFiringRecoil(antIndex, bullet) {
+  const specialType = getSpecialType(antIndex);
+  if (specialType !== 3 && specialType !== -3) return;
+  const strength = getRecoilStrength(bullet);
+  const dx = bullet.targetX - antX[antIndex];
+  const dy = bullet.targetY - antY[antIndex];
+  const d = Math.sqrt(dx * dx + dy * dy);
+  if (d > 0) {
+    const push = RECOIL_SPEED * strength / Math.max(0.3, antSize[antIndex]);
+    antRecoilVelX[antIndex] -= (dx / d) * push;
+    antRecoilVelY[antIndex] -= (dy / d) * push;
+  }
+  if (specialType === -3) {
+    const hopScale = constrain(strength, 0.75, LAUNCH_MAX_HOP_SCALE);
+    antRecoilAirDuration[antIndex] = Math.round(LAUNCH_AIR_FRAMES * hopScale);
+    antRecoilAirPeak[antIndex] = LAUNCH_AIR_HEIGHT * hopScale;
+    antRecoilAirTimer[antIndex] = antRecoilAirDuration[antIndex];
+  }
+}
+
+// Vacuum (knockback tier 2): bullets pull the beetle in when close; strength and range scale with knockback multiplier (2-5)
+const VACUUM_RANGE_BASE = 40;             // Pull range (px) = base + per-multiplier * knockbackMultiplier (120-240px)
+const VACUUM_RANGE_PER_KNOCKBACK = 40;
+const VACUUM_PULL_PER_KNOCKBACK = 0.3;    // Pull (px/frame) at point blank = this * knockbackMultiplier (0.6-1.5), fading to 0 at max range
+
+// Vacuum bullets are still knockback bullets (specialType -1); bullets carry a vacuumBullet flag instead.
+function isVacuumKnockback(antIndex) {
+  return getSpecialType(antIndex) === -1 && specialKnockback[antIndex] >= 1;
+}
+
+function getVacuumRange(bullet) {
+  return VACUUM_RANGE_BASE + VACUUM_RANGE_PER_KNOCKBACK * (bullet.knockbackMultiplier || 2);
+}
+
+// Pull the beetle toward a vacuum bullet, stronger the closer it is. Skipped while the beetle is
+// being knocked back so a hit's knockback plays out the same as a normal knockback bullet.
+function applyVacuumPull(bullet) {
+  if (playerKnockedBack) return;
+  const range = getVacuumRange(bullet);
+  const dx = bullet.x - playerX;
+  const dy = bullet.y - playerY;
+  const d = Math.sqrt(dx * dx + dy * dy);
+  if (d <= 0 || d >= range) return;
+  const pull = VACUUM_PULL_PER_KNOCKBACK * (bullet.knockbackMultiplier || 2) * (1 - d / range);
+  playerX = constrain(playerX + (dx / d) * Math.min(pull, d), sideBuffer, getGameplayWidth() - sideBuffer);
+  playerY = constrain(playerY + (dy / d) * Math.min(pull, d), scoreBarHeight + 25, getGameplayHeight() - expBarHeight - expBarBuffer);
 }
 
 const HIT_RELOAD_COOLDOWN_MULTIPLIER = 3; // Hit reload fire type: cooldown length relative to base cooldown
 const HIT_RELOAD_FLASH_FRAMES = 15;       // Hit reload fire type: flash length; the ant refires when it ends
+const DELAYED_BURST_MIN_DELAY = 10;       // Delayed burst fire type: shortest bulletBurstDelay (frames)
+const DELAYED_BURST_MAX_DELAY = 60;       // Delayed burst fire type: longest bulletBurstDelay (frames)
+// High arc bullets peak at arcDuration / 2, so this minimum keeps split arcs from splitting in the same
+// window as a delayed burst (130 / 2 = 65 frames > DELAYED_BURST_MAX_DELAY)
+const HIGH_ARC_MIN_DURATION = 130;
+const EXPLODE_AFTER_MIN = 40;             // Timed explosion fuse range (frames); uncapped, mutates freely
+const EXPLODE_AFTER_MAX = 800;
+const SPLIT_ARC_COUNT = 3;                // Split arc path type: bullets a lofted shot splits into at its peak
+const SPLIT_ARC_SPACING = 60;             // Split arc path type: sideways gap (px) between the landing points
+
+// Delayed burst fire type: replace a bullet with a level 1 style burst fired from where it is now.
+// Ground bullets spread in a cone aimed at the ant's target; lofted bullets keep their arc and land spread around theirs.
+function spawnDelayedBurst(parent, i) {
+  const burst = parent.delayedBurst;
+  const spreadDegrees = burst.spread * 180 / PI;
+  const isLofted = parent.pathType === 1;
+  const aimX = isLofted ? parent.targetX : playerX + shotOffsetX[i];
+  const aimY = isLofted ? parent.targetY : playerY + shotOffsetY[i];
+  const baseAngle = atan2(aimY - parent.y, aimX - parent.x);
+  const aimDist = dist(parent.x, parent.y, aimX, aimY);
+  const arcFramesLeft = Math.max(1, (parent.arcDuration || 1) - parent.life);
+
+  for (let b = 0; b < burst.count; b++) {
+    // Each bullet picks a random angle within the full spread cone
+    const angle = baseAngle + random(-spreadDegrees / 2, spreadDegrees / 2);
+    let speedX, speedY, speed;
+    if (isLofted) {
+      // Land the same distance away as the original target, rotated into the cone, when the arc ends
+      speedX = cos(angle) * aimDist / arcFramesLeft;
+      speedY = sin(angle) * aimDist / arcFramesLeft;
+      speed = Math.sqrt(speedX * speedX + speedY * speedY);
+    } else {
+      speed = burst.speed;
+      speedX = cos(angle) * speed;
+      speedY = sin(angle) * speed;
+    }
+    enemyBullets[i].push({
+      ...parent,
+      speedX: speedX,
+      speedY: speedY,
+      angle: angle,
+      maxLife: isLofted ? parent.maxLife : speed * 100,
+      size: burst.size,
+      trueSpeed: speed,
+      targetX: isLofted ? parent.x + cos(angle) * aimDist : aimX,
+      targetY: isLofted ? parent.y + sin(angle) * aimDist : aimY,
+      delayedBurst: null
+    });
+  }
+
+  // Pop ring where the split happens
+  speedRings.push({
+    x: parent.x,
+    y: parent.y - (parent.airHeight || 0),
+    size: 10 * parent.size,
+    maxSize: 40 * parent.size,
+    alpha: 255,
+    life: 0
+  });
+}
 
 function getFireType(antIndex) {
   // If potential <= 0.5, return default (normal)
@@ -4780,7 +5085,8 @@ function getFireType(antIndex) {
     fireRapid[antIndex],
     fireAlternating[antIndex]
   );
-  if (fireBurst[antIndex] === maxVal) return 1; // Burst
+  // fireBurst: <1 = Burst (tier 1), >=1 = Delayed Burst (tier 2)
+  if (fireBurst[antIndex] === maxVal) return fireBurst[antIndex] >= 1 ? 3 : 1;
   if (fireRapid[antIndex] === maxVal) return 2; // Rapid
   // fireAlternating: <1 = Alternating (tier 1), >=1 = Hit Reload (tier 2)
   if (fireAlternating[antIndex] === maxVal) return fireAlternating[antIndex] >= 1 ? -2 : -1;
@@ -4803,6 +5109,61 @@ function getDeathType(antIndex) {
   if (deathLandmine[antIndex] >= 1) return 1; // Landmine (tier 2)
   if (deathLandmine[antIndex] > 0) return -1; // Smear (tier 1, base)
   return 0; // Fading (fallback)
+}
+
+// Split arc (high arc tier 2): lofted bullets split into SPLIT_ARC_COUNT at the top of their arc.
+// Split arc bullets are still pathType 1; bullets carry a splitAtApex flag instead.
+function isSplitArc(antIndex) {
+  return getPathType(antIndex) === 1 && pathHighArc[antIndex] >= 1;
+}
+
+// Split arc: replace a lofted bullet at its peak with SPLIT_ARC_COUNT smaller ones that finish the same arc,
+// landing in a row across the original target
+function spawnSplitArc(parent) {
+  const count = SPLIT_ARC_COUNT;
+  const size = parent.size / (1 + (count - 1) / 4); // Same size scaling as a burst
+  const framesLeft = Math.max(1, parent.arcDuration - parent.life);
+  // Unit vector perpendicular to the flight direction
+  const flightDist = dist(parent.x, parent.y, parent.targetX, parent.targetY);
+  const perpX = flightDist > 0 ? -(parent.targetY - parent.y) / flightDist : 1;
+  const perpY = flightDist > 0 ? (parent.targetX - parent.x) / flightDist : 0;
+
+  for (let b = 0; b < count; b++) {
+    const offset = (b - (count - 1) / 2) * SPLIT_ARC_SPACING;
+    const landX = parent.targetX + perpX * offset;
+    const landY = parent.targetY + perpY * offset;
+    const speedX = (landX - parent.x) / framesLeft;
+    const speedY = (landY - parent.y) / framesLeft;
+    enemyBullets[parent.owner].push({
+      ...parent,
+      speedX: speedX,
+      speedY: speedY,
+      angle: atan2(speedY, speedX),
+      size: size,
+      trueSpeed: Math.sqrt(speedX * speedX + speedY * speedY),
+      targetX: landX,
+      targetY: landY,
+      splitAtApex: false,
+      delayedBurst: null
+    });
+  }
+
+  // Pop ring where the split happens
+  speedRings.push({
+    x: parent.x,
+    y: parent.y - (parent.airHeight || 0),
+    size: 10 * parent.size,
+    maxSize: 40 * parent.size,
+    alpha: 255,
+    life: 0
+  });
+}
+
+// Frame a bullet will split at (delayed burst or split arc), or null if it never splits
+function getBulletSplitFrame(bullet) {
+  if (bullet.delayedBurst) return bullet.delayedBurst.at;
+  if (bullet.splitAtApex) return bullet.arcDuration / 2;
+  return null;
 }
 
 function getPathType(antIndex) {
@@ -4884,6 +5245,7 @@ const moduleStatCapTiers = {
   // Special category mutation stats (can be capped)
   specialExplosion: { caps: [1.0, 2.0], inverse: false },  // <1 = timed, >=1 = proximity
   specialCamo: { caps: [1.0, 2.0], inverse: false },  // <1 = camouflage, >=1 = ghost
+  specialRecoil: { caps: [1.0, 2.0], inverse: false },  // <1 = recoil, >=1 = launch
   bulletCamoFlashRate: { caps: [1.5, 1.0, 0.75, 0.5, 0.25], inverse: true, start: 3 },  // Flashes/sec (lower = better)
 bulletKnockbackMultiplier: { caps: [2, 3, 4, 5], inverse: false },
   
@@ -4898,6 +5260,9 @@ bulletKnockbackMultiplier: { caps: [2, 3, 4, 5], inverse: false },
   pathCurve: { caps: [1.0, 2.0], inverse: false },  // <1 = curved, >=1 = homing
   deathLandmine: { caps: [1.0, 2.0], inverse: false },  // <1 = smear, >=1 = landmine
   fireAlternating: { caps: [1.0, 2.0], inverse: false },  // <1 = alternating, >=1 = hit reload
+  fireBurst: { caps: [1.0, 2.0], inverse: false },  // <1 = burst, >=1 = delayed burst
+  pathHighArc: { caps: [1.0, 2.0], inverse: false },  // <1 = high arc, >=1 = split arc
+  specialKnockback: { caps: [1.0, 2.0], inverse: false },  // <1 = knockback, >=1 = vacuum
   pathAccelerate: { caps: [0.4, 0.6, 0.8, 1.0], inverse: false, start: 0.1 },
   bulletAccelerateDelay: { caps: [150, 100, 60, 30], inverse: true, start: 200 },  // Frames before acceleration (inverse: lower=better)
   
@@ -4906,14 +5271,45 @@ bulletKnockbackMultiplier: { caps: [2, 3, 4, 5], inverse: false },
   bulletSize: { caps: [1.5, 2.0, 2.5, 3.0], inverse: false },
   radiusMultiplier: { caps: [1.5, 2.0, 2.5, 3.0], inverse: false },
   residueMultiplier: { caps: [1.5, 2.0, 2.5, 3.0], inverse: false },
-  bulletExplodeAfter: { caps: [600, 500, 400, 200, 100], inverse: true, start: 800 },
   
   // Ant size
   antSize: { caps: [1.5, 2.0, 2.5, 3.0], inverse: false }
 };
 
+// Stats whose caps mark level 1 / level 2 ability thresholds rather than plain range limits
+const THRESHOLD_GATED_STATS = ['specialExplosion', 'pathCurve', 'deathLandmine', 'fireAlternating', 'fireBurst', 'pathHighArc', 'specialKnockback', 'specialCamo', 'specialRecoil'];
+
+// Dev tools custom ants: give a custom ant the cap tokens its threshold-gated stats need to stay at the
+// tier the user set (e.g. specialKnockback 1.5 needs a tier 0 cap token, or mutation clamps it below 1).
+// These are granted free, like the dev tools trait token.
+function ensureCustomAntTierCaps(customAnt) {
+  if (!customAnt.geneTokenInvestments) customAnt.geneTokenInvestments = [];
+  for (let statName of THRESHOLD_GATED_STATS) {
+    const caps = moduleStatCapTiers[statName].caps;
+    const value = customAnt[statName] || 0;
+    let neededTier = -1;
+    for (let t = 0; t < caps.length; t++) {
+      if (value >= caps[t]) neededTier = t;
+    }
+    if (neededTier < 0) continue;
+    const hasTier = customAnt.geneTokenInvestments.some(
+      inv => inv.target === statName && inv.type === 'cap' && (inv.tier || 0) >= neededTier
+    );
+    if (hasTier) continue;
+    customAnt.geneTokenInvestments.push({
+      target: statName,
+      type: 'cap',
+      tier: neededTier,
+      cap: caps[neededTier],
+      inverse: false,
+      lockedUntilRound: 0,
+      percentage: 1
+    });
+  }
+}
+
 // Get max mutatable value for a stat based on an ant's unlocked cap tiers.
-// For threshold-gated stats (specialExplosion, pathCurve, deathLandmine, fireAlternating, specialCamo): caps mark functional tier thresholds.
+// For threshold-gated stats (specialExplosion, pathCurve, deathLandmine, fireAlternating, specialCamo, specialRecoil): caps mark functional tier thresholds.
 //   - No tokens: must stay strictly below caps[0]
 //   - Tier 0 token: can reach caps[0] but must stay strictly below caps[1]
 // For scaling stats (knockback, burst, etc.): caps[0] is natural uncapped max, tokens extend range.
@@ -4936,7 +5332,7 @@ function getMaxAllowedValue(statName, antId, investmentsOverride) {
   }
   
   // Stats that use threshold gates (caps mark functional tier thresholds, not just range limits)
-  const thresholdGatedStats = ['specialExplosion', 'pathCurve', 'deathLandmine', 'fireAlternating', 'specialCamo'];
+  const thresholdGatedStats = THRESHOLD_GATED_STATS;
   
   if (thresholdGatedStats.includes(statName)) {
     if (unlockedTier < 0) {
@@ -5000,7 +5396,7 @@ function getRequiredCapTierForValue(statName, value) {
   const tierInfo = moduleStatCapTiers[statName];
   if (!tierInfo) return -1;
 
-  const thresholdGatedStats = ['specialExplosion', 'pathCurve', 'deathLandmine', 'fireAlternating', 'specialCamo'];
+  const thresholdGatedStats = THRESHOLD_GATED_STATS;
   let requiredTier = -1;
 
   if (thresholdGatedStats.includes(statName)) {
@@ -5075,8 +5471,8 @@ function syncCustomAntCapInvestmentsForStat(customAnt, statName) {
 
 function getTraitCategoryFromStatKey(statKey) {
   if (!statKey) return null;
-  if (['specialExplosion', 'specialKnockback', 'specialCamo', 'specialPotential', 'bulletKnockbackMultiplier', 'bulletCamoFlashRate'].includes(statKey)) return 'special';
-  if (['fireBurst', 'fireRapid', 'fireAlternating', 'firePotential', 'bulletBurstCount', 'bulletBurstSpread', 'bulletCooldownMultiplier'].includes(statKey)) return 'fire';
+  if (['specialExplosion', 'specialKnockback', 'specialCamo', 'specialRecoil', 'specialPotential', 'bulletKnockbackMultiplier', 'bulletCamoFlashRate'].includes(statKey)) return 'special';
+  if (['fireBurst', 'fireRapid', 'fireAlternating', 'firePotential', 'bulletBurstCount', 'bulletBurstSpread', 'bulletBurstDelay', 'bulletCooldownMultiplier'].includes(statKey)) return 'fire';
   if (['deathLandmine', 'deathPotential'].includes(statKey)) return 'death';
   if (['pathHighArc', 'pathCurve', 'pathAccelerate', 'pathPotential', 'bulletArcDuration', 'bulletCurveStrength'].includes(statKey)) return 'path';
   return null;
@@ -5084,7 +5480,7 @@ function getTraitCategoryFromStatKey(statKey) {
 
 function getDominantTraitKeyForCategory(customAnt, category) {
   const traitKeysByCategory = {
-    special: ['specialExplosion', 'specialKnockback', 'specialCamo'],
+    special: ['specialExplosion', 'specialKnockback', 'specialCamo', 'specialRecoil'],
     fire: ['fireBurst', 'fireRapid', 'fireAlternating'],
     death: ['deathLandmine'],
     path: ['pathHighArc', 'pathCurve', 'pathAccelerate']
@@ -5162,6 +5558,7 @@ function evaluateAndAllocateTokens(antIndex, currentRound, isInitialSetup = fals
     // Special category mutation stats (can be capped)
     specialExplosion: { caps: [1.0, 2.0], inverse: false },  // <1 = timed, >=1 = proximity
     specialCamo: { caps: [1.0, 2.0], inverse: false },  // <1 = camouflage, >=1 = ghost
+  specialRecoil: { caps: [1.0, 2.0], inverse: false },  // <1 = recoil, >=1 = launch
     bulletCamoFlashRate: { caps: [1.5, 1.0, 0.75, 0.5, 0.25], inverse: true, start: 3 },  // Flashes/sec (lower = better)
 bulletKnockbackMultiplier: { caps: [2, 3, 4, 5], inverse: false },
     
@@ -5180,13 +5577,15 @@ bulletKnockbackMultiplier: { caps: [2, 3, 4, 5], inverse: false },
 
     // Fire category mutation stats (can be capped)
     fireAlternating: { caps: [1.0, 2.0], inverse: false },  // <1 = alternating, >=1 = hit reload
+    fireBurst: { caps: [1.0, 2.0], inverse: false },  // <1 = burst, >=1 = delayed burst
+    pathHighArc: { caps: [1.0, 2.0], inverse: false },  // <1 = high arc, >=1 = split arc
+    specialKnockback: { caps: [1.0, 2.0], inverse: false },  // <1 = knockback, >=1 = vacuum
     
     // Explosion stats
     explosionProximity: { caps: [400, 600, 800, 1000], inverse: false },
     bulletSize: { caps: [1.5, 2.0, 2.5, 3.0], inverse: false },
     radiusMultiplier: { caps: [1.5, 2.0, 2.5, 3.0], inverse: false },
     residueMultiplier: { caps: [1.5, 2.0, 2.5, 3.0], inverse: false },
-    bulletExplodeAfter: { caps: [600, 500, 400, 200, 100], inverse: true, start: 800 },
     
     // Ant size
     antSize: { caps: [1.5, 2.0, 2.5, 3.0], inverse: false }
@@ -5208,7 +5607,9 @@ bulletKnockbackMultiplier: { caps: [2, 3, 4, 5], inverse: false },
     // Special category stats
     if (statName === 'specialExplosion' && specialType === 1) return true; // Explosion (mutation stat)
     if (statName === 'bulletKnockbackMultiplier' && specialType === -1) return true; // Knockback
+    if (statName === 'specialKnockback' && specialType === -1) return true; // Knockback or Vacuum (mutation stat)
     if (statName === 'specialCamo' && (specialType === 2 || specialType === -2)) return true; // Camouflage or Ghost (mutation stat)
+    if (statName === 'specialRecoil' && (specialType === 3 || specialType === -3)) return true; // Recoil or Launch (mutation stat)
     if (statName === 'bulletCamoFlashRate' && specialType === 2) return true; // Camouflage
     if (statName === 'explosionProximity' && specialType === 1) return true; // Explosion
     if (statName === 'radiusMultiplier' && (specialType === 1 || pathType === 1 || deathType === -1)) return true; // Explosion, High Arc, or Smear
@@ -5216,13 +5617,15 @@ bulletKnockbackMultiplier: { caps: [2, 3, 4, 5], inverse: false },
     if (statName === 'bulletExplodeAfter' && specialType === 1) return true; // Explosion
     
     // Fire category stats
-    if (statName === 'bulletBurstCount' && fireType === 1) return true; // Burst
-    if (statName === 'bulletBurstSpread' && fireType === 1) return true; // Burst
+    if (statName === 'bulletBurstCount' && (fireType === 1 || fireType === 3)) return true; // Burst or Delayed Burst
+    if (statName === 'bulletBurstSpread' && (fireType === 1 || fireType === 3)) return true; // Burst or Delayed Burst
+    if (statName === 'fireBurst' && (fireType === 1 || fireType === 3)) return true; // Burst or Delayed Burst (mutation stat)
     if (statName === 'bulletCooldownMultiplier' && fireType === -1) return true; // Alternating
     if (statName === 'fireAlternating' && (fireType === -1 || fireType === -2)) return true; // Alternating or Hit Reload (mutation stat)
     
     // Path category stats
     if (statName === 'bulletArcDuration' && pathType === 1) return true; // High Arc
+    if (statName === 'pathHighArc' && pathType === 1) return true; // High Arc or Split Arc (mutation stat)
     if (statName === 'bulletCurveStrength' && (pathType === -1 || pathType === -2)) return true; // Clockwise or Homing
     if (statName === 'pathCurve' && (pathType === -1 || pathType === -2)) return true; // Curve (mutation stat)
 
@@ -5356,6 +5759,10 @@ bulletKnockbackMultiplier: { caps: [2, 3, 4, 5], inverse: false },
           bestMutationValue = specialCamo[antIndex];
           bestMutation = 'specialCamo';
         }
+        if (specialRecoil[antIndex] > bestMutationValue) {
+          bestMutationValue = specialRecoil[antIndex];
+          bestMutation = 'specialRecoil';
+        }
       } else if (category === 'fire') {
         if (fireBurst[antIndex] > bestMutationValue) {
           bestMutationValue = fireBurst[antIndex];
@@ -5449,7 +5856,8 @@ function updateTokenInvestments(antIndex, currentRound) {
           maxOtherValue = Math.max(
             investment.target !== 'specialExplosion' ? specialExplosion[antIndex] : 0,
             investment.target !== 'specialKnockback' ? specialKnockback[antIndex] : 0,
-            investment.target !== 'specialCamo' ? specialCamo[antIndex] : 0
+            investment.target !== 'specialCamo' ? specialCamo[antIndex] : 0,
+            investment.target !== 'specialRecoil' ? specialRecoil[antIndex] : 0
           );
         } else if (investment.category === 'fire') {
           maxOtherValue = Math.max(
@@ -5512,6 +5920,7 @@ function getStatCapForAnt(antIndex, statName) {
     // Special category mutation stats (can be capped)
     specialExplosion: { caps: [1.0, 2.0], inverse: false },  // <1 = timed, >=1 = proximity
     specialCamo: { caps: [1.0, 2.0], inverse: false },  // <1 = camouflage, >=1 = ghost
+  specialRecoil: { caps: [1.0, 2.0], inverse: false },  // <1 = recoil, >=1 = launch
     bulletCamoFlashRate: { caps: [1.5, 1.0, 0.75, 0.5, 0.25], inverse: true, start: 3 },  // Flashes/sec (lower = better)
 bulletKnockbackMultiplier: { caps: [2, 3, 4, 5], inverse: false },
     
@@ -5530,13 +5939,15 @@ bulletKnockbackMultiplier: { caps: [2, 3, 4, 5], inverse: false },
 
     // Fire category mutation stats (can be capped)
     fireAlternating: { caps: [1.0, 2.0], inverse: false },  // <1 = alternating, >=1 = hit reload
+    fireBurst: { caps: [1.0, 2.0], inverse: false },  // <1 = burst, >=1 = delayed burst
+    pathHighArc: { caps: [1.0, 2.0], inverse: false },  // <1 = high arc, >=1 = split arc
+    specialKnockback: { caps: [1.0, 2.0], inverse: false },  // <1 = knockback, >=1 = vacuum
     
     // Explosion stats
     explosionProximity: { caps: [400, 600, 800, 1000], inverse: false },
     bulletSize: { caps: [1.5, 2.0, 2.5, 3.0], inverse: false },
     radiusMultiplier: { caps: [1.5, 2.0, 2.5, 3.0], inverse: false },
     residueMultiplier: { caps: [1.5, 2.0, 2.5, 3.0], inverse: false },
-    bulletExplodeAfter: { caps: [600, 500, 400, 200, 100], inverse: true, start: 800 },
     
     // Ant size
     antSize: { caps: [1.5, 2.0, 2.5, 3.0], inverse: false }
@@ -7608,6 +8019,7 @@ function nextRound(){
   // Use custom ant stats if dev tools has them enabled
   if (devToolsUseCustomAnts) {
     console.log("Using custom ant stats from dev tools");
+    customAntStats.forEach(ensureCustomAntTierCaps);
     topAnts = [
       { id: -1, custom: true, stats: customAntStats[0] },
       { id: -2, custom: true, stats: customAntStats[1] },
@@ -7750,19 +8162,20 @@ function nextRound(){
         }
         // Special category (mutation-based)
         specialExplosion[i]    = constrain(s.specialExplosion    + random(-movementMutationRate, movementMutationRate), 0, getMaxAllowedValue('specialExplosion', i, s.geneTokenInvestments || []));
-        specialKnockback[i]    = constrain(s.specialKnockback    + random(-movementMutationRate, movementMutationRate), 0, 1);
+        specialKnockback[i]    = constrain(s.specialKnockback    + random(-movementMutationRate, movementMutationRate), 0, getMaxAllowedValue('specialKnockback', i, s.geneTokenInvestments || []));
         specialCamo[i]    = constrain((s.specialCamo || 0)    + random(-movementMutationRate, movementMutationRate), 0, getMaxAllowedValue('specialCamo', i, s.geneTokenInvestments || []));
+        specialRecoil[i]    = constrain((s.specialRecoil || 0)    + random(-movementMutationRate, movementMutationRate), 0, getMaxAllowedValue('specialRecoil', i, s.geneTokenInvestments || []));
         specialPotential[i]    = constrain(s.specialPotential    + random(-movementMutationRate, movementMutationRate), 0, 1);
         // Only mutate explosion stats if parent has specialPotential > 0.5 AND uses explosion
-        if (s.specialPotential > 0.5 && s.specialExplosion >= Math.max(s.specialKnockback, s.specialCamo || 0)) {
+        if (s.specialPotential > 0.5 && s.specialExplosion >= Math.max(s.specialKnockback, s.specialCamo || 0, s.specialRecoil || 0)) {
           explosionProximity[i] = constrain(s.explosionProximity + random(-100, 100), 0.1, 1000);
-          bulletExplodeAfter[i] = constrain(s.bulletExplodeAfter + random(-50, 50), getMinAllowedValue('bulletExplodeAfter', i, s.geneTokenInvestments || []), 800);
+          bulletExplodeAfter[i] = constrain(s.bulletExplodeAfter + random(-50, 50), EXPLODE_AFTER_MIN, EXPLODE_AFTER_MAX);
         } else {
           explosionProximity[i] = s.explosionProximity;
           bulletExplodeAfter[i] = s.bulletExplodeAfter;
         }
         // Only mutate radius if parent uses explosion or high arc; residue also if parent uses landmines
-        const sUsesExplosion = s.specialPotential > 0.5 && s.specialExplosion >= Math.max(s.specialKnockback, s.specialCamo || 0);
+        const sUsesExplosion = s.specialPotential > 0.5 && s.specialExplosion >= Math.max(s.specialKnockback, s.specialCamo || 0, s.specialRecoil || 0);
         const sUsesHighArc = s.pathPotential > 0.5 && s.pathHighArc >= s.pathCurve && s.pathHighArc >= s.pathAccelerate;
         const sUsesLandmine = s.deathPotential > 0.5 && s.deathLandmine > 0;
         const sUsesSmear = sUsesLandmine && s.deathLandmine < 1;
@@ -7777,19 +8190,19 @@ function nextRound(){
           residueMultiplier[i] = s.residueMultiplier;
         }
         // Only mutate knockback multiplier if parent uses knockback
-        if (s.specialPotential > 0.5 && s.specialKnockback > Math.max(s.specialExplosion, s.specialCamo || 0)) {
+        if (s.specialPotential > 0.5 && s.specialKnockback > Math.max(s.specialExplosion, s.specialCamo || 0, s.specialRecoil || 0)) {
           bulletKnockbackMultiplier[i] = constrain(s.bulletKnockbackMultiplier + random(-0.5, 0.5), 2, getMaxAllowedValue('bulletKnockbackMultiplier', i, s.geneTokenInvestments || []));
         } else {
           bulletKnockbackMultiplier[i] = s.bulletKnockbackMultiplier;
         }
         // Only mutate camouflage flash rate if parent uses camouflage
-        if (s.specialPotential > 0.5 && (s.specialCamo || 0) > Math.max(s.specialExplosion, s.specialKnockback) && s.specialCamo < 1) {
+        if (s.specialPotential > 0.5 && (s.specialCamo || 0) > Math.max(s.specialExplosion, s.specialKnockback, s.specialRecoil || 0) && s.specialCamo < 1) {
           bulletCamoFlashRate[i] = constrain((s.bulletCamoFlashRate || 2.5) + random(-0.2, 0.2), getMinAllowedValue('bulletCamoFlashRate', i, s.geneTokenInvestments || []), 3);
         } else {
           bulletCamoFlashRate[i] = s.bulletCamoFlashRate || 2.5;
         }
         // Fire category (mutation-based)
-        fireBurst[i]    = constrain(s.fireBurst    + random(-movementMutationRate, movementMutationRate), 0, 1);
+        fireBurst[i]    = constrain(s.fireBurst    + random(-movementMutationRate, movementMutationRate), 0, getMaxAllowedValue('fireBurst', i, s.geneTokenInvestments || []));
         fireRapid[i]    = constrain(s.fireRapid    + random(-movementMutationRate, movementMutationRate), 0, 1);
         fireAlternating[i]    = constrain(s.fireAlternating    + random(-movementMutationRate, movementMutationRate), 0, getMaxAllowedValue('fireAlternating', i, s.geneTokenInvestments || []));
         firePotential[i]    = constrain(s.firePotential    + random(-movementMutationRate, movementMutationRate), 0, 1);
@@ -7801,6 +8214,12 @@ function nextRound(){
           bulletBurstCount[i] = s.bulletBurstCount;
           bulletBurstSpread[i] = s.bulletBurstSpread;
         }
+        // Only mutate burst delay if parent uses delayed burst fire
+        if (s.firePotential > 0.5 && s.fireBurst >= 1 && s.fireBurst >= Math.max(s.fireRapid, s.fireAlternating)) {
+          bulletBurstDelay[i] = constrain((s.bulletBurstDelay ?? 40) + random(-5, 5), DELAYED_BURST_MIN_DELAY, DELAYED_BURST_MAX_DELAY);
+        } else {
+          bulletBurstDelay[i] = s.bulletBurstDelay ?? 40;
+        }
         // Only mutate cooldown multiplier if parent uses alternating fire
         if (s.firePotential > 0.5 && s.fireAlternating >= Math.max(s.fireBurst, s.fireRapid)) {
           bulletCooldownMultiplier[i] = constrain(s.bulletCooldownMultiplier + random(-movementMutationRate, movementMutationRate), 0.5, getMaxAllowedValue('bulletCooldownMultiplier', i, s.geneTokenInvestments || []));
@@ -7811,7 +8230,7 @@ function nextRound(){
         deathLandmine[i]    = constrain(s.deathLandmine    + random(-(movementMutationRate/2), (movementMutationRate/2)), 0, getMaxAllowedValue('deathLandmine', i, s.geneTokenInvestments || []));
         deathPotential[i]    = constrain(s.deathPotential    + random(-(movementMutationRate/2), (movementMutationRate/2)), 0, 1);
         // Path category (mutation-based)
-        pathHighArc[i]    = constrain(s.pathHighArc    + random(-movementMutationRate, movementMutationRate), 0, 1);
+        pathHighArc[i]    = constrain(s.pathHighArc    + random(-movementMutationRate, movementMutationRate), 0, getMaxAllowedValue('pathHighArc', i, s.geneTokenInvestments || []));
         pathCurve[i]    = constrain(s.pathCurve    + random(-movementMutationRate, movementMutationRate), 0, getMaxAllowedValue('pathCurve', i, s.geneTokenInvestments || []));
         pathAccelerate[i]    = constrain(s.pathAccelerate    + random(-movementMutationRate, movementMutationRate), 0, getMaxAllowedValue('pathAccelerate', i, s.geneTokenInvestments || []));
         pathPotential[i]    = constrain(s.pathPotential    + random(-movementMutationRate, movementMutationRate), 0, 1);
@@ -7821,7 +8240,7 @@ function nextRound(){
         let pathAccelerateVal = s.pathAccelerate;
         // Only mutate arc duration if parent uses high arc
         if (s.pathPotential > 0.5 && pathHighArcVal >= pathCurveVal && pathHighArcVal >= pathAccelerateVal) {
-          bulletArcDuration[i] = constrain(s.bulletArcDuration + random(-50, 50), 60, getMaxAllowedValue('bulletArcDuration', i, s.geneTokenInvestments || []));
+          bulletArcDuration[i] = constrain(s.bulletArcDuration + random(-50, 50), HIGH_ARC_MIN_DURATION, getMaxAllowedValue('bulletArcDuration', i, s.geneTokenInvestments || []));
         } else {
           bulletArcDuration[i] = s.bulletArcDuration;
         }
@@ -7842,7 +8261,6 @@ function nextRound(){
         bulletSize[i]    = constrain(s.bulletSize    + random(-(movementMutationRate / 2), (movementMutationRate / 2)), 1, 3);
         radiusMultiplier[i] = constrain(s.radiusMultiplier + random(-0.2, 0.2), 0.5, 3);
         residueMultiplier[i] = constrain(s.residueMultiplier + random(-0.2, 0.2), 0.5, 3);
-        bulletExplodeAfter[i] = constrain(s.bulletExplodeAfter + random(-50, 50), getMinAllowedValue('bulletExplodeAfter', i, s.geneTokenInvestments || []), 800);
         antSize[i] = constrain(s.antSize + random(-antSizeMutationRate, antSizeMutationRate), 0.3, 3);
         // Cap ant speed based on ant size (small ants can be faster, large ants slower)
         let maxAntSpeed1 = 4.5 - antSize[i];
@@ -7860,6 +8278,9 @@ function nextRound(){
         antAlternatingCooldownState[i] = 0;
         antRapidFireActive[i] = false;
         antAirHeight[i] = 0;
+        antRecoilVelX[i] = 0;
+        antRecoilVelY[i] = 0;
+        antRecoilAirTimer[i] = 0;
         // Gene Token System - inherit parent's tokens and investments
         geneTokens[i] = s.geneTokens || 2;
         geneTokenInvestments[i] = JSON.parse(JSON.stringify(s.geneTokenInvestments || [])); // Deep copy
@@ -7894,19 +8315,20 @@ function nextRound(){
         }
         // Special category (mutation-based)
         specialExplosion[i]    = constrain(specialExplosion[parent.id]    + random(-movementMutationRate, movementMutationRate), 0, getMaxAllowedValue('specialExplosion', parent.id));
-        specialKnockback[i]    = constrain(specialKnockback[parent.id]    + random(-movementMutationRate, movementMutationRate), 0, 1);
+        specialKnockback[i]    = constrain(specialKnockback[parent.id]    + random(-movementMutationRate, movementMutationRate), 0, getMaxAllowedValue('specialKnockback', parent.id));
         specialCamo[i]    = constrain(specialCamo[parent.id]    + random(-movementMutationRate, movementMutationRate), 0, getMaxAllowedValue('specialCamo', parent.id));
+        specialRecoil[i]    = constrain(specialRecoil[parent.id]    + random(-movementMutationRate, movementMutationRate), 0, getMaxAllowedValue('specialRecoil', parent.id));
         specialPotential[i]    = constrain(specialPotential[parent.id]    + random(-movementMutationRate, movementMutationRate), 0, 1);
         // Only mutate explosion stats if parent has specialPotential > 0.5 AND uses explosion
-        if (specialPotential[parent.id] > 0.5 && specialExplosion[parent.id] >= Math.max(specialKnockback[parent.id], specialCamo[parent.id])) {
+        if (specialPotential[parent.id] > 0.5 && specialExplosion[parent.id] >= Math.max(specialKnockback[parent.id], specialCamo[parent.id], specialRecoil[parent.id])) {
           explosionProximity[i] = constrain(explosionProximity[parent.id] + random(-100, 100), 0.1, 1000);
-          bulletExplodeAfter[i] = constrain(bulletExplodeAfter[parent.id] + random(-50, 50), getMinAllowedValue('bulletExplodeAfter', parent.id), 800);
+          bulletExplodeAfter[i] = constrain(bulletExplodeAfter[parent.id] + random(-50, 50), EXPLODE_AFTER_MIN, EXPLODE_AFTER_MAX);
         } else {
           explosionProximity[i] = explosionProximity[parent.id];
           bulletExplodeAfter[i] = bulletExplodeAfter[parent.id];
         }
         // Only mutate radius if parent uses explosion or high arc; residue also if parent uses landmines
-        const parentUsesExplosion = specialPotential[parent.id] > 0.5 && specialExplosion[parent.id] >= Math.max(specialKnockback[parent.id], specialCamo[parent.id]);
+        const parentUsesExplosion = specialPotential[parent.id] > 0.5 && specialExplosion[parent.id] >= Math.max(specialKnockback[parent.id], specialCamo[parent.id], specialRecoil[parent.id]);
         const parentUsesHighArc = pathPotential[parent.id] > 0.5 && pathHighArc[parent.id] >= pathCurve[parent.id] && pathHighArc[parent.id] >= pathAccelerate[parent.id];
         const parentUsesLandmine = deathPotential[parent.id] > 0.5 && deathLandmine[parent.id] > 0;
         const parentUsesSmear = parentUsesLandmine && deathLandmine[parent.id] < 1;
@@ -7921,19 +8343,19 @@ function nextRound(){
           residueMultiplier[i] = residueMultiplier[parent.id];
         }
         // Only mutate knockback multiplier if parent uses knockback
-        if (specialPotential[parent.id] > 0.5 && specialKnockback[parent.id] > Math.max(specialExplosion[parent.id], specialCamo[parent.id])) {
+        if (specialPotential[parent.id] > 0.5 && specialKnockback[parent.id] > Math.max(specialExplosion[parent.id], specialCamo[parent.id], specialRecoil[parent.id])) {
           bulletKnockbackMultiplier[i] = constrain(bulletKnockbackMultiplier[parent.id] + random(-0.5, 0.5), 2, getMaxAllowedValue('bulletKnockbackMultiplier', parent.id));
         } else {
           bulletKnockbackMultiplier[i] = bulletKnockbackMultiplier[parent.id];
         }
         // Only mutate camouflage flash rate if parent uses camouflage
-        if (specialPotential[parent.id] > 0.5 && specialCamo[parent.id] > Math.max(specialExplosion[parent.id], specialKnockback[parent.id]) && specialCamo[parent.id] < 1) {
+        if (specialPotential[parent.id] > 0.5 && specialCamo[parent.id] > Math.max(specialExplosion[parent.id], specialKnockback[parent.id], specialRecoil[parent.id]) && specialCamo[parent.id] < 1) {
           bulletCamoFlashRate[i] = constrain(bulletCamoFlashRate[parent.id] + random(-0.2, 0.2), getMinAllowedValue('bulletCamoFlashRate', parent.id), 3);
         } else {
           bulletCamoFlashRate[i] = bulletCamoFlashRate[parent.id];
         }
         // Fire category (mutation-based)
-        fireBurst[i]    = constrain(fireBurst[parent.id]    + random(-movementMutationRate, movementMutationRate), 0, 1);
+        fireBurst[i]    = constrain(fireBurst[parent.id]    + random(-movementMutationRate, movementMutationRate), 0, getMaxAllowedValue('fireBurst', parent.id));
         fireRapid[i]    = constrain(fireRapid[parent.id]    + random(-movementMutationRate, movementMutationRate), 0, 1);
         fireAlternating[i]    = constrain(fireAlternating[parent.id]    + random(-movementMutationRate, movementMutationRate), 0, getMaxAllowedValue('fireAlternating', parent.id));
         firePotential[i]    = constrain(firePotential[parent.id]    + random(-movementMutationRate, movementMutationRate), 0, 1);
@@ -7945,6 +8367,12 @@ function nextRound(){
           bulletBurstCount[i] = bulletBurstCount[parent.id];
           bulletBurstSpread[i] = bulletBurstSpread[parent.id];
         }
+        // Only mutate burst delay if parent uses delayed burst fire
+        if (firePotential[parent.id] > 0.5 && fireBurst[parent.id] >= 1 && fireBurst[parent.id] >= Math.max(fireRapid[parent.id], fireAlternating[parent.id])) {
+          bulletBurstDelay[i] = constrain(bulletBurstDelay[parent.id] + random(-5, 5), DELAYED_BURST_MIN_DELAY, DELAYED_BURST_MAX_DELAY);
+        } else {
+          bulletBurstDelay[i] = bulletBurstDelay[parent.id];
+        }
         // Only mutate cooldown multiplier if parent uses alternating fire
         if (firePotential[parent.id] > 0.5 && fireAlternating[parent.id] >= Math.max(fireBurst[parent.id], fireRapid[parent.id])) {
           bulletCooldownMultiplier[i] = constrain(bulletCooldownMultiplier[parent.id] + random(-movementMutationRate, movementMutationRate), 0.5, getMaxAllowedValue('bulletCooldownMultiplier', parent.id));
@@ -7955,7 +8383,7 @@ function nextRound(){
         deathLandmine[i]    = constrain(deathLandmine[parent.id]    + random(-(movementMutationRate/2), (movementMutationRate/2)), 0, getMaxAllowedValue('deathLandmine', parent.id));
         deathPotential[i]    = constrain(deathPotential[parent.id]    + random(-(movementMutationRate/2), (movementMutationRate/2)), 0, 1);
         // Path category (mutation-based)
-        pathHighArc[i]    = constrain(pathHighArc[parent.id]    + random(-movementMutationRate, movementMutationRate), 0, 1);
+        pathHighArc[i]    = constrain(pathHighArc[parent.id]    + random(-movementMutationRate, movementMutationRate), 0, getMaxAllowedValue('pathHighArc', parent.id));
         pathCurve[i]    = constrain(pathCurve[parent.id]    + random(-movementMutationRate, movementMutationRate), 0, getMaxAllowedValue('pathCurve', parent.id));
         pathAccelerate[i]    = constrain(pathAccelerate[parent.id]    + random(-movementMutationRate, movementMutationRate), 0, getMaxAllowedValue('pathAccelerate', parent.id));
         pathPotential[i]    = constrain(pathPotential[parent.id]    + random(-movementMutationRate, movementMutationRate), 0, 1);
@@ -7965,7 +8393,7 @@ function nextRound(){
         let pathAccelerateVal = pathAccelerate[parent.id];
         // Only mutate arc duration if parent uses high arc
         if (pathPotential[parent.id] > 0.5 && pathHighArcVal >= pathCurveVal && pathHighArcVal >= pathAccelerateVal) {
-          bulletArcDuration[i] = constrain(bulletArcDuration[parent.id] + random(-50, 50), 60, getMaxAllowedValue('bulletArcDuration', parent.id));
+          bulletArcDuration[i] = constrain(bulletArcDuration[parent.id] + random(-50, 50), HIGH_ARC_MIN_DURATION, getMaxAllowedValue('bulletArcDuration', parent.id));
         } else {
           bulletArcDuration[i] = bulletArcDuration[parent.id];
         }
@@ -8002,6 +8430,9 @@ function nextRound(){
         antAlternatingCooldownState[i] = 0;
         antRapidFireActive[i] = false;
         antAirHeight[i] = 0;
+        antRecoilVelX[i] = 0;
+        antRecoilVelY[i] = 0;
+        antRecoilAirTimer[i] = 0;
         // Gene Token System - inherit parent's tokens and investments
         geneTokens[i] = geneTokens[parent.id] || 0;
         geneTokenInvestments[i] = JSON.parse(JSON.stringify(geneTokenInvestments[parent.id] || [])); // Deep copy
@@ -8033,7 +8464,7 @@ function nextRound(){
           triggerExplodeViaProximity[i] = true;
         }
       } else {
-        // Knockback (-1), Camouflage (2), or Ghost (-2): no explosions
+        // Knockback (-1), Camouflage (2), Ghost (-2), Recoil (3), or Launch (-3): no explosions
         explodeOnTermination[i] = false;
         triggerExplodeViaProximity[i] = false;
       }
@@ -8121,11 +8552,15 @@ function nextRound(){
         : random(0, 0.9);
       
       specialKnockback[i] = winner
-        ? constrain(specialKnockback[winner.id] + random(-movementMutationRate, movementMutationRate), 0, 1)
+        ? constrain(specialKnockback[winner.id] + random(-movementMutationRate, movementMutationRate), 0, getMaxAllowedValue('specialKnockback', winner.id))
         : random(0, 1);
 
       specialCamo[i] = winner
         ? constrain(specialCamo[winner.id] + random(-movementMutationRate, movementMutationRate), 0, getMaxAllowedValue('specialCamo', winner.id))
+        : random(0, 0.9);
+
+      specialRecoil[i] = winner
+        ? constrain(specialRecoil[winner.id] + random(-movementMutationRate, movementMutationRate), 0, getMaxAllowedValue('specialRecoil', winner.id))
         : random(0, 0.9);
       
       specialPotential[i] = winner
@@ -8133,7 +8568,7 @@ function nextRound(){
         : random(0, 1);
       
       // Only mutate explosion stats if winner has specialPotential > 0.5 AND uses explosion
-      if (winner && specialPotential[winner.id] > 0.5 && specialExplosion[winner.id] >= Math.max(specialKnockback[winner.id], specialCamo[winner.id])) {
+      if (winner && specialPotential[winner.id] > 0.5 && specialExplosion[winner.id] >= Math.max(specialKnockback[winner.id], specialCamo[winner.id], specialRecoil[winner.id])) {
         explosionProximity[i] = constrain(explosionProximity[winner.id] + random(-100, 100), 0.1, 1000);
       } else if (winner) {
         explosionProximity[i] = explosionProximity[winner.id];
@@ -8142,7 +8577,7 @@ function nextRound(){
       }
       
       // Only mutate knockback multiplier if winner uses knockback
-      if (winner && specialPotential[winner.id] > 0.5 && specialKnockback[winner.id] > Math.max(specialExplosion[winner.id], specialCamo[winner.id])) {
+      if (winner && specialPotential[winner.id] > 0.5 && specialKnockback[winner.id] > Math.max(specialExplosion[winner.id], specialCamo[winner.id], specialRecoil[winner.id])) {
         bulletKnockbackMultiplier[i] = constrain(bulletKnockbackMultiplier[winner.id] + random(-0.5, 0.5), 2, getMaxAllowedValue('bulletKnockbackMultiplier', winner.id));
       } else if (winner) {
         bulletKnockbackMultiplier[i] = bulletKnockbackMultiplier[winner.id];
@@ -8151,7 +8586,7 @@ function nextRound(){
       }
 
       // Only mutate camouflage flash rate if winner uses camouflage
-      if (winner && specialPotential[winner.id] > 0.5 && specialCamo[winner.id] > Math.max(specialExplosion[winner.id], specialKnockback[winner.id]) && specialCamo[winner.id] < 1) {
+      if (winner && specialPotential[winner.id] > 0.5 && specialCamo[winner.id] > Math.max(specialExplosion[winner.id], specialKnockback[winner.id], specialRecoil[winner.id]) && specialCamo[winner.id] < 1) {
         bulletCamoFlashRate[i] = constrain(bulletCamoFlashRate[winner.id] + random(-0.2, 0.2), getMinAllowedValue('bulletCamoFlashRate', winner.id), 3);
       } else if (winner) {
         bulletCamoFlashRate[i] = bulletCamoFlashRate[winner.id];
@@ -8161,7 +8596,7 @@ function nextRound(){
       
       // Fire category (mutation-based)
       fireBurst[i] = winner
-        ? constrain(fireBurst[winner.id] + random(-movementMutationRate, movementMutationRate), 0, 1)
+        ? constrain(fireBurst[winner.id] + random(-movementMutationRate, movementMutationRate), 0, getMaxAllowedValue('fireBurst', winner.id))
         : random(0, 1);
       
       fireRapid[i] = winner
@@ -8187,6 +8622,15 @@ function nextRound(){
         bulletBurstCount[i] = random(1.5, 5.5);
         bulletBurstSpread[i] = random(PI/3, PI);
       }
+
+      // Only mutate burst delay if winner uses delayed burst fire
+      if (winner && firePotential[winner.id] > 0.5 && fireBurst[winner.id] >= 1 && fireBurst[winner.id] >= Math.max(fireRapid[winner.id], fireAlternating[winner.id])) {
+        bulletBurstDelay[i] = constrain(bulletBurstDelay[winner.id] + random(-10, 10), DELAYED_BURST_MIN_DELAY, DELAYED_BURST_MAX_DELAY);
+      } else if (winner) {
+        bulletBurstDelay[i] = bulletBurstDelay[winner.id];
+      } else {
+        bulletBurstDelay[i] = random(DELAYED_BURST_MIN_DELAY, DELAYED_BURST_MAX_DELAY);
+      }
       
       // Only mutate cooldown multiplier if winner uses alternating fire
       if (winner && firePotential[winner.id] > 0.5 && fireAlternating[winner.id] >= Math.max(fireBurst[winner.id], fireRapid[winner.id])) {
@@ -8208,7 +8652,7 @@ function nextRound(){
       
       // Path category (mutation-based)
       pathHighArc[i] = winner
-        ? constrain(pathHighArc[winner.id] + random(-movementMutationRate, movementMutationRate), 0, 1)
+        ? constrain(pathHighArc[winner.id] + random(-movementMutationRate, movementMutationRate), 0, getMaxAllowedValue('pathHighArc', winner.id))
         : random(0, 1);
       
       pathCurve[i] = winner
@@ -8230,11 +8674,11 @@ function nextRound(){
       
       // Only mutate arc duration if winner uses high arc
       if (winner && pathPotential[winner.id] > 0.5 && pathHighArcVal >= pathCurveVal && pathHighArcVal >= pathAccelerateVal) {
-        bulletArcDuration[i] = constrain(bulletArcDuration[winner.id] + random(-50, 50), 60, getMaxAllowedValue('bulletArcDuration', winner.id));
+        bulletArcDuration[i] = constrain(bulletArcDuration[winner.id] + random(-50, 50), HIGH_ARC_MIN_DURATION, getMaxAllowedValue('bulletArcDuration', winner.id));
       } else if (winner) {
         bulletArcDuration[i] = bulletArcDuration[winner.id];
       } else {
-        bulletArcDuration[i] = random(60, 600);
+        bulletArcDuration[i] = random(HIGH_ARC_MIN_DURATION, 600);
       }
       
       // Only mutate curve strength if winner uses curve/homing path
@@ -8265,14 +8709,14 @@ function nextRound(){
         : random(1, 3);
 
       // Explosion stats - only mutate if winner uses explosions
-      const winnerUsesExplosion = winner && specialPotential[winner.id] > 0.5 && specialExplosion[winner.id] >= Math.max(specialKnockback[winner.id], specialCamo[winner.id]);
+      const winnerUsesExplosion = winner && specialPotential[winner.id] > 0.5 && specialExplosion[winner.id] >= Math.max(specialKnockback[winner.id], specialCamo[winner.id], specialRecoil[winner.id]);
       const winnerUsesHighArc = winner && pathPotential[winner.id] > 0.5 && pathHighArc[winner.id] >= pathCurve[winner.id] && pathHighArc[winner.id] >= pathAccelerate[winner.id];
       if (winnerUsesExplosion) {
-        bulletExplodeAfter[i] = constrain(bulletExplodeAfter[winner.id] + random(-50, 50), getMinAllowedValue('bulletExplodeAfter', winner.id), 800);
+        bulletExplodeAfter[i] = constrain(bulletExplodeAfter[winner.id] + random(-50, 50), EXPLODE_AFTER_MIN, EXPLODE_AFTER_MAX);
       } else if (winner) {
         bulletExplodeAfter[i] = bulletExplodeAfter[winner.id];
       } else {
-        bulletExplodeAfter[i] = random(100, 800);
+        bulletExplodeAfter[i] = random(EXPLODE_AFTER_MIN, EXPLODE_AFTER_MAX);
       }
 
       // Radius stat - only mutate if winner uses explosions or high arc
@@ -8319,6 +8763,9 @@ function nextRound(){
       antAlternatingCooldownState[i] = 0;
       antRapidFireActive[i] = false;
       antAirHeight[i] = 0;
+      antRecoilVelX[i] = 0;
+      antRecoilVelY[i] = 0;
+      antRecoilAirTimer[i] = 0;
       
       // Gene Token System - inherit or initialize
       if (winner) {
@@ -8353,7 +8800,7 @@ function nextRound(){
           triggerExplodeViaProximity[i] = true;
         }
       } else {
-        // Knockback (-1), Camouflage (2), or Ghost (-2): no explosions
+        // Knockback (-1), Camouflage (2), Ghost (-2), Recoil (3), or Launch (-3): no explosions
         explodeOnTermination[i] = false;
         triggerExplodeViaProximity[i] = false;
       }
@@ -9666,10 +10113,16 @@ function updateAntDexEntries() {
   
   if (knockbackDiscovered === true) storeItem('knockbackPreviouslyDiscovered', knockbackDiscovered);
   if (getItem('knockbackPreviouslyDiscovered') === true) knockbackDiscovered = getItem('knockbackPreviouslyDiscovered');
+  if (vacuumDiscovered === true) storeItem('vacuumPreviouslyDiscovered', vacuumDiscovered);
+  if (getItem('vacuumPreviouslyDiscovered') === true) vacuumDiscovered = getItem('vacuumPreviouslyDiscovered');
   if (camouflageDiscovered === true) storeItem('camouflagePreviouslyDiscovered', camouflageDiscovered);
   if (getItem('camouflagePreviouslyDiscovered') === true) camouflageDiscovered = getItem('camouflagePreviouslyDiscovered');
   if (ghostBulletDiscovered === true) storeItem('ghostBulletPreviouslyDiscovered', ghostBulletDiscovered);
   if (getItem('ghostBulletPreviouslyDiscovered') === true) ghostBulletDiscovered = getItem('ghostBulletPreviouslyDiscovered');
+  if (recoilDiscovered === true) storeItem('recoilPreviouslyDiscovered', recoilDiscovered);
+  if (getItem('recoilPreviouslyDiscovered') === true) recoilDiscovered = getItem('recoilPreviouslyDiscovered');
+  if (launchDiscovered === true) storeItem('launchPreviouslyDiscovered', launchDiscovered);
+  if (getItem('launchPreviouslyDiscovered') === true) launchDiscovered = getItem('launchPreviouslyDiscovered');
 
   // Fire Types
   if (alternatingFireDiscovered === true) storeItem('alternatingFirePreviouslyDiscovered', alternatingFireDiscovered);
@@ -9682,6 +10135,8 @@ function updateAntDexEntries() {
 
   if (burstFireDiscovered === true) storeItem('burstFirePreviouslyDiscovered', burstFireDiscovered);
   if (getItem('burstFirePreviouslyDiscovered') === true) burstFireDiscovered = getItem('burstFirePreviouslyDiscovered');
+  if (delayedBurstFireDiscovered === true) storeItem('delayedBurstFirePreviouslyDiscovered', delayedBurstFireDiscovered);
+  if (getItem('delayedBurstFirePreviouslyDiscovered') === true) delayedBurstFireDiscovered = getItem('delayedBurstFirePreviouslyDiscovered');
   
   if (rapidFireDiscovered === true) storeItem('rapidFirePreviouslyDiscovered', rapidFireDiscovered);
   if (getItem('rapidFirePreviouslyDiscovered') === true) rapidFireDiscovered = getItem('rapidFirePreviouslyDiscovered');
@@ -9815,6 +10270,8 @@ function updateAntDexEntries() {
   
   if (highArcDiscovered === true) storeItem('highArcPreviouslyDiscovered', highArcDiscovered);
   if (getItem('highArcPreviouslyDiscovered') === true) highArcDiscovered = getItem('highArcPreviouslyDiscovered');
+  if (splitArcDiscovered === true) storeItem('splitArcPreviouslyDiscovered', splitArcDiscovered);
+  if (getItem('splitArcPreviouslyDiscovered') === true) splitArcDiscovered = getItem('splitArcPreviouslyDiscovered');
 
   // Burst Spread (88-92)
   if (burstSpreadMinDiscovered === true) storeItem('burstSpreadMinPreviouslyDiscovered', burstSpreadMinDiscovered);
@@ -10057,6 +10514,10 @@ function updateAntDexEntries() {
         proximityExplosionDiscovered = true;
         triggerDiscoveryPopup();
       }
+      if (!vacuumDiscovered && isVacuumKnockback(i)) {
+        vacuumDiscovered = true;
+        triggerDiscoveryPopup();
+      }
       if (!knockbackDiscovered && specialType === -1) {
         knockbackDiscovered = true;
         triggerDiscoveryPopup();
@@ -10067,6 +10528,14 @@ function updateAntDexEntries() {
       }
       if (!ghostBulletDiscovered && specialType === -2) {
         ghostBulletDiscovered = true;
+        triggerDiscoveryPopup();
+      }
+      if (!recoilDiscovered && specialType === 3) {
+        recoilDiscovered = true;
+        triggerDiscoveryPopup();
+      }
+      if (!launchDiscovered && specialType === -3) {
+        launchDiscovered = true;
         triggerDiscoveryPopup();
       }
 
@@ -10084,6 +10553,10 @@ function updateAntDexEntries() {
         normalFireDiscovered = true;
         triggerDiscoveryPopup();
       }
+      if (!delayedBurstFireDiscovered && fireType === 3) {
+        delayedBurstFireDiscovered = true;
+        triggerDiscoveryPopup();
+      }
       if (!burstFireDiscovered && fireType === 1) {
         burstFireDiscovered = true;
         triggerDiscoveryPopup();
@@ -10096,7 +10569,7 @@ function updateAntDexEntries() {
       // 47-51: Explosion Fuse (Time Explosion only)
       if (specialType === 1 && specialExplosion[i] < 1) {
         const fuse = bulletExplodeAfter[i];
-        if (!fuseMinDiscovered && fuse >= 100 && fuse <= 250) {
+        if (!fuseMinDiscovered && fuse >= EXPLODE_AFTER_MIN && fuse <= 250) {
           fuseMinDiscovered = true;
           triggerDiscoveryPopup();
         }
@@ -10218,8 +10691,8 @@ function updateAntDexEntries() {
         }
       }
 
-      // 73-82: Bullet Burst Count (1.5-5.5, Burst Fire only)
-      if (fireType === 1) {
+      // 73-82: Bullet Burst Count (1.5-5.5, Burst / Delayed Burst Fire only)
+      if (fireType === 1 || fireType === 3) {
         const burstCount = bulletBurstCount[i];
         if (!burstCountMinDiscovered && burstCount >= 1.5 && burstCount <= 2.3) {
           burstCountMinDiscovered = true;
@@ -10289,13 +10762,17 @@ function updateAntDexEntries() {
         homingCurveDiscovered = true;
         triggerDiscoveryPopup();
       }
+      if (!splitArcDiscovered && isSplitArc(i)) {
+        splitArcDiscovered = true;
+        triggerDiscoveryPopup();
+      }
       if (!highArcDiscovered && pathType === 1) {
         highArcDiscovered = true;
         triggerDiscoveryPopup();
       }
 
-      // 88-92: Burst Spread (60°-180°, Burst Fire only)
-      if (fireType === 1) {
+      // 88-92: Burst Spread (60°-180°, Burst / Delayed Burst Fire only)
+      if (fireType === 1 || fireType === 3) {
         const spreadDegrees = bulletBurstSpread[i] * 180 / PI;
         if (!burstSpreadMinDiscovered && spreadDegrees >= 60 && spreadDegrees <= 84) {
           burstSpreadMinDiscovered = true;
@@ -10628,7 +11105,7 @@ function updateAntDexEntries() {
     {
       name: "Minimum Fuse Ants",
       desc: "Very short fuse, quick detonations.",
-      stats: "Explode After: 100-250 frames",
+      stats: "Explode After: 40-250 frames",
       discovered: fuseMinDiscovered
     },
     {
@@ -10763,6 +11240,12 @@ function updateAntDexEntries() {
       stats: "Special: Knockback",
       discovered: knockbackDiscovered
     },
+    {
+      name: "Vacuum Bullet Ants",
+      desc: "Bullets pull the beetle toward them at close range, then knock it back on hit. Pull strength and range grow with knockback multiplier.",
+      stats: "Special: Vacuum",
+      discovered: vacuumDiscovered
+    },
 
     // Camouflage / Ghost Specials
     {
@@ -10776,6 +11259,20 @@ function updateAntDexEntries() {
       desc: "Bullets (and landmines they become) stay invisible and only appear within 150 pixels of the beetle. Misses vanish again.",
       stats: "Special: Ghost",
       discovered: ghostBulletDiscovered
+    },
+
+    // Recoil / Launch Specials
+    {
+      name: "Recoil Ants",
+      desc: "Every shot kicks the ant backward, away from where it fired. Bigger, faster bullets kick harder; bigger ants are pushed less.",
+      stats: "Special: Recoil",
+      discovered: recoilDiscovered
+    },
+    {
+      name: "Launch Ants",
+      desc: "Every shot kicks the ant backward and briefly up into the air (higher and longer for bigger, faster bullets), where walking, dashing, bullets, shockwaves and mines can't touch it.",
+      stats: "Special: Launch",
+      discovered: launchDiscovered
     },
 
     // 68-72: Knockback Multiplier
@@ -10835,6 +11332,12 @@ function updateAntDexEntries() {
       desc: "Fire multiple bullets in rapid succession with each trigger. Affected by burst count.",
       stats: "Fire Type: Burst",
       discovered: burstFireDiscovered
+    },
+    {
+      name: "Delayed Burst Ants",
+      desc: "Fire a single full-size bullet that glows orange, then splits into a burst mid-flight (up to 1 second later). Affected by burst count, spread, and delay.",
+      stats: "Fire Type: Delayed Burst",
+      discovered: delayedBurstFireDiscovered
     },
     {
       name: "Rapid Fire Ants",
@@ -10941,8 +11444,14 @@ function updateAntDexEntries() {
     {
       name: "High Arc Ants",
       desc: "Bullets launch in a high arc and land like artillery. Cannot be touched until they hit the ground. Deal high-speed damage on impact.",
-      stats: "Path Type: High Arc • Arc Duration: 60-600 frames",
+      stats: "Path Type: High Arc • Arc Duration: 130-600 frames",
       discovered: highArcDiscovered
+    },
+    {
+      name: "Split Arc Ants",
+      desc: "Lob high arc bullets that glow orange on the way up, then split into 3 smaller bullets at the top of the arc that land in a row across the target.",
+      stats: "Path Type: Split Arc • Arc Duration: 130-600 frames",
+      discovered: splitArcDiscovered
     },
 
     // 87-91: Burst Spread (60°-180°, Burst Fire only)
@@ -11505,6 +12014,9 @@ function advanceToNextAlivePlayer() {
     antAlternatingCooldownState[i] = 0;
     antRapidFireActive[i] = false;
     antAirHeight[i] = 0;
+    antRecoilVelX[i] = 0;
+    antRecoilVelY[i] = 0;
+    antRecoilAirTimer[i] = 0;
     strikeX[i] = 0;
     strikeY[i] = 0;
     strikeTime1[i] = 0;
@@ -11713,8 +12225,8 @@ function drawAntsTab(fadeAlpha) {
     { name: '── SPECIAL CATEGORY ──', key: null, min: 0, max: 0, step: 0 }, // Header
     { name: 'Special: Explosion', key: 'specialExplosion', min: 0, max: 2, step: 0.01,
       help: 'Mutation stat for explosions (0-2, <1=timed, >=1=proximity)' },
-    { name: 'Special: Knockback', key: 'specialKnockback', min: 0, max: 1, step: 0.01,
-      help: 'Mutation stat for knockback bullets (0-1)' },
+    { name: 'Special: Knockback', key: 'specialKnockback', min: 0, max: 2, step: 0.01,
+      help: 'Mutation stat for knockback bullets (0-2, <1=knockback, >=1=vacuum)' },
     { name: 'Special Potential', key: 'specialPotential', min: 0, max: 1, step: 0.01,
       help: 'If >0.5, use highest special trait; else none' },
     { name: 'Knockback Multiplier', key: 'bulletKnockbackMultiplier', min: 2, max: 5, step: 0.1,
@@ -11723,11 +12235,13 @@ function drawAntsTab(fadeAlpha) {
       help: 'Mutation stat for hidden bullets (0-2, <1=camouflage, >=1=ghost)' },
     { name: 'Camo Flash Rate', key: 'bulletCamoFlashRate', min: 0.25, max: 3, step: 0.05,
       help: 'Camouflage opacity flashes per second (0.25-3, lower = better)' },
+    { name: 'Special: Recoil', key: 'specialRecoil', min: 0, max: 2, step: 0.01,
+      help: 'Mutation stat for firing recoil (0-2, <1=recoil, >=1=launch)' },
     
     // Fire category (mutation-based)
     { name: '── FIRE CATEGORY ──', key: null, min: 0, max: 0, step: 0 }, // Header
-    { name: 'Fire: Burst', key: 'fireBurst', min: 0, max: 1, step: 0.01,
-      help: 'Mutation stat for burst fire (0-1)' },
+    { name: 'Fire: Burst', key: 'fireBurst', min: 0, max: 2, step: 0.01,
+      help: 'Mutation stat for burst fire (0-2, <1=burst, >=1=delayed burst)' },
     { name: 'Fire: Rapid', key: 'fireRapid', min: 0, max: 1, step: 0.01,
       help: 'Mutation stat for rapid fire (0-1)' },
     { name: 'Fire: Alternating', key: 'fireAlternating', min: 0, max: 2, step: 0.01,
@@ -11738,6 +12252,8 @@ function drawAntsTab(fadeAlpha) {
       help: 'Number of bullets in burst/rapid (2-5)' },
     { name: 'Bullet Burst Spread', key: 'bulletBurstSpread', min: 1.047, max: 3.14, step: 0.01,
       help: 'Spread angle 60-180° (π/3 to π radians)' },
+    { name: 'Bullet Burst Delay', key: 'bulletBurstDelay', min: 10, max: 60, step: 1, integer: true,
+      help: 'Frames before a delayed burst bullet splits (10-60)' },
     { name: 'Cooldown Multiplier', key: 'bulletCooldownMultiplier', min: 0.5, max: 5.5, step: 0.1,
       help: 'Alternating cooldown multiplier (1-5)' },
     
@@ -11750,8 +12266,8 @@ function drawAntsTab(fadeAlpha) {
     
     // Path category (mutation-based)
     { name: '── PATH CATEGORY ──', key: null, min: 0, max: 0, step: 0 }, // Header
-    { name: 'Path: High Arc', key: 'pathHighArc', min: 0, max: 1, step: 0.01,
-      help: 'Mutation stat for high arc path (0-1)' },
+    { name: 'Path: High Arc', key: 'pathHighArc', min: 0, max: 2, step: 0.01,
+      help: 'Mutation stat for high arc path (0-2, <1=high arc, >=1=split arc)' },
     { name: 'Path: Curve', key: 'pathCurve', min: 0, max: 2, step: 0.01,
       help: 'Mutation stat for curved/homing path (0-2, <1=curved, >=1=homing)' },
     { name: 'Path: Accelerate', key: 'pathAccelerate', min: 0, max: 1, step: 0.01,
@@ -11760,8 +12276,8 @@ function drawAntsTab(fadeAlpha) {
       help: 'Frames before bullet accelerates (200=slow, 30=fast, inverse stat)' },
     { name: 'Path Potential', key: 'pathPotential', min: 0, max: 1, step: 0.01,
       help: 'If >0.5, use highest path trait; else straight' },
-    { name: 'Bullet Arc Duration', key: 'bulletArcDuration', min: 60, max: 600, step: 1,
-      help: 'Frames in air for High Arc (60-600)' },
+    { name: 'Bullet Arc Duration', key: 'bulletArcDuration', min: 130, max: 600, step: 1,
+      help: 'Frames in air for High Arc (130-600)' },
     { name: 'Bullet Curve Strength', key: 'bulletCurveStrength', min: -0.1, max: 0.1, step: 0.001,
       help: 'Curve tightness (+ = clockwise, - = counter-clockwise)' },
     
@@ -11771,7 +12287,7 @@ function drawAntsTab(fadeAlpha) {
     { name: 'Bullet Size', key: 'bulletSize', min: 1, max: 3, step: 0.01 },
     { name: 'Radius Mult', key: 'radiusMultiplier', min: 0.5, max: 3, step: 0.01 },
     { name: 'Residue Mult', key: 'residueMultiplier', min: 0.5, max: 3, step: 0.01 },
-    { name: 'Bullet Explode After', key: 'bulletExplodeAfter', min: 100, max: 800, step: 1 },
+    { name: 'Bullet Explode After', key: 'bulletExplodeAfter', min: 40, max: 800, step: 1 },
     { name: 'Ant Size', key: 'antSize', min: 0.3, max: 3, step: 0.01,
       help: 'Sprite & hitbox size (mutates: Hard R2+, Medium R5+, Easy R10+)' }
   ];
@@ -11951,6 +12467,7 @@ function drawAntsTab(fadeAlpha) {
       antSpeed: { caps: [2, 2.5, 3, 3.5], inverse: false },
       specialExplosion: { caps: [1.0, 2.0], inverse: false },
       specialCamo: { caps: [1.0, 2.0], inverse: false },
+      specialRecoil: { caps: [1.0, 2.0], inverse: false },  // <1 = recoil, >=1 = launch
       bulletCamoFlashRate: { caps: [1.5, 1.0, 0.75, 0.5, 0.25], inverse: true },
 bulletKnockbackMultiplier: { caps: [2, 3, 4, 5], inverse: false },
       bulletBurstCount: { caps: [3, 4, 5, 5.5], inverse: false },
@@ -11961,11 +12478,13 @@ bulletKnockbackMultiplier: { caps: [2, 3, 4, 5], inverse: false },
       pathCurve: { caps: [1.0, 2.0], inverse: false },
       deathLandmine: { caps: [1.0, 2.0], inverse: false },
       fireAlternating: { caps: [1.0, 2.0], inverse: false },
+      fireBurst: { caps: [1.0, 2.0], inverse: false },  // <1 = burst, >=1 = delayed burst
+      pathHighArc: { caps: [1.0, 2.0], inverse: false },  // <1 = high arc, >=1 = split arc
+      specialKnockback: { caps: [1.0, 2.0], inverse: false },  // <1 = knockback, >=1 = vacuum
       explosionProximity: { caps: [400, 600, 800, 1000], inverse: false },
       bulletSize: { caps: [1.5, 2.0, 2.5, 3.0], inverse: false },
       radiusMultiplier: { caps: [1.5, 2.0, 2.5, 3.0], inverse: false },
       residueMultiplier: { caps: [1.5, 2.0, 2.5, 3.0], inverse: false },
-      bulletExplodeAfter: { caps: [600, 500, 400, 200, 100], inverse: true },
       antSize: { caps: [1.5, 2.0, 2.5, 3.0], inverse: false }
     };
     
