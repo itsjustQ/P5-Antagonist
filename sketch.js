@@ -53,6 +53,7 @@ function applyHardModeRandomInitialAbility(antIndex) {
     { target: 'fireRapid', category: 'fire', potential: 'firePotential' },
     { target: 'fireAlternating', category: 'fire', potential: 'firePotential' },
     { target: 'deathLandmine', category: 'death', potential: 'deathPotential' },
+    { target: 'deathRefire', category: 'death', potential: 'deathPotential' },
     { target: 'pathHighArc', category: 'path', potential: 'pathPotential' },
     { target: 'pathCurve', category: 'path', potential: 'pathPotential' },
     { target: 'pathAccelerate', category: 'path', potential: 'pathPotential' }
@@ -67,10 +68,10 @@ function applyHardModeRandomInitialAbility(antIndex) {
   eval(trait.potential + '[' + antIndex + '] = max(' + trait.potential + '[' + antIndex + '], 0.6)');
   
   // Nudge the selected trait to win its category for expression.
-  // For tiered stats (specialExplosion, pathCurve, pathAccelerate, deathLandmine, fireAlternating, fireBurst, pathHighArc, specialKnockback, specialCamo, specialRecoil), cap at 0.9 to prevent unlocking tier 2 without cap investment
+  // For tiered stats (specialExplosion, pathCurve, pathAccelerate, deathLandmine, deathRefire, fireAlternating, fireBurst, pathHighArc, specialKnockback, specialCamo, specialRecoil), cap at 0.9 to prevent unlocking tier 2 without cap investment
   // For bulletAccelerateDelay (inverse stat), set to 150 (tier 1, better than default 200)
   let initialValue = 0.9;
-  if (trait.target === 'specialExplosion' || trait.target === 'pathCurve' || trait.target === 'pathAccelerate' || trait.target === 'deathLandmine' || trait.target === 'fireAlternating' || trait.target === 'fireBurst' || trait.target === 'pathHighArc' || trait.target === 'specialKnockback' || trait.target === 'specialCamo' || trait.target === 'specialRecoil') {
+  if (trait.target === 'specialExplosion' || trait.target === 'pathCurve' || trait.target === 'pathAccelerate' || trait.target === 'deathLandmine' || trait.target === 'deathRefire' || trait.target === 'fireAlternating' || trait.target === 'fireBurst' || trait.target === 'pathHighArc' || trait.target === 'specialKnockback' || trait.target === 'specialCamo' || trait.target === 'specialRecoil') {
     initialValue = 0.9; // Start with tier 1 (stays <1 for timed explosions, curved bullets, accelerating bullets, smears, alternating fire, or camouflage)
   } else if (trait.target === 'bulletAccelerateDelay') {
     initialValue = 150; // Start with tier 1 (150 frames, better than default 200)
@@ -143,6 +144,7 @@ specialPotential: 0.3,
     bulletCooldownMultiplier: 2,
     // Death category (mutation-based)
     deathLandmine: 0.3,
+    deathRefire: 0.2,
     deathPotential: 0.3,
     // Path category (mutation-based)
     pathHighArc: 0.1,
@@ -197,6 +199,7 @@ specialPotential: 0.3,
     bulletCooldownMultiplier: 2,
     // Death category (mutation-based)
     deathLandmine: 0.3,
+    deathRefire: 0.2,
     deathPotential: 0.3,
     // Path category (mutation-based)
     pathHighArc: 0.1,
@@ -251,6 +254,7 @@ specialPotential: 0.3,
     bulletCooldownMultiplier: 2,
     // Death category (mutation-based)
     deathLandmine: 0.3,
+    deathRefire: 0.2,
     deathPotential: 0.3,
     // Path category (mutation-based)
     pathHighArc: 0.1,
@@ -448,12 +452,15 @@ let cooldownMultiplierMaxDiscovered = false; // 4.5-5.5 (exotic)
 // Bullet Death Type discovery
 let landmineConversionDiscovered = false;  // Bullets convert to landmines (deathType === 1)
 let smearDeathDiscovered = false;          // Bullets leave a damaging smear when they fade (deathType === -1)
+let refireDeathDiscovered = false;         // Bullets fire again from where they die (deathType === 2)
+let turretDeathDiscovered = false;         // Bullets become a turret that fires 3 times (deathType === 3)
 
 // Bullet Path Type discoveries
 let clockwiseCurveDiscovered = false;      // Bullets curve clockwise (pathType === -1)
 let homingCurveDiscovered = false;         // Bullets curve toward player (pathType === -2)
 let highArcDiscovered = false;             // Bullets arc high and land (pathType === 1)
 let splitArcDiscovered = false;            // High arc bullets split into 3 at their peak
+let beamDiscovered = false;                // Accelerating bullets fire a beam instead of speeding up
 
 // Burst Spread discoveries (PI/3 to PI = 60° to 180°, Burst Fire only)
 let burstSpreadMinDiscovered = false;     // 60-84°
@@ -562,6 +569,7 @@ let antRapidFireNextFrame = []; // Frame when next rapid fire bullet should spaw
 
 // Death category (mutation-based)
 let deathLandmine = [];
+let deathRefire = [];  // <1 = refire (dead bullets fire again once), >=1 = turret (dead bullets become a turret that fires 3 times)
 let deathPotential = [];
 
 // Path category (mutation-based)
@@ -626,6 +634,10 @@ let enemyExplosions = [];
 let enemyArcExplosionLinks = [];
 let enemyGroundImpacts = [];
 let enemySmears = []; // Lingering damage patches left by fading bullets (smear death type)
+let deathRefires = []; // Spots where dead bullets fire again (refire / turret death types)
+let enemyBeams = []; // Beams fired by beam bullets (accelerate tier 2) when they would start accelerating
+let beamHealthFlashFrames = 0; // Frames left of the red damage flash from a beam hit
+let beamShieldFlashFrames = 0; // Frames left of the blue shield flash from a beam hit
 let bulletExplodeAfter = [];
 
 let buttons = {};
@@ -909,6 +921,7 @@ function setup() {
     bulletCooldownMultiplier[i] = 2;
     // Death category (mutation-based)
     deathLandmine[i] = 0.3;
+    deathRefire[i] = 0.2;
     deathPotential[i] = 0.3;
     // Path category (mutation-based)
     pathHighArc[i] = 0.1;
@@ -1396,8 +1409,10 @@ function draw() {
       enemyShoot1();
       drawEnemyArcExplosionLinks();
       drawEnemySmears();
+      updateDeathRefires();
       drawEnemyExplosions();
       drawEnemyGroundImpacts();
+      updateEnemyBeams();
       detectKeyboardInput();
       // Beetle Moves
       beetleShoot();
@@ -1410,18 +1425,20 @@ function draw() {
       endGameplayScaling();
       
       // Draw damage flash effects AFTER gameplay (not scaled)
-      if (healthBegin > health){
+      if (healthBegin > health || beamHealthFlashFrames > 0){
         noStroke();
         rectMode(CORNER);
         fill(250, 0, 0, 75);
         rect(0, 0, windowWidth, windowHeight);
       }
-      if (shieldBegin > shield){
+      if (shieldBegin > shield || beamShieldFlashFrames > 0){
         noStroke();
         rectMode(CORNER);
         fill( 0, 0, 255, 75);
         rect(0, 0, windowWidth, windowHeight);
       }
+      if (beamHealthFlashFrames > 0) beamHealthFlashFrames--;
+      if (beamShieldFlashFrames > 0) beamShieldFlashFrames--;
       
       // Shield regeneration (outside scaling)
       let maxShields = shieldQuantity > 0 ? shieldQuantity : 0;
@@ -1698,6 +1715,7 @@ function applyCustomAntsToInitialPopulation() {
     bulletCooldownMultiplier[i] = s.bulletCooldownMultiplier;
     // Death category (mutation-based)
     deathLandmine[i] = s.deathLandmine;
+    deathRefire[i] = s.deathRefire || 0;
     deathPotential[i] = s.deathPotential;
     // Path category (mutation-based)
     pathHighArc[i] = s.pathHighArc;
@@ -1887,6 +1905,7 @@ function applyDifficultyToInitialPopulation() {
     if (fireAlternating[i] === undefined) fireAlternating[i] = 0.1;
     if (firePotential[i] === undefined) firePotential[i] = 0.3;
     if (deathLandmine[i] === undefined) deathLandmine[i] = 0.3;
+    if (deathRefire[i] === undefined) deathRefire[i] = 0.2;
     if (deathPotential[i] === undefined) deathPotential[i] = 0.3;
     if (pathHighArc[i] === undefined) pathHighArc[i] = 0.1;
     if (pathCurve[i] === undefined) pathCurve[i] = 0.1;
@@ -2005,6 +2024,7 @@ function syncActualWinnersToCustomStats(topAnts) {
         bulletCooldownMultiplier: bulletCooldownMultiplier[antId],
         // Death category (mutation-based)
         deathLandmine: deathLandmine[antId],
+        deathRefire: deathRefire[antId],
         deathPotential: deathPotential[antId],
         // Path category (mutation-based)
         pathHighArc: pathHighArc[antId],
@@ -3001,61 +3021,8 @@ function enemyShoot1() {
     for (let i = 1; i < enemyCount + 1; i++) {
       // Check if ant is in rapid fire sequence and ready to fire next bullet
       if (antRapidFireActive[i] && frameCount >= antRapidFireNextFrame[i]) {
-        const fireType = getFireType(i);
-        const bulletsToFire = Math.round(bulletBurstCount[i]);
-        const sizeDivisor = 1 + (bulletsToFire - 1) / 4;
-        const actualBulletSize = bulletSize[i] / sizeDivisor;
-        
-        // Recalculate trajectory for THIS bullet based on current positions
-        let rapidVx = ((playerX + shotOffsetX[i]) - antX[i] + 1) /
-                     (bulletSpeed[i] * (actualBulletSize ** actualBulletSize));
-        let rapidVy = ((playerY + shotOffsetY[i]) - antY[i] + 1) /
-                     (bulletSpeed[i] * (actualBulletSize ** actualBulletSize));
-        let actualBulletSpeed = Math.sqrt(rapidVx * rapidVx + rapidVy * rapidVy);
-        let bulletAngle = atan2((playerY + shotOffsetY[i]) - antY[i],
-                                 (playerX + shotOffsetX[i]) - antX[i]);
-        
-        // Adjust velocity for high arc bullets to land at target
-        const pathType = getPathType(i);
-        let targetX = playerX + shotOffsetX[i];
-        let targetY = playerY + shotOffsetY[i];
-        if (pathType === 1) {
-          // Calculate velocity needed to reach target in arcDuration frames
-          const arcDuration = bulletArcDuration[i];
-          rapidVx = (targetX - antX[i]) / arcDuration;
-          rapidVy = (targetY - antY[i]) / arcDuration;
-          bulletAngle = atan2(rapidVy, rapidVx);
-          actualBulletSpeed = Math.sqrt(rapidVx * rapidVx + rapidVy * rapidVy);
-        }
-        
-        let bullet = {
-          x: antX[i],
-          y: antY[i],
-          speedX: rapidVx,
-          speedY: rapidVy,
-          angle: bulletAngle,
-          life: 0,
-          explodeAfter: bulletExplodeAfter[i],
-          maxLife: actualBulletSpeed * 100,
-          size: actualBulletSize,
-          trueSpeed: actualBulletSpeed,
-          knockbackBullet: (getSpecialType(i) === -1),
-          vacuumBullet: isVacuumKnockback(i),
-          knockbackMultiplier: bulletKnockbackMultiplier[i],
-          delayFrames: 0,
-          airHeight: 0,
-          airProgress: 0,
-          pathType: getPathType(i),
-          splitAtApex: isSplitArc(i),
-          arcDuration: bulletArcDuration[i],
-          curveStrength: bulletCurveStrength[i],
-          accelerateDelay: bulletAccelerateDelay[i],
-          hasAccelerated: false,
-          targetX: playerX + shotOffsetX[i],
-          targetY: playerY + shotOffsetY[i],
-          owner: i
-        };
-        
+        // Aim THIS bullet from current positions
+        const bullet = createAntBullet(i, antX[i], antY[i], getBurstBulletSize(i));
         enemyBullets[i].push(bullet);
         applyFiringRecoil(i, bullet);
         
@@ -3098,222 +3065,44 @@ function enemyShoot1() {
             antAlternatingCooldownState[i] = 1 - antAlternatingCooldownState[i];
           }
 
-          // Calculate base bullet trajectory
-          let vx = ((playerX + shotOffsetX[i]) - antX[i] + 1) /
-                   (bulletSpeed[i] * (bulletSize[i] ** bulletSize[i]));
-          let vy = ((playerY + shotOffsetY[i]) - antY[i] + 1) /
-                   (bulletSpeed[i] * (bulletSize[i] ** bulletSize[i]));
-
-          // Calculate true bullet speed (pixels per frame)
-          let trueBulletSpeed = Math.sqrt(vx * vx + vy * vy);
-          
-          // Calculate base angle to target (using p5.js atan2 which respects angleMode)
-          let baseAngle = atan2((playerY + shotOffsetY[i]) - antY[i],
-                                 (playerX + shotOffsetX[i]) - antX[i]);
-
-          // Determine number of bullets to fire
-          let bulletsToFire = 1;
-          if (fireType === 1 || fireType === 2) {
-            bulletsToFire = Math.round(bulletBurstCount[i]);
-            bulletsToFire = constrain(bulletsToFire, 2, 5);
-          }
-
-          // Type 2: Rapid fire - start sequence, create first bullet only
+          // Type 2: Rapid fire - fire the first bullet now, the rest follow 15 frames apart
           if (fireType === 2) {
-            // Adjust size for rapid fire with same scaling as burst
-            let sizeDivisor = 1 + (bulletsToFire - 1) / 4;
-            let actualBulletSize = bulletSize[i] / sizeDivisor;
-            
-            // Recalculate velocity with adjusted size
-            let rapidVx = ((playerX + shotOffsetX[i]) - antX[i] + 1) /
-                         (bulletSpeed[i] * (actualBulletSize ** actualBulletSize));
-            let rapidVy = ((playerY + shotOffsetY[i]) - antY[i] + 1) /
-                         (bulletSpeed[i] * (actualBulletSize ** actualBulletSize));
-            let actualBulletSpeed = Math.sqrt(rapidVx * rapidVx + rapidVy * rapidVy);
-            
-            // Adjust velocity for high arc bullets to land at target
-            const pathType = getPathType(i);
-            let targetX = playerX + shotOffsetX[i];
-            let targetY = playerY + shotOffsetY[i];
-            if (pathType === 1) {
-              // Calculate velocity needed to reach target in arcDuration frames
-              const arcDuration = bulletArcDuration[i];
-              rapidVx = (targetX - antX[i]) / arcDuration;
-              rapidVy = (targetY - antY[i]) / arcDuration;
-              actualBulletSpeed = Math.sqrt(rapidVx * rapidVx + rapidVy * rapidVy);
-            }
-            
-            let bulletAngle = atan2(rapidVy, rapidVx);
-            
-            let bullet = {
-              x: antX[i],
-              y: antY[i],
-              speedX: rapidVx,
-              speedY: rapidVy,
-              angle: bulletAngle,
-              life: 0,
-              explodeAfter: bulletExplodeAfter[i],
-              maxLife: actualBulletSpeed * 100,
-              size: actualBulletSize,
-              trueSpeed: actualBulletSpeed,
-              knockbackBullet: (getSpecialType(i) === -1),
-              vacuumBullet: isVacuumKnockback(i),
-              knockbackMultiplier: bulletKnockbackMultiplier[i],
-              delayFrames: 0,
-              airHeight: 0,
-              airProgress: 0,
-              pathType: getPathType(i),
-              splitAtApex: isSplitArc(i),
-              arcDuration: bulletArcDuration[i],
-              curveStrength: bulletCurveStrength[i],
-              accelerateDelay: bulletAccelerateDelay[i],
-              hasAccelerated: false,
-              targetX: playerX + shotOffsetX[i],
-              targetY: playerY + shotOffsetY[i],
-              owner: i
-            };
-            
+            const bullet = createAntBullet(i, antX[i], antY[i], getBurstBulletSize(i));
             enemyBullets[i].push(bullet);
             applyFiringRecoil(i, bullet);
-            
+
             // Set up rapid fire sequence for remaining bullets
+            const bulletsToFire = getBurstBulletCount(i);
             if (bulletsToFire > 1) {
               antRapidFireActive[i] = true;
               antRapidFireCount[i] = bulletsToFire - 1; // Remaining bullets
               antRapidFireNextFrame[i] = frameCount + 15; // Next bullet in 15 frames
             }
-            
-            // Log rapid fire start
-            let speedTier = getBulletSpeedTier(actualBulletSpeed);
-            console.log(`Ant ${i} started Rapid fire sequence: ${bulletsToFire} bullets - Speed: ${actualBulletSpeed.toFixed(3)} px/f`);
+
+            console.log(`Ant ${i} started Rapid fire sequence: ${bulletsToFire} bullets - Speed: ${bullet.trueSpeed.toFixed(3)} px/f`);
           }
-          // Type 1 or default: Fire all bullets immediately
+          // Every other fire type: fire the whole volley at once
           else {
-            // Fire bullets based on type
-            let volleyBullet = null; // Last bullet of the volley, sizes the recoil kick
-            for (let b = 0; b < bulletsToFire; b++) {
-              let bulletVx = vx;
-              let bulletVy = vy;
-              let bulletAngle = baseAngle;
-              let actualBulletSize = bulletSize[i];
-              let actualBulletSpeed = trueBulletSpeed;
-              
-              // Type 1: Burst spread - each bullet shoots in a random direction within the cone
-              if (fireType === 1) {
-                // Adjust size for burst with scaled divisor
-                // Maps bulletsToFire (2-5) to divisor (1.25-2) so bullets don't get too small
-                let sizeDivisor = 1 + (bulletsToFire - 1) / 4;
-                actualBulletSize = bulletSize[i] / sizeDivisor;
-                
-                // Recalculate velocity with adjusted size
-                let burstVx = ((playerX + shotOffsetX[i]) - antX[i] + 1) /
-                             (bulletSpeed[i] * (actualBulletSize ** actualBulletSize));
-                let burstVy = ((playerY + shotOffsetY[i]) - antY[i] + 1) /
-                             (bulletSpeed[i] * (actualBulletSize ** actualBulletSize));
-                actualBulletSpeed = Math.sqrt(burstVx * burstVx + burstVy * burstVy);
-                
-                let spread = bulletBurstSpread[i];
-                // Convert spread from radians to degrees (spread is stored in radians)
-                let spreadDegrees = spread * 180 / PI;
-                // Each bullet picks a completely random angle within the full spread cone
-                let randomOffset = random(-spreadDegrees / 2, spreadDegrees / 2);
-                bulletAngle = baseAngle + randomOffset;
-                // Recalculate velocity using p5.js cos/sin (respects angleMode)
-                bulletVx = cos(bulletAngle) * actualBulletSpeed;
-                bulletVy = sin(bulletAngle) * actualBulletSpeed;
-              }
-              // Type 0 or -1: Calculate angle from velocity components
-              else {
-                bulletVx = vx;
-                bulletVy = vy;
-                bulletAngle = atan2(bulletVy, bulletVx);
-              }
-
-              // Adjust velocity for high arc bullets to land at target
-              const pathType = getPathType(i);
-              let targetX = playerX + shotOffsetX[i];
-              let targetY = playerY + shotOffsetY[i];
-              if (pathType === 1) {
-                // Calculate velocity needed to reach target in arcDuration frames
-                const arcDuration = bulletArcDuration[i];
-                bulletVx = (targetX - antX[i]) / arcDuration;
-                bulletVy = (targetY - antY[i]) / arcDuration;
-                bulletAngle = atan2(bulletVy, bulletVx);
-                actualBulletSpeed = Math.sqrt(bulletVx * bulletVx + bulletVy * bulletVy);
-              }
-
-              let bullet = {
-                x: antX[i],
-                y: antY[i],
-                speedX: bulletVx,
-                speedY: bulletVy,
-                angle: bulletAngle,
-                life: 0,
-                explodeAfter: bulletExplodeAfter[i],
-                maxLife: actualBulletSpeed * 100,
-                size: actualBulletSize,
-                trueSpeed: actualBulletSpeed,
-                knockbackBullet: (getSpecialType(i) === -1),
-                vacuumBullet: isVacuumKnockback(i),
-                knockbackMultiplier: bulletKnockbackMultiplier[i],
-                delayFrames: 0,
-                airHeight: 0,
-                airProgress: 0,
-                pathType: getPathType(i),
-                splitAtApex: isSplitArc(i),
-                arcDuration: bulletArcDuration[i],
-                curveStrength: bulletCurveStrength[i],
-                accelerateDelay: bulletAccelerateDelay[i],
-                hasAccelerated: false,
-                targetX: playerX + shotOffsetX[i],
-                targetY: playerY + shotOffsetY[i],
-                owner: i
-              };
-
-              // Type 3: Delayed burst - one full-size bullet that splits into a burst after bulletBurstDelay frames
-              if (fireType === 3) {
-                const burstCount = constrain(Math.round(bulletBurstCount[i]), 2, 5);
-                const burstSize = bulletSize[i] / (1 + (burstCount - 1) / 4);
-                // Split bullets move at the speed a level 1 burst from this ant would have
-                const burstVx = ((playerX + shotOffsetX[i]) - antX[i] + 1) / (bulletSpeed[i] * (burstSize ** burstSize));
-                const burstVy = ((playerY + shotOffsetY[i]) - antY[i] + 1) / (bulletSpeed[i] * (burstSize ** burstSize));
-                bullet.delayedBurst = {
-                  at: Math.round(Math.min(bulletBurstDelay[i], DELAYED_BURST_MAX_DELAY)),
-                  count: burstCount,
-                  size: burstSize,
-                  speed: Math.sqrt(burstVx * burstVx + burstVy * burstVy),
-                  spread: bulletBurstSpread[i]
-                };
-              }
-
-              enemyBullets[i].push(bullet);
-              volleyBullet = bullet;
-            }
+            const volley = fireAntVolley(i, antX[i], antY[i]);
             // One recoil kick per volley, even for bursts
-            if (volleyBullet) applyFiringRecoil(i, volleyBullet);
-            
+            applyFiringRecoil(i, volley[volley.length - 1]);
+
             // Log bullet firing
-            let speedTier = getBulletSpeedTier(trueBulletSpeed);
+            const volleySpeed = volley[0].trueSpeed;
+            let speedTier = getBulletSpeedTier(volleySpeed);
             let fireTypeName = { '-2': 'Hit Reload', '-1': 'Alt', 0: 'Single', 1: 'Burst', 2: 'Rapid', 3: 'Delayed Burst' }[fireType] || 'Unknown';
             if (fireType === 3) {
-              console.log(`Ant ${i} fired a ${fireTypeName} bullet (splits into ${Math.round(bulletBurstCount[i])} after ${Math.round(bulletBurstDelay[i])}f) - Speed: ${trueBulletSpeed.toFixed(3)} px/f`);
+              console.log(`Ant ${i} fired a ${fireTypeName} bullet (splits into ${Math.round(bulletBurstCount[i])} after ${Math.round(bulletBurstDelay[i])}f) - Speed: ${volleySpeed.toFixed(3)} px/f`);
             } else if (fireType === 1) {
               let spreadDegrees = (bulletBurstSpread[i] * 180 / Math.PI).toFixed(1);
-              console.log(`Ant ${i} fired ${bulletsToFire} ${fireTypeName} bullets with ${spreadDegrees}° spread - Speed: ${trueBulletSpeed.toFixed(3)} px/f`);
+              console.log(`Ant ${i} fired ${volley.length} ${fireTypeName} bullets with ${spreadDegrees}° spread - Speed: ${volleySpeed.toFixed(3)} px/f`);
             } else {
-              console.log(`Ant ${i} fired ${bulletsToFire} ${fireTypeName} ${speedTier.name} bullet(s) - Speed: ${trueBulletSpeed.toFixed(3)} px/f`);
+              console.log(`Ant ${i} fired ${volley.length} ${fireTypeName} ${speedTier.name} bullet(s) - Speed: ${volleySpeed.toFixed(3)} px/f`);
             }
           }
-          
+
           // Play spit sound when bullet is created (not during update loop)
-          if (!sSpit1.isPlaying() && !sSpit2.isPlaying()) {
-            sHit = round(random(1, 2));
-            if (sHit == 1) {
-              sSpit1.play();
-            } else {
-              sSpit2.play();
-            }
-          }
+          playSpitSound();
         }
       }
 
@@ -3358,6 +3147,12 @@ function enemyShoot1() {
         // Accelerate (2): After delay, accelerate continuously and become immune to time death
         if (pathType === 2) {
           if (bullet.life >= (bullet.accelerateDelay || 60) && !bullet.hasAccelerated) {
+            // Beam bullets fire a beam instead of accelerating, and have no death effect
+            if (bullet.beamOnAccelerate) {
+              spawnEnemyBeam(bullet);
+              enemyBullets[i].splice(b, 1);
+              continue;
+            }
             bullet.hasAccelerated = true;
           }
           
@@ -3454,7 +3249,8 @@ function enemyShoot1() {
             explosionRadiusScale = 1 + (0.3 * arcHeightRatio);
             shouldSpawnArcLink = (bullet.airHeight || 0) > 2;
           }
-        } else {
+        } else if (!bullet.beamOnAccelerate) {
+          // Beam bullets don't explode; their explosion makes the beam fire both ways (see spawnEnemyBeam)
           // 1) explode when bullet life ends, if this ant is set to do that
           if (explodeOnTermination[i] && bullet.life >= bullet.explodeAfter) {
             shouldExplode = true;
@@ -3484,8 +3280,9 @@ function enemyShoot1() {
         const FADE_DURATION = 30; // Frames to fade out
         const isImmuneToTimeDeath = bullet.pathType === 1 || (bullet.pathType === 2 && bullet.hasAccelerated);
         if (!isImmuneToTimeDeath && bullet.life > bullet.maxLife + FADE_DURATION) {
-          // Check bullet death type
-          if (getDeathType(i) === 1) {
+          // Check bullet death type (refired bullets have none)
+          const deathType = bullet.noDeathEffect ? 0 : getDeathType(i);
+          if (deathType === 1) {
             // Type 1: Convert to land mine
             landMines.push({
               x: bullet.x,
@@ -3507,9 +3304,12 @@ function enemyShoot1() {
                 camoFlashRate: bulletCamoFlashRate[i],
                 fusionCount: 1 // Track how many mines have been fused
             });
-          } else if (getDeathType(i) === -1) {
+          } else if (deathType === -1) {
             // Type -1: Leave a damaging smear where the bullet faded
             spawnEnemySmear(bullet.x, bullet.y, bullet.size, i, bullet.speedX, bullet.speedY);
+          } else if (deathType === 2 || deathType === 3) {
+            // Type 2 / 3: Fire the bullet again from where it faded (refire / turret)
+            spawnDeathRefire(bullet, i);
           }
           // Type 0: Just fade and remove (default behavior)
           enemyBullets[i].splice(b, 1);
@@ -3664,13 +3464,42 @@ function enemyShoot1() {
           pop();
 
           // Landmine bullets: draw pulsing yellow center marker on top of bullet
-          if (getDeathType(i) === 1) {
+          if (getDeathType(i) === 1 && !bullet.noDeathEffect) {
             push();
             noStroke();
             let mineFlashSpeed = map(deathLandmine[i], 1.0, 2.0, 2, 8, true);
             fill(255, 255, 0, 220 * bulletStealth);
             let mineCoreSize = (6 * bullet.size) + 2.5 * sin(bullet.life * mineFlashSpeed * 0.2);
             ellipse(bullet.x, bullet.y - bullet.airHeight, mineCoreSize, mineCoreSize);
+            pop();
+          }
+
+          // Beam bullets: rings in the beam's color close in on the bullet as it charges, faster and brighter near firing
+          if (bullet.beamOnAccelerate) {
+            const charge = constrain(bullet.life / (bullet.accelerateDelay || 60), 0, 1);
+            const ringColor = getBeamColors(bullet.knockbackBullet, bullet.vacuumBullet,
+              explodeOnTermination[i] || triggerExplodeViaProximity[i]).glow;
+            const period = BEAM_CHARGE_RING_PERIOD * (1 - 0.6 * charge);
+            push();
+            noFill();
+            strokeWeight(1.5 + charge);
+            for (let r = 0; r < 2; r++) {
+              const p = ((bullet.life / period) + r * 0.5) % 1;
+              const ringSize = lerp(34, 12, p) * bullet.size;
+              stroke(ringColor[0], ringColor[1], ringColor[2], (60 + 170 * charge) * p * bulletStealth);
+              ellipse(bullet.x, bullet.y - bullet.airHeight, ringSize, ringSize);
+            }
+            pop();
+          }
+
+          // Turret bullets: draw pulsing red center marker on top of bullet
+          if (getDeathType(i) === 3 && !bullet.noDeathEffect) {
+            push();
+            noStroke();
+            let turretFlashSpeed = map(deathRefire[i], 1.0, 2.0, 2, 8, true);
+            fill(255, 40, 40, 220 * bulletStealth);
+            let turretCoreSize = (6 * bullet.size) + 2.5 * sin(bullet.life * turretFlashSpeed * 0.2);
+            ellipse(bullet.x, bullet.y - bullet.airHeight, turretCoreSize, turretCoreSize);
             pop();
           }
         }
@@ -3707,8 +3536,8 @@ function enemyShoot1() {
           enemyBullets[i].splice(b, 1);
           handlePlayerHit(i, isKnockbackBullet, bullet.x, bullet.y, knockbackMult, bulletSpeed, false, bullet.size);
         } else if (bullet.pathType === 1 && bullet.airProgress >= 1 && bullet.airHeight <= 1) {
-          // High arc bullet has landed without hitting player - trigger death effect
-          const deathType = getDeathType(bullet.owner);
+          // High arc bullet has landed without hitting player - trigger death effect (refired bullets have none)
+          const deathType = bullet.noDeathEffect ? 0 : getDeathType(bullet.owner);
           if (deathType === 1) {
             // Convert to land mine
             landMines.push({
@@ -3734,6 +3563,10 @@ function enemyShoot1() {
             // Smear death: leave a streak where the lofted bullet lands (on top of its normal impact)
             if (deathType === -1) {
               spawnEnemySmear(bullet.x, bullet.y, bullet.size, bullet.owner, bullet.speedX, bullet.speedY);
+            }
+            // Refire / turret death: fire the bullet again from where it landed (on top of its normal impact)
+            if (deathType === 2 || deathType === 3) {
+              spawnDeathRefire(bullet, bullet.owner);
             }
 
             let hasExplosionSpecial = explodeOnTermination[bullet.owner] || triggerExplodeViaProximity[bullet.owner];
@@ -5015,6 +4848,241 @@ const EXPLODE_AFTER_MIN = 40;             // Timed explosion fuse range (frames)
 const EXPLODE_AFTER_MAX = 800;
 const SPLIT_ARC_COUNT = 3;                // Split arc path type: bullets a lofted shot splits into at its peak
 const SPLIT_ARC_SPACING = 60;             // Split arc path type: sideways gap (px) between the landing points
+const BEAM_MIN_WIDTH = 12;                // Beam path type: width (px) at the lowest radius multiplier
+const BEAM_MAX_WIDTH = 50;                // Beam path type: width at the highest radius multiplier (the beetle's hitbox width)
+const BEAM_MIN_FRAMES = 15;               // Beam path type: duration at the lowest residue multiplier
+const BEAM_MAX_FRAMES = 60;               // Beam path type: duration at the highest residue multiplier
+const BEAM_HIT_SPEED = 10;                // Beam path type: beam hits deal damage as high-speed (FAST tier) bullets
+const BEAM_HIT_FLASH_FRAMES = 8;          // Beam path type: how long the damage flash holds after a beam hit
+const BEAM_CHARGE_RING_PERIOD = 24;       // Beam path type: frames for a charging ring to close in on its bullet
+
+// Bullets in a burst / rapid volley (2-5)
+function getBurstBulletCount(i) {
+  return constrain(Math.round(bulletBurstCount[i]), 2, 5);
+}
+
+// Burst and rapid bullets shrink so a volley isn't too strong: 2-5 bullets -> size / 1.25-2
+function getBurstBulletSize(i) {
+  return bulletSize[i] / (1 + (getBurstBulletCount(i) - 1) / 4);
+}
+
+// Build one bullet the way ant i fires it, launched from (originX, originY) at the ant's aim point.
+// Ants fire from where they stand; refire death types fire from where a bullet died.
+// spreadDegrees > 0 picks a random angle within that cone (burst fire).
+function createAntBullet(i, originX, originY, size, spreadDegrees = 0) {
+  const targetX = playerX + shotOffsetX[i];
+  const targetY = playerY + shotOffsetY[i];
+  // Speed depends on bullet size and how far away the aim point is
+  let speedX = (targetX - originX + 1) / (bulletSpeed[i] * (size ** size));
+  let speedY = (targetY - originY + 1) / (bulletSpeed[i] * (size ** size));
+  let speed = Math.sqrt(speedX * speedX + speedY * speedY);
+  let angle = atan2(speedY, speedX);
+  if (spreadDegrees > 0) {
+    angle = atan2(targetY - originY, targetX - originX) + random(-spreadDegrees / 2, spreadDegrees / 2);
+    speedX = cos(angle) * speed;
+    speedY = sin(angle) * speed;
+  }
+
+  // High arc bullets fly straight at the aim point and land on it when the arc ends
+  const pathType = getPathType(i);
+  if (pathType === 1) {
+    speedX = (targetX - originX) / bulletArcDuration[i];
+    speedY = (targetY - originY) / bulletArcDuration[i];
+    angle = atan2(speedY, speedX);
+    speed = Math.sqrt(speedX * speedX + speedY * speedY);
+  }
+
+  return {
+    x: originX,
+    y: originY,
+    speedX: speedX,
+    speedY: speedY,
+    angle: angle,
+    life: 0,
+    explodeAfter: bulletExplodeAfter[i],
+    maxLife: speed * 100,
+    size: size,
+    trueSpeed: speed,
+    knockbackBullet: (getSpecialType(i) === -1),
+    vacuumBullet: isVacuumKnockback(i),
+    knockbackMultiplier: bulletKnockbackMultiplier[i],
+    delayFrames: 0,
+    airHeight: 0,
+    airProgress: 0,
+    pathType: pathType,
+    splitAtApex: isSplitArc(i),
+    beamOnAccelerate: isBeamAccelerate(i),
+    arcDuration: bulletArcDuration[i],
+    curveStrength: bulletCurveStrength[i],
+    accelerateDelay: bulletAccelerateDelay[i],
+    hasAccelerated: false,
+    targetX: targetX,
+    targetY: targetY,
+    noDeathEffect: false, // Refired bullets skip their ant's death type
+    owner: i
+  };
+}
+
+// Fire ant i's volley from (originX, originY): a single bullet, a burst, or a delayed burst bullet.
+// Rapid fire sequences are scheduled by the caller. Returns the bullets fired.
+function fireAntVolley(i, originX, originY) {
+  const fireType = getFireType(i);
+  const volley = [];
+  if (fireType === 1) {
+    // Type 1: Burst spread - each bullet shoots in a random direction within the cone
+    const spreadDegrees = bulletBurstSpread[i] * 180 / PI;
+    for (let b = 0; b < getBurstBulletCount(i); b++) {
+      volley.push(createAntBullet(i, originX, originY, getBurstBulletSize(i), spreadDegrees));
+    }
+  } else {
+    const bullet = createAntBullet(i, originX, originY, bulletSize[i]);
+    // Type 3: Delayed burst - one full-size bullet that splits into a burst after bulletBurstDelay frames
+    if (fireType === 3) {
+      const burstSize = getBurstBulletSize(i);
+      // Split bullets move at the speed a level 1 burst from this spot would have
+      const burstVx = ((playerX + shotOffsetX[i]) - originX + 1) / (bulletSpeed[i] * (burstSize ** burstSize));
+      const burstVy = ((playerY + shotOffsetY[i]) - originY + 1) / (bulletSpeed[i] * (burstSize ** burstSize));
+      bullet.delayedBurst = {
+        at: Math.round(Math.min(bulletBurstDelay[i], DELAYED_BURST_MAX_DELAY)),
+        count: getBurstBulletCount(i),
+        size: burstSize,
+        speed: Math.sqrt(burstVx * burstVx + burstVy * burstVy),
+        spread: bulletBurstSpread[i]
+      };
+    }
+    volley.push(bullet);
+  }
+  for (const bullet of volley) {
+    enemyBullets[i].push(bullet);
+  }
+  return volley;
+}
+
+function playSpitSound() {
+  if (!sSpit1.isPlaying() && !sSpit2.isPlaying()) {
+    sHit = round(random(1, 2));
+    if (sHit == 1) {
+      sSpit1.play();
+    } else {
+      sSpit2.play();
+    }
+  }
+}
+
+// Refire death types (deathRefire): where a bullet dies, it is fired again at the beetle the same way its
+// ant fires (as one bullet that won't split, see fireDeathRefire), and with no death effect of their own. Level 1 (refire, deathType 2) plays
+// a short wind-up and refires once; level 2 (turret, deathType 3) deploys a small turret that fires
+// TURRET_SHOTS times and then disappears. Refired bullets hitting the beetle count toward hit reload.
+const REFIRE_WINDUP_FRAMES = 30;          // Refire: wind-up animation before the bullet fires again
+const TURRET_DEPLOY_FRAMES = 30;          // Turret: frames from landing to its first shot
+const TURRET_SHOTS = 3;
+const TURRET_SHOT_INTERVAL_MIN = 45;      // Turret: frames between shots = owner's cooldown, clamped to this range
+const TURRET_SHOT_INTERVAL_MAX = 120;
+const TURRET_FADE_FRAMES = 20;            // Turret: fade out after its last shot
+
+function spawnDeathRefire(bullet, ownerId) {
+  const isTurret = getDeathType(ownerId) === 3;
+  deathRefires.push({
+    x: bullet.x,
+    y: bullet.y,
+    size: bullet.size,
+    owner: ownerId,
+    isTurret: isTurret,
+    life: 0,
+    shotsLeft: isTurret ? TURRET_SHOTS : 1,
+    nextShotAt: isTurret ? TURRET_DEPLOY_FRAMES : REFIRE_WINDUP_FRAMES,
+    finishedAt: null   // life frame the last bullet went out
+  });
+}
+
+// Fire one refired bullet from a refire spot. Refires are always a single bullet the size of the one that
+// died: burst / rapid / delayed burst bullets don't split into a volley again, and split arcs don't split
+// at their peak again.
+function fireDeathRefire(refire) {
+  const i = refire.owner;
+  const bullet = createAntBullet(i, refire.x, refire.y, refire.size);
+  bullet.splitAtApex = false;
+  bullet.noDeathEffect = true;
+  enemyBullets[i].push(bullet);
+  refire.shotsLeft--;
+  refire.nextShotAt = refire.life + constrain(bulletCooldown[i], TURRET_SHOT_INTERVAL_MIN, TURRET_SHOT_INTERVAL_MAX);
+
+  // Pop ring where the shot leaves
+  speedRings.push({
+    x: refire.x,
+    y: refire.y,
+    size: 10 * refire.size,
+    maxSize: 40 * refire.size,
+    alpha: 255,
+    life: 0
+  });
+  playSpitSound();
+}
+
+function updateDeathRefires() {
+  for (let r = deathRefires.length - 1; r >= 0; r--) {
+    const refire = deathRefires[r];
+    refire.life++;
+
+    if (refire.shotsLeft > 0 && refire.life >= refire.nextShotAt) {
+      fireDeathRefire(refire);
+    }
+
+    if (refire.shotsLeft === 0 && refire.finishedAt === null) {
+      refire.finishedAt = refire.life;
+    }
+    const fadeFrames = refire.isTurret ? TURRET_FADE_FRAMES : 0;
+    if (refire.finishedAt !== null && refire.life - refire.finishedAt >= fadeFrames) {
+      deathRefires.splice(r, 1);
+      continue;
+    }
+
+    if (refire.isTurret) {
+      drawDeathTurret(refire);
+    } else if (refire.shotsLeft > 0) {
+      drawDeathRefireWindup(refire);
+    }
+  }
+}
+
+// Refire: a red ring closes in on the dead bullet while it spins up, then it fires again
+function drawDeathRefireWindup(refire) {
+  const t = constrain(refire.life / REFIRE_WINDUP_FRAMES, 0, 1);
+  const bulletDrawSize = 20 * refire.size;
+  push();
+  noFill();
+  stroke(255, 70, 70, 80 + 175 * t);
+  strokeWeight(1 + 2 * t);
+  const ringSize = bulletDrawSize * (3 - 2 * t);
+  ellipse(refire.x, refire.y, ringSize, ringSize);
+  angleMode(DEGREES);
+  imageMode(CENTER);
+  translate(refire.x, refire.y);
+  // Spins faster as the refire nears
+  rotate(refire.life * (6 + 30 * t));
+  tint(255, 255, 255 - 120 * t);
+  image(bulletImage, 0, 0, bulletDrawSize, bulletDrawSize);
+  pop();
+}
+
+// Turret: drawn like an enemy landmine with a red center that pulses faster before each shot
+function drawDeathTurret(refire) {
+  const deployScale = constrain(refire.life / 10, 0, 1);
+  const fade = refire.finishedAt === null ? 1 : 1 - (refire.life - refire.finishedAt) / TURRET_FADE_FRAMES;
+  const turretSize = 15 * refire.size * deployScale;
+  const framesToShot = Math.max(0, refire.nextShotAt - refire.life);
+  const charge = refire.shotsLeft > 0 ? 1 - constrain(framesToShot / TURRET_SHOT_INTERVAL_MIN, 0, 1) : 0;
+  push();
+  fill(0, 200, 0, 180 * fade);
+  stroke(0, 255, 0, 255 * fade);
+  strokeWeight(2);
+  ellipse(refire.x, refire.y, turretSize, turretSize);
+  noStroke();
+  fill(255, 40, 40, 255 * fade);
+  const coreSize = turretSize * (0.3 + 0.1 * charge * (1 + sin(refire.life * (10 + 30 * charge))));
+  ellipse(refire.x, refire.y, coreSize, coreSize);
+  pop();
+}
 
 // Delayed burst fire type: replace a bullet with a level 1 style burst fired from where it is now.
 // Ground bullets spread in a cone aimed at the ant's target; lofted bullets keep their arc and land spread around theirs.
@@ -5105,10 +5173,15 @@ function getDeathType(antIndex) {
   if (!hasInvestment) {
     return 0; // Fading (no token invested)
   }
-  // deathLandmine: <1 = Smear (tier 1), >=1 = Landmine (tier 2)
-  if (deathLandmine[antIndex] >= 1) return 1; // Landmine (tier 2)
-  if (deathLandmine[antIndex] > 0) return -1; // Smear (tier 1, base)
-  return 0; // Fading (fallback)
+  // Highest death trait wins; ties go to landmine
+  if (deathLandmine[antIndex] >= (deathRefire[antIndex] || 0)) {
+    // deathLandmine: <1 = Smear (tier 1), >=1 = Landmine (tier 2)
+    if (deathLandmine[antIndex] >= 1) return 1; // Landmine (tier 2)
+    if (deathLandmine[antIndex] > 0) return -1; // Smear (tier 1, base)
+    return 0; // Fading (fallback)
+  }
+  // deathRefire: <1 = Refire (tier 1), >=1 = Turret (tier 2)
+  return deathRefire[antIndex] >= 1 ? 3 : 2;
 }
 
 // Split arc (high arc tier 2): lofted bullets split into SPLIT_ARC_COUNT at the top of their arc.
@@ -5157,6 +5230,155 @@ function spawnSplitArc(parent) {
     alpha: 255,
     life: 0
   });
+}
+
+// Beam (accelerate tier 2): instead of speeding up, the bullet fires a beam to the edge of the screen.
+// Beam bullets are still pathType 2; bullets carry a beamOnAccelerate flag instead.
+function isBeamAccelerate(antIndex) {
+  return getPathType(antIndex) === 2 && pathAccelerate[antIndex] >= 1;
+}
+
+// Beam colors by special, matching the bullet auras: white = knockback, purple = vacuum,
+// green = explosive (like enemy explosions), cyan = no special effect.
+// Knockback, vacuum and explosion are all special types, so a beam has at most one of them.
+function getBeamColors(knockbackBullet, vacuumBullet, explosive) {
+  if (vacuumBullet) return { glow: [190, 90, 255], core: [235, 200, 255] };
+  if (knockbackBullet) return { glow: [220, 220, 220], core: [255, 255, 255] };
+  if (explosive) return { glow: [0, 255, 0], core: [210, 255, 170] };
+  return { glow: [60, 220, 255], core: [225, 250, 255] };
+}
+
+// Distance along (dirX, dirY) from (x, y) to the edge of the play area
+function getDistanceToPlayAreaEdge(x, y, dirX, dirY) {
+  const left = 0;
+  const right = getGameplayWidth();
+  const top = scoreBarHeight;
+  const bottom = getGameplayHeight() - expBarHeight;
+  let t = Infinity;
+  if (dirX > 0) t = Math.min(t, (right - x) / dirX);
+  if (dirX < 0) t = Math.min(t, (left - x) / dirX);
+  if (dirY > 0) t = Math.min(t, (bottom - y) / dirY);
+  if (dirY < 0) t = Math.min(t, (top - y) / dirY);
+  return Math.max(0, t === Infinity ? 0 : t);
+}
+
+// Replace a beam bullet with a beam along its direction of travel. Width scales with radiusMultiplier
+// and duration with residueMultiplier; explosive bullets fire the beam both ways instead of exploding.
+function spawnEnemyBeam(bullet) {
+  const owner = bullet.owner;
+  const speed = Math.sqrt(bullet.speedX * bullet.speedX + bullet.speedY * bullet.speedY);
+  const dirX = speed > 0 ? bullet.speedX / speed : 1;
+  const dirY = speed > 0 ? bullet.speedY / speed : 0;
+  const twoWay = explodeOnTermination[owner] || triggerExplodeViaProximity[owner];
+  const forward = getDistanceToPlayAreaEdge(bullet.x, bullet.y, dirX, dirY);
+  const backward = twoWay ? getDistanceToPlayAreaEdge(bullet.x, bullet.y, -dirX, -dirY) : 0;
+
+  enemyBeams.push({
+    x: bullet.x,
+    y: bullet.y,
+    dirX: dirX,
+    dirY: dirY,
+    x1: bullet.x - dirX * backward,
+    y1: bullet.y - dirY * backward,
+    x2: bullet.x + dirX * forward,
+    y2: bullet.y + dirY * forward,
+    width: map(radiusMultiplier[owner] || 1, 0.5, 3, BEAM_MIN_WIDTH, BEAM_MAX_WIDTH, true),
+    maxLife: Math.round(map(residueMultiplier[owner] || 1, 0.5, 3, BEAM_MIN_FRAMES, BEAM_MAX_FRAMES, true)),
+    life: 0,
+    size: bullet.size,
+    owner: owner,
+    knockbackBullet: bullet.knockbackBullet || false,
+    vacuumBullet: bullet.vacuumBullet || false,
+    knockbackMultiplier: bullet.knockbackMultiplier || 1,
+    explosive: twoWay, // Explosive beams also burn like an explosion while the beetle stands in them
+    colors: getBeamColors(bullet.knockbackBullet, bullet.vacuumBullet, twoWay),
+    hasHit: false // A beam hits the beetle at most once
+  });
+
+  // Flash where the beam fires from
+  speedRings.push({
+    x: bullet.x,
+    y: bullet.y - (bullet.airHeight || 0),
+    size: 10 * bullet.size,
+    maxSize: 40 * bullet.size,
+    alpha: 255,
+    life: 0
+  });
+}
+
+// Update, hit-test and draw beams. Knockback beams push the beetle along the beam (away from where it
+// fired); vacuum beams also pull the beetle toward the beam line at close range, like vacuum bullets.
+function updateEnemyBeams() {
+  for (let i = enemyBeams.length - 1; i >= 0; i--) {
+    const beam = enemyBeams[i];
+    beam.life++;
+
+    // Closest point on the beam to the beetle
+    const segX = beam.x2 - beam.x1;
+    const segY = beam.y2 - beam.y1;
+    const segLenSq = segX * segX + segY * segY;
+    const t = segLenSq > 0 ? constrain(((playerX - beam.x1) * segX + (playerY - beam.y1) * segY) / segLenSq, 0, 1) : 0;
+    const closestX = beam.x1 + segX * t;
+    const closestY = beam.y1 + segY * t;
+
+    if (beam.vacuumBullet && !beam.hasHit) {
+      applyVacuumPull({ x: closestX, y: closestY, knockbackMultiplier: beam.knockbackMultiplier });
+    }
+
+    const touching = dist(playerX, playerY, closestX, closestY) <= beam.width / 2 + 25;
+
+    // Explosive beams: every frame the beetle is inside, do a tick of explosion damage
+    if (beam.explosive && touching) {
+      handleExplosionDamage(beam.size, beam.owner);
+    }
+
+    if (!beam.hasHit && touching) {
+      beam.hasHit = true;
+      // The hit lands the frame the beam appears, so hold the damage flash long enough to see
+      if (shield > 0) {
+        beamShieldFlashFrames = BEAM_HIT_FLASH_FRAMES;
+      } else {
+        beamHealthFlashFrames = BEAM_HIT_FLASH_FRAMES;
+      }
+      // Knock back along the beam, on whichever side of the firing point the beetle is
+      const side = (playerX - beam.x) * beam.dirX + (playerY - beam.y) * beam.dirY >= 0 ? 1 : -1;
+      handlePlayerHit(
+        beam.owner,
+        beam.knockbackBullet,
+        playerX - beam.dirX * side,
+        playerY - beam.dirY * side,
+        beam.knockbackMultiplier,
+        BEAM_HIT_SPEED,
+        false,
+        beam.size
+      );
+    }
+
+    // Snap open, hold, then narrow and fade over the last third
+    const openT = Math.min(1, beam.life / 4);
+    const fadeT = constrain((beam.maxLife - beam.life) / (beam.maxLife / 3), 0, 1);
+    const w = beam.width * openT * (0.4 + 0.6 * fadeT);
+    const alpha = 255 * fadeT;
+    const flicker = 1 + 0.08 * Math.sin(beam.life * 1.3);
+    push();
+    strokeCap(ROUND);
+    const glow = beam.colors.glow;
+    const core = beam.colors.core;
+    stroke(glow[0], glow[1], glow[2], alpha * 0.35);
+    strokeWeight(w * 1.6 * flicker);
+    line(beam.x1, beam.y1, beam.x2, beam.y2);
+    stroke(glow[0], glow[1], glow[2], alpha * 0.8);
+    strokeWeight(w);
+    line(beam.x1, beam.y1, beam.x2, beam.y2);
+    stroke(core[0], core[1], core[2], alpha);
+    strokeWeight(w * 0.35);
+    line(beam.x1, beam.y1, beam.x2, beam.y2);
+    pop();
+
+    if (beam.life >= beam.maxLife) {
+      enemyBeams.splice(i, 1);
+    }
+  }
 }
 
 // Frame a bullet will split at (delayed burst or split arc), or null if it never splits
@@ -5259,11 +5481,12 @@ bulletKnockbackMultiplier: { caps: [2, 3, 4, 5], inverse: false },
   bulletCurveStrength: { caps: [0.05, 0.075, 0.1], inverse: false },
   pathCurve: { caps: [1.0, 2.0], inverse: false },  // <1 = curved, >=1 = homing
   deathLandmine: { caps: [1.0, 2.0], inverse: false },  // <1 = smear, >=1 = landmine
+  deathRefire: { caps: [1.0, 2.0], inverse: false },  // <1 = refire, >=1 = turret
   fireAlternating: { caps: [1.0, 2.0], inverse: false },  // <1 = alternating, >=1 = hit reload
   fireBurst: { caps: [1.0, 2.0], inverse: false },  // <1 = burst, >=1 = delayed burst
   pathHighArc: { caps: [1.0, 2.0], inverse: false },  // <1 = high arc, >=1 = split arc
   specialKnockback: { caps: [1.0, 2.0], inverse: false },  // <1 = knockback, >=1 = vacuum
-  pathAccelerate: { caps: [0.4, 0.6, 0.8, 1.0], inverse: false, start: 0.1 },
+  pathAccelerate: { caps: [1.0, 2.0], inverse: false },  // <1 = accelerate, >=1 = beam
   bulletAccelerateDelay: { caps: [150, 100, 60, 30], inverse: true, start: 200 },  // Frames before acceleration (inverse: lower=better)
   
   // Explosion stats
@@ -5277,7 +5500,7 @@ bulletKnockbackMultiplier: { caps: [2, 3, 4, 5], inverse: false },
 };
 
 // Stats whose caps mark level 1 / level 2 ability thresholds rather than plain range limits
-const THRESHOLD_GATED_STATS = ['specialExplosion', 'pathCurve', 'deathLandmine', 'fireAlternating', 'fireBurst', 'pathHighArc', 'specialKnockback', 'specialCamo', 'specialRecoil'];
+const THRESHOLD_GATED_STATS = ['specialExplosion', 'pathCurve', 'deathLandmine', 'deathRefire', 'fireAlternating', 'fireBurst', 'pathHighArc', 'pathAccelerate', 'specialKnockback', 'specialCamo', 'specialRecoil'];
 
 // Dev tools custom ants: give a custom ant the cap tokens its threshold-gated stats need to stay at the
 // tier the user set (e.g. specialKnockback 1.5 needs a tier 0 cap token, or mutation clamps it below 1).
@@ -5309,7 +5532,7 @@ function ensureCustomAntTierCaps(customAnt) {
 }
 
 // Get max mutatable value for a stat based on an ant's unlocked cap tiers.
-// For threshold-gated stats (specialExplosion, pathCurve, deathLandmine, fireAlternating, specialCamo, specialRecoil): caps mark functional tier thresholds.
+// For threshold-gated stats (specialExplosion, pathCurve, deathLandmine, deathRefire, fireAlternating, specialCamo, specialRecoil): caps mark functional tier thresholds.
 //   - No tokens: must stay strictly below caps[0]
 //   - Tier 0 token: can reach caps[0] but must stay strictly below caps[1]
 // For scaling stats (knockback, burst, etc.): caps[0] is natural uncapped max, tokens extend range.
@@ -5473,7 +5696,7 @@ function getTraitCategoryFromStatKey(statKey) {
   if (!statKey) return null;
   if (['specialExplosion', 'specialKnockback', 'specialCamo', 'specialRecoil', 'specialPotential', 'bulletKnockbackMultiplier', 'bulletCamoFlashRate'].includes(statKey)) return 'special';
   if (['fireBurst', 'fireRapid', 'fireAlternating', 'firePotential', 'bulletBurstCount', 'bulletBurstSpread', 'bulletBurstDelay', 'bulletCooldownMultiplier'].includes(statKey)) return 'fire';
-  if (['deathLandmine', 'deathPotential'].includes(statKey)) return 'death';
+  if (['deathLandmine', 'deathRefire', 'deathPotential'].includes(statKey)) return 'death';
   if (['pathHighArc', 'pathCurve', 'pathAccelerate', 'pathPotential', 'bulletArcDuration', 'bulletCurveStrength'].includes(statKey)) return 'path';
   return null;
 }
@@ -5482,7 +5705,7 @@ function getDominantTraitKeyForCategory(customAnt, category) {
   const traitKeysByCategory = {
     special: ['specialExplosion', 'specialKnockback', 'specialCamo', 'specialRecoil'],
     fire: ['fireBurst', 'fireRapid', 'fireAlternating'],
-    death: ['deathLandmine'],
+    death: ['deathLandmine', 'deathRefire'],
     path: ['pathHighArc', 'pathCurve', 'pathAccelerate']
   };
 
@@ -5574,11 +5797,13 @@ bulletKnockbackMultiplier: { caps: [2, 3, 4, 5], inverse: false },
 
     // Death category mutation stats (can be capped)
     deathLandmine: { caps: [1.0, 2.0], inverse: false },  // <1 = smear, >=1 = landmine
+    deathRefire: { caps: [1.0, 2.0], inverse: false },  // <1 = refire, >=1 = turret
 
     // Fire category mutation stats (can be capped)
     fireAlternating: { caps: [1.0, 2.0], inverse: false },  // <1 = alternating, >=1 = hit reload
     fireBurst: { caps: [1.0, 2.0], inverse: false },  // <1 = burst, >=1 = delayed burst
     pathHighArc: { caps: [1.0, 2.0], inverse: false },  // <1 = high arc, >=1 = split arc
+    pathAccelerate: { caps: [1.0, 2.0], inverse: false },  // <1 = accelerate, >=1 = beam
     specialKnockback: { caps: [1.0, 2.0], inverse: false },  // <1 = knockback, >=1 = vacuum
     
     // Explosion stats
@@ -5612,8 +5837,8 @@ bulletKnockbackMultiplier: { caps: [2, 3, 4, 5], inverse: false },
     if (statName === 'specialRecoil' && (specialType === 3 || specialType === -3)) return true; // Recoil or Launch (mutation stat)
     if (statName === 'bulletCamoFlashRate' && specialType === 2) return true; // Camouflage
     if (statName === 'explosionProximity' && specialType === 1) return true; // Explosion
-    if (statName === 'radiusMultiplier' && (specialType === 1 || pathType === 1 || deathType === -1)) return true; // Explosion, High Arc, or Smear
-    if (statName === 'residueMultiplier' && (specialType === 1 || pathType === 1 || deathType === 1 || deathType === -1)) return true; // Explosion, High Arc, Landmine, or Smear
+    if (statName === 'radiusMultiplier' && (specialType === 1 || pathType === 1 || deathType === -1 || isBeamAccelerate(antIndex))) return true; // Explosion, High Arc, Smear, or Beam
+    if (statName === 'residueMultiplier' && (specialType === 1 || pathType === 1 || deathType === 1 || deathType === -1 || isBeamAccelerate(antIndex))) return true; // Explosion, High Arc, Landmine, Smear, or Beam
     if (statName === 'bulletExplodeAfter' && specialType === 1) return true; // Explosion
     
     // Fire category stats
@@ -5628,9 +5853,11 @@ bulletKnockbackMultiplier: { caps: [2, 3, 4, 5], inverse: false },
     if (statName === 'pathHighArc' && pathType === 1) return true; // High Arc or Split Arc (mutation stat)
     if (statName === 'bulletCurveStrength' && (pathType === -1 || pathType === -2)) return true; // Clockwise or Homing
     if (statName === 'pathCurve' && (pathType === -1 || pathType === -2)) return true; // Curve (mutation stat)
+    if (statName === 'pathAccelerate' && pathType === 2) return true; // Accelerate or Beam (mutation stat)
 
     // Death category stats
     if (statName === 'deathLandmine' && (deathType === -1 || deathType === 1)) return true; // Smear or Landmine (mutation stat)
+    if (statName === 'deathRefire' && (deathType === 2 || deathType === 3)) return true; // Refire or Turret (mutation stat)
     
     // Ant size unlock varies by difficulty
     if (statName === 'antSize') {
@@ -5777,7 +6004,8 @@ bulletKnockbackMultiplier: { caps: [2, 3, 4, 5], inverse: false },
           bestMutation = 'fireAlternating';
         }
       } else if (category === 'death') {
-        bestMutation = 'deathLandmine';
+        // Ties go to landmine, matching getDeathType
+        bestMutation = deathRefire[antIndex] > deathLandmine[antIndex] ? 'deathRefire' : 'deathLandmine';
       } else if (category === 'path') {
         if (pathHighArc[antIndex] > bestMutationValue) {
           bestMutationValue = pathHighArc[antIndex];
@@ -5786,6 +6014,10 @@ bulletKnockbackMultiplier: { caps: [2, 3, 4, 5], inverse: false },
         if (pathCurve[antIndex] > bestMutationValue) {
           bestMutationValue = pathCurve[antIndex];
           bestMutation = 'pathCurve';
+        }
+        if (pathAccelerate[antIndex] > bestMutationValue) {
+          bestMutationValue = pathAccelerate[antIndex];
+          bestMutation = 'pathAccelerate';
         }
       }
       
@@ -5865,10 +6097,16 @@ function updateTokenInvestments(antIndex, currentRound) {
             investment.target !== 'fireRapid' ? fireRapid[antIndex] : 0,
             investment.target !== 'fireAlternating' ? fireAlternating[antIndex] : 0
           );
+        } else if (investment.category === 'death') {
+          maxOtherValue = Math.max(
+            investment.target !== 'deathLandmine' ? deathLandmine[antIndex] : 0,
+            investment.target !== 'deathRefire' ? deathRefire[antIndex] : 0
+          );
         } else if (investment.category === 'path') {
           maxOtherValue = Math.max(
             investment.target !== 'pathHighArc' ? pathHighArc[antIndex] : 0,
-            investment.target !== 'pathCurve' ? pathCurve[antIndex] : 0
+            investment.target !== 'pathCurve' ? pathCurve[antIndex] : 0,
+            investment.target !== 'pathAccelerate' ? pathAccelerate[antIndex] : 0
           );
         }
         
@@ -5936,11 +6174,13 @@ bulletKnockbackMultiplier: { caps: [2, 3, 4, 5], inverse: false },
 
     // Death category mutation stats (can be capped)
     deathLandmine: { caps: [1.0, 2.0], inverse: false },  // <1 = smear, >=1 = landmine
+    deathRefire: { caps: [1.0, 2.0], inverse: false },  // <1 = refire, >=1 = turret
 
     // Fire category mutation stats (can be capped)
     fireAlternating: { caps: [1.0, 2.0], inverse: false },  // <1 = alternating, >=1 = hit reload
     fireBurst: { caps: [1.0, 2.0], inverse: false },  // <1 = burst, >=1 = delayed burst
     pathHighArc: { caps: [1.0, 2.0], inverse: false },  // <1 = high arc, >=1 = split arc
+    pathAccelerate: { caps: [1.0, 2.0], inverse: false },  // <1 = accelerate, >=1 = beam
     specialKnockback: { caps: [1.0, 2.0], inverse: false },  // <1 = knockback, >=1 = vacuum
     
     // Explosion stats
@@ -7995,6 +8235,10 @@ Next generation distribution:`);
 
 
 function nextRound(){
+  deathRefires.length = 0;
+  enemyBeams.length = 0;
+  beamHealthFlashFrames = 0;
+  beamShieldFlashFrames = 0;
   // Multiplayer mode handling
   if (multiplayerMode && !multiplayerScoreboard) {
     // This shouldn't happen now, as all players have played before showing scoreboard
@@ -8177,14 +8421,15 @@ function nextRound(){
         // Only mutate radius if parent uses explosion or high arc; residue also if parent uses landmines
         const sUsesExplosion = s.specialPotential > 0.5 && s.specialExplosion >= Math.max(s.specialKnockback, s.specialCamo || 0, s.specialRecoil || 0);
         const sUsesHighArc = s.pathPotential > 0.5 && s.pathHighArc >= s.pathCurve && s.pathHighArc >= s.pathAccelerate;
-        const sUsesLandmine = s.deathPotential > 0.5 && s.deathLandmine > 0;
+        const sUsesLandmine = s.deathPotential > 0.5 && s.deathLandmine > 0 && s.deathLandmine >= (s.deathRefire || 0);
         const sUsesSmear = sUsesLandmine && s.deathLandmine < 1;
-        if (sUsesExplosion || sUsesHighArc || sUsesSmear) {
+        const sUsesBeam = s.pathPotential > 0.5 && s.pathAccelerate >= 1 && s.pathAccelerate >= s.pathHighArc && s.pathAccelerate >= s.pathCurve;
+        if (sUsesExplosion || sUsesHighArc || sUsesSmear || sUsesBeam) {
           radiusMultiplier[i] = constrain(s.radiusMultiplier + random(-0.2, 0.2), 0.5, 3);
         } else {
           radiusMultiplier[i] = s.radiusMultiplier;
         }
-        if (sUsesExplosion || sUsesHighArc || sUsesLandmine) {
+        if (sUsesExplosion || sUsesHighArc || sUsesLandmine || sUsesBeam) {
           residueMultiplier[i] = constrain(s.residueMultiplier + random(-0.2, 0.2), 0.5, 3);
         } else {
           residueMultiplier[i] = s.residueMultiplier;
@@ -8228,6 +8473,7 @@ function nextRound(){
         }
         // Death category (mutation-based)
         deathLandmine[i]    = constrain(s.deathLandmine    + random(-(movementMutationRate/2), (movementMutationRate/2)), 0, getMaxAllowedValue('deathLandmine', i, s.geneTokenInvestments || []));
+        deathRefire[i]    = constrain((s.deathRefire || 0)    + random(-(movementMutationRate/2), (movementMutationRate/2)), 0, getMaxAllowedValue('deathRefire', i, s.geneTokenInvestments || []));
         deathPotential[i]    = constrain(s.deathPotential    + random(-(movementMutationRate/2), (movementMutationRate/2)), 0, 1);
         // Path category (mutation-based)
         pathHighArc[i]    = constrain(s.pathHighArc    + random(-movementMutationRate, movementMutationRate), 0, getMaxAllowedValue('pathHighArc', i, s.geneTokenInvestments || []));
@@ -8330,14 +8576,15 @@ function nextRound(){
         // Only mutate radius if parent uses explosion or high arc; residue also if parent uses landmines
         const parentUsesExplosion = specialPotential[parent.id] > 0.5 && specialExplosion[parent.id] >= Math.max(specialKnockback[parent.id], specialCamo[parent.id], specialRecoil[parent.id]);
         const parentUsesHighArc = pathPotential[parent.id] > 0.5 && pathHighArc[parent.id] >= pathCurve[parent.id] && pathHighArc[parent.id] >= pathAccelerate[parent.id];
-        const parentUsesLandmine = deathPotential[parent.id] > 0.5 && deathLandmine[parent.id] > 0;
+        const parentUsesLandmine = deathPotential[parent.id] > 0.5 && deathLandmine[parent.id] > 0 && deathLandmine[parent.id] >= deathRefire[parent.id];
         const parentUsesSmear = parentUsesLandmine && deathLandmine[parent.id] < 1;
-        if (parentUsesExplosion || parentUsesHighArc || parentUsesSmear) {
+        const parentUsesBeam = isBeamAccelerate(parent.id);
+        if (parentUsesExplosion || parentUsesHighArc || parentUsesSmear || parentUsesBeam) {
           radiusMultiplier[i] = constrain(radiusMultiplier[parent.id] + random(-0.2, 0.2), 0.5, 3);
         } else {
           radiusMultiplier[i] = radiusMultiplier[parent.id];
         }
-        if (parentUsesExplosion || parentUsesHighArc || parentUsesLandmine) {
+        if (parentUsesExplosion || parentUsesHighArc || parentUsesLandmine || parentUsesBeam) {
           residueMultiplier[i] = constrain(residueMultiplier[parent.id] + random(-0.2, 0.2), 0.5, 3);
         } else {
           residueMultiplier[i] = residueMultiplier[parent.id];
@@ -8381,6 +8628,7 @@ function nextRound(){
         }
         // Death category (mutation-based)
         deathLandmine[i]    = constrain(deathLandmine[parent.id]    + random(-(movementMutationRate/2), (movementMutationRate/2)), 0, getMaxAllowedValue('deathLandmine', parent.id));
+        deathRefire[i]    = constrain(deathRefire[parent.id]    + random(-(movementMutationRate/2), (movementMutationRate/2)), 0, getMaxAllowedValue('deathRefire', parent.id));
         deathPotential[i]    = constrain(deathPotential[parent.id]    + random(-(movementMutationRate/2), (movementMutationRate/2)), 0, 1);
         // Path category (mutation-based)
         pathHighArc[i]    = constrain(pathHighArc[parent.id]    + random(-movementMutationRate, movementMutationRate), 0, getMaxAllowedValue('pathHighArc', parent.id));
@@ -8645,6 +8893,9 @@ function nextRound(){
       deathLandmine[i] = winner
         ? constrain(deathLandmine[winner.id] + random(-(movementMutationRate/2), (movementMutationRate/2)), 0, getMaxAllowedValue('deathLandmine', winner.id))
         : random(0, 1);
+      deathRefire[i] = winner
+        ? constrain(deathRefire[winner.id] + random(-(movementMutationRate/2), (movementMutationRate/2)), 0, getMaxAllowedValue('deathRefire', winner.id))
+        : random(0, 1);
       
       deathPotential[i] = winner
         ? constrain(deathPotential[winner.id] + random(-(movementMutationRate/2), (movementMutationRate/2)), 0, 1)
@@ -8720,9 +8971,10 @@ function nextRound(){
       }
 
       // Radius stat - only mutate if winner uses explosions or high arc
-      const winnerUsesLandmine = winner && deathPotential[winner.id] > 0.5 && deathLandmine[winner.id] > 0;
+      const winnerUsesLandmine = winner && deathPotential[winner.id] > 0.5 && deathLandmine[winner.id] > 0 && deathLandmine[winner.id] >= deathRefire[winner.id];
       const winnerUsesSmear = winnerUsesLandmine && deathLandmine[winner.id] < 1;
-      if (winnerUsesExplosion || winnerUsesHighArc || winnerUsesSmear) {
+      const winnerUsesBeam = winner && isBeamAccelerate(winner.id);
+      if (winnerUsesExplosion || winnerUsesHighArc || winnerUsesSmear || winnerUsesBeam) {
         radiusMultiplier[i] = constrain(radiusMultiplier[winner.id] + random(-0.2, 0.2), 0.5, 3);
       } else if (winner) {
         radiusMultiplier[i] = radiusMultiplier[winner.id];
@@ -8730,8 +8982,8 @@ function nextRound(){
         radiusMultiplier[i] = random(0.5, 3);
       }
 
-      // Residue stat - only mutate if winner uses explosions, high arc, or landmines
-      if (winnerUsesExplosion || winnerUsesHighArc || winnerUsesLandmine) {
+      // Residue stat - only mutate if winner uses explosions, high arc, landmines, or beams
+      if (winnerUsesExplosion || winnerUsesHighArc || winnerUsesLandmine || winnerUsesBeam) {
         residueMultiplier[i] = constrain(residueMultiplier[winner.id] + random(-0.2, 0.2), 0.5, 3);
       } else if (winner) {
         residueMultiplier[i] = residueMultiplier[winner.id];
@@ -10257,6 +10509,14 @@ function updateAntDexEntries() {
   if (smearDeathDiscovered === true) storeItem('smearDeathPreviouslyDiscovered', smearDeathDiscovered);
   if (getItem('smearDeathPreviouslyDiscovered') === true) smearDeathDiscovered = getItem('smearDeathPreviouslyDiscovered');
 
+  // Bullet Death Type: Refire
+  if (refireDeathDiscovered === true) storeItem('refireDeathPreviouslyDiscovered', refireDeathDiscovered);
+  if (getItem('refireDeathPreviouslyDiscovered') === true) refireDeathDiscovered = getItem('refireDeathPreviouslyDiscovered');
+
+  // Bullet Death Type: Turret
+  if (turretDeathDiscovered === true) storeItem('turretDeathPreviouslyDiscovered', turretDeathDiscovered);
+  if (getItem('turretDeathPreviouslyDiscovered') === true) turretDeathDiscovered = getItem('turretDeathPreviouslyDiscovered');
+
   // Bullet Death Type: Landmine Conversion
   if (landmineConversionDiscovered === true) storeItem('landmineConversionPreviouslyDiscovered', landmineConversionDiscovered);
   if (getItem('landmineConversionPreviouslyDiscovered') === true) landmineConversionDiscovered = getItem('landmineConversionPreviouslyDiscovered');
@@ -10272,6 +10532,8 @@ function updateAntDexEntries() {
   if (getItem('highArcPreviouslyDiscovered') === true) highArcDiscovered = getItem('highArcPreviouslyDiscovered');
   if (splitArcDiscovered === true) storeItem('splitArcPreviouslyDiscovered', splitArcDiscovered);
   if (getItem('splitArcPreviouslyDiscovered') === true) splitArcDiscovered = getItem('splitArcPreviouslyDiscovered');
+  if (beamDiscovered === true) storeItem('beamPreviouslyDiscovered', beamDiscovered);
+  if (getItem('beamPreviouslyDiscovered') === true) beamDiscovered = getItem('beamPreviouslyDiscovered');
 
   // Burst Spread (88-92)
   if (burstSpreadMinDiscovered === true) storeItem('burstSpreadMinPreviouslyDiscovered', burstSpreadMinDiscovered);
@@ -10751,6 +11013,14 @@ function updateAntDexEntries() {
         smearDeathDiscovered = true;
         triggerDiscoveryPopup();
       }
+      if (!refireDeathDiscovered && deathType === 2) {
+        refireDeathDiscovered = true;
+        triggerDiscoveryPopup();
+      }
+      if (!turretDeathDiscovered && deathType === 3) {
+        turretDeathDiscovered = true;
+        triggerDiscoveryPopup();
+      }
 
       // Bullet Path Type discoveries
       const pathType = getPathType(i);
@@ -10764,6 +11034,10 @@ function updateAntDexEntries() {
       }
       if (!splitArcDiscovered && isSplitArc(i)) {
         splitArcDiscovered = true;
+        triggerDiscoveryPopup();
+      }
+      if (!beamDiscovered && isBeamAccelerate(i)) {
+        beamDiscovered = true;
         triggerDiscoveryPopup();
       }
       if (!highArcDiscovered && pathType === 1) {
@@ -11428,6 +11702,22 @@ function updateAntDexEntries() {
       discovered: landmineConversionDiscovered
     },
 
+    // Bullet Death Type - Refire
+    {
+      name: "Refire Ants",
+      desc: "Where a bullet dies, it winds up and is fired at the beetle again, just as the ant would fire it. Refired bullets have no death effect.",
+      stats: "Death Type: Refire",
+      discovered: refireDeathDiscovered
+    },
+
+    // Bullet Death Type - Turret
+    {
+      name: "Turret Ants",
+      desc: "Where a bullet dies, a small turret sets up and fires at the beetle 3 times, just as the ant would, then disappears. Turret bullets have no death effect.",
+      stats: "Death Type: Turret",
+      discovered: turretDeathDiscovered
+    },
+
     // 84-86: Bullet Path Types
     {
       name: "Clockwise Curve Ants",
@@ -11452,6 +11742,12 @@ function updateAntDexEntries() {
       desc: "Lob high arc bullets that glow orange on the way up, then split into 3 smaller bullets at the top of the arc that land in a row across the target.",
       stats: "Path Type: Split Arc • Arc Duration: 130-600 frames",
       discovered: splitArcDiscovered
+    },
+    {
+      name: "Beam Ants",
+      desc: "Bullets charge up with closing rings, then fire a beam to the edge of the screen when they would start accelerating. Knockback beams shove the beetle along the beam and vacuum beams pull it in. Explosive beams fire both ways and burn like an explosion. Beam color shows the effect: white knockback, purple vacuum, green explosive, cyan plain. Beam bullets have no death effect.",
+      stats: "Path Type: Beam • Width: Radius Multiplier • Duration: Residue Multiplier",
+      discovered: beamDiscovered
     },
 
     // 87-91: Burst Spread (60°-180°, Burst Fire only)
@@ -12261,6 +12557,8 @@ function drawAntsTab(fadeAlpha) {
     { name: '── DEATH CATEGORY ──', key: null, min: 0, max: 0, step: 0 }, // Header
     { name: 'Death: Landmine', key: 'deathLandmine', min: 0, max: 2, step: 0.01,
       help: 'Mutation stat for bullet death (0-2, <1=smear, >=1=landmine)' },
+    { name: 'Death: Refire', key: 'deathRefire', min: 0, max: 2, step: 0.01,
+      help: 'Mutation stat for bullet death (0-2, <1=refire, >=1=turret)' },
     { name: 'Death Potential', key: 'deathPotential', min: 0, max: 1, step: 0.01,
       help: 'If >0.5, use highest death trait; else fading' },
     
@@ -12270,8 +12568,8 @@ function drawAntsTab(fadeAlpha) {
       help: 'Mutation stat for high arc path (0-2, <1=high arc, >=1=split arc)' },
     { name: 'Path: Curve', key: 'pathCurve', min: 0, max: 2, step: 0.01,
       help: 'Mutation stat for curved/homing path (0-2, <1=curved, >=1=homing)' },
-    { name: 'Path: Accelerate', key: 'pathAccelerate', min: 0, max: 1, step: 0.01,
-      help: 'Mutation stat for accelerating bullets (0-1)' },
+    { name: 'Path: Accelerate', key: 'pathAccelerate', min: 0, max: 2, step: 0.01,
+      help: 'Mutation stat for accelerating bullets (0-2, <1=accelerate, >=1=beam)' },
     { name: 'Bullet Accelerate Delay', key: 'bulletAccelerateDelay', min: 30, max: 200, step: 1, integer: true,
       help: 'Frames before bullet accelerates (200=slow, 30=fast, inverse stat)' },
     { name: 'Path Potential', key: 'pathPotential', min: 0, max: 1, step: 0.01,
@@ -12477,9 +12775,11 @@ bulletKnockbackMultiplier: { caps: [2, 3, 4, 5], inverse: false },
       bulletCurveStrength: { caps: [0.05, 0.075, 0.1], inverse: false },
       pathCurve: { caps: [1.0, 2.0], inverse: false },
       deathLandmine: { caps: [1.0, 2.0], inverse: false },
+      deathRefire: { caps: [1.0, 2.0], inverse: false },  // <1 = refire, >=1 = turret
       fireAlternating: { caps: [1.0, 2.0], inverse: false },
       fireBurst: { caps: [1.0, 2.0], inverse: false },  // <1 = burst, >=1 = delayed burst
       pathHighArc: { caps: [1.0, 2.0], inverse: false },  // <1 = high arc, >=1 = split arc
+      pathAccelerate: { caps: [1.0, 2.0], inverse: false },  // <1 = accelerate, >=1 = beam
       specialKnockback: { caps: [1.0, 2.0], inverse: false },  // <1 = knockback, >=1 = vacuum
       explosionProximity: { caps: [400, 600, 800, 1000], inverse: false },
       bulletSize: { caps: [1.5, 2.0, 2.5, 3.0], inverse: false },
