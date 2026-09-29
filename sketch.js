@@ -680,6 +680,9 @@ let upgradeMenuActive = false;
 let selectedUpgrade = 0;  // 0, 1, or 2 for three options
 let upgradeKeyDebounce = 0;
 let upgradeEnterPressed = false;  // Track if Enter was pressed to prevent bleed-through
+const UPGRADE_REROLLS_PER_RUN = 3;
+let upgradeRerolls = UPGRADE_REROLLS_PER_RUN;  // Rerolls left this run (do not regenerate)
+let upgradeRerollPressed = false;  // Track if reroll was pressed to prevent repeat while held
 let previousConfirmPressed = false;  // Track previous frame's confirm state for debouncing
 let upgrade1Level = 0;  // Walking Speed (max 4)
 let upgrade2Level = 0;  // Dash Speed (max 5)
@@ -701,6 +704,15 @@ let upgrade17Level = 0; // Shockwave Cooldown (max 5, 2.25s→0.375s)
 let upgrade18Level = 0; // Shockwave Knockback (max 3, 4→10)
 let upgrade19Level = 0; // Shockwave Bullet Deflection (max 4, 20%→100% bullet conversion)
 let upgrade20Level = 0; // Health Regeneration (max 5, regenerate health after 200 frames)
+let upgrade21Level = 0; // Runt Hunter (max 1, rare): ants smaller than normal give EXP inversely proportional to size
+let upgrade22Level = 0; // Increased Metabolism (max 7): each level makes EXP levels 10% cheaper (up to 70%)
+let upgrade23Level = 0; // EXP Boost (max 10): each level adds 10% EXP (up to +100%)
+let upgrade24Level = 0; // Combo Surge (max 4): combo bonus steps every 5 → 1 kills
+let upgrade25Level = 0; // Dash Harvest (max 1, very rare): double EXP for dash kills
+let upgrade26Level = 0; // Shockwave Harvest (max 1, very rare): double EXP for shockwave kills
+let upgrade27Level = 0; // Bullet Harvest (max 1, very rare): double EXP for bullet kills
+const UPGRADE_COUNT = 27;
+const UPGRADE_MAX_LEVELS = [4, 5, 5, 9, 8, 5, 5, 5, 1, 1, 1, 4, 4, 1, 5, 5, 5, 3, 4, 5, 1, 7, 10, 4, 1, 1, 1];
 let displayedUpgrades = [];  // Array of up to 3 randomly selected upgrade indices (0-9)
 
 // Pre-game upgrade menu variables (insane difficulty 8-10)
@@ -1584,6 +1596,14 @@ function resetRunState() {
   upgrade18Level = 0;
   upgrade19Level = 0;
   upgrade20Level = 0;
+  upgrade21Level = 0;
+  upgrade22Level = 0;
+  upgrade23Level = 0;
+  upgrade24Level = 0;
+  upgrade25Level = 0;
+  upgrade26Level = 0;
+  upgrade27Level = 0;
+  upgradeRerolls = UPGRADE_REROLLS_PER_RUN;
   displayedUpgrades = [];
   updateUpgradeBooleans();  // Reset all upgrade booleans to false
 }
@@ -2223,7 +2243,7 @@ function drawScoreboard() {
   // Combo (colored - fades yellow → red → white)
   let comboText = `Combo: ${combo}`;
   if (streakPoints > 0) {
-    comboText += ` +${streakPoints.toFixed(1).replace(/\.0$/, '')}`;
+    comboText += ` +${Math.round(streakPoints)}`;
   }
   // Color transition: Yellow (60) → Red (30) → White (0)
   let r, g, b;
@@ -2258,13 +2278,13 @@ function drawScoreboard() {
   text(`Health: ${health.toFixed(2)}`, startX + sectionWidth * 3, yPos);
 
   // Score
-  text(`Score: ${score.toFixed(1).replace(/\.0$/, '')}`, startX + sectionWidth * 4, yPos);
+  text(`Score: ${Math.round(score)}`, startX + sectionWidth * 4, yPos);
 
   // Total
-  text(`Total: ${currentRunScore.toFixed(1).replace(/\.0$/, '')}`, startX + sectionWidth * 5, yPos);
+  text(`Total: ${Math.round(currentRunScore)}`, startX + sectionWidth * 5, yPos);
 
   // High Score
-  text(`High Score: ${highScore.toFixed(1).replace(/\.0$/, '')}`, startX + sectionWidth * 6, yPos);
+  text(`High Score: ${Math.round(highScore)}`, startX + sectionWidth * 6, yPos);
 
   // EXP Progress Bar
   drawExpBar();
@@ -2289,7 +2309,7 @@ function drawExpBar() {
   rect(barX, barY, barWidth, barHeight);
   
   // Progress (filled portion)
-  let progressWidth = map(expProgress, 0, expRequired, 0, barWidth);
+  let progressWidth = map(expProgress, 0, getExpRequired(), 0, barWidth);
   fill(255, 255, 0);  // Bright yellow
   noStroke();
   rect(barX, barY, progressWidth, barHeight);
@@ -2311,21 +2331,42 @@ function drawExpBar() {
     strokeWeight(3);
     textSize(14);
     textAlign(CENTER);
-    text(`EXP Level: ${expLevel} | ${expProgress.toFixed(1).replace(/\.0$/, '')}/${expRequired.toFixed(1).replace(/\.0$/, '')}`, windowWidth / 2, barY + barHeight / 2 + 5);
+    text(`EXP Level: ${expLevel} | ${Math.round(expProgress)}/${getExpRequired()}`, windowWidth / 2, barY + barHeight / 2 + 5);
   }
 }
 
-function addScore(points) {
-  // Round points to nearest tenth
-  points = Math.round(points * 10) / 10;
-  score += points;
-  expProgress += points;
-  
+// EXP needed for the next level, after Increased Metabolism's discount
+function getExpRequired() {
+  return Math.round(expRequired * (1 - 0.1 * upgrade22Level));
+}
+
+// Add EXP rounded to a whole number and show it beside the beetle
+function addExp(amount) {
+  amount = Math.round(amount);
+  expProgress += amount;
+  addExpPopup(amount);
+
   // Check if upgrade should be available
-  if (expProgress >= expRequired && !upgradeAvailable) {
+  if (expProgress >= getExpRequired() && !upgradeAvailable) {
     upgradeAvailable = true;
     // Don't auto-level - wait for upgrade selection at round end
   }
+}
+
+// Award score and EXP for a kill. basePoints is before size scaling;
+// source is 'dash', 'shockwave', 'bullet', or null. Returns the score gained.
+function addKillScore(basePoints, size, source) {
+  let scoreGained = Math.round(basePoints * size);
+  score += scoreGained;
+
+  // Runt Hunter: ants smaller than normal give EXP inversely proportional to size
+  let sizeFactor = (upgrade21Level > 0 && size < 1) ? 1 / size : size;
+  let multiplier = 1 + 0.1 * upgrade23Level;  // EXP Boost
+  if (source === 'dash' && upgrade25Level > 0) multiplier *= 2;
+  if (source === 'shockwave' && upgrade26Level > 0) multiplier *= 2;
+  if (source === 'bullet' && upgrade27Level > 0) multiplier *= 2;
+  addExp(basePoints * sizeFactor * multiplier);
+  return scoreGained;
 }
 
 function drawStrikes(){
@@ -2742,8 +2783,8 @@ function enemyInteraction1(){
         comboTime = 60;
         combo = combo + 1;
         calculateBonus();
-        streakPoints = streakPoints + (comboPoints * antSize[i]);
-        addScore((100 + comboPoints) * antSize[i]);
+        streakPoints += Math.round(comboPoints * antSize[i]);
+        let scoreGained = addKillScore(100 + comboPoints, antSize[i], dash ? 'dash' : null);
         health = health + antSize[i];
         
         // Oogpister Beetle: 20% chance to instantly reload 1 bullet when eating an ant
@@ -2762,7 +2803,7 @@ function enemyInteraction1(){
           }
         }
         
-        addDeathEffect(antX[i], antY[i], (100 + comboPoints) * antSize[i]);
+        addDeathEffect(antX[i], antY[i], scoreGained);
         antX[i] = random(0, getGameplayWidth());
         antY[i] = random(scoreBarHeight + ANT_SPAWN_BUFFER, getGameplayHeight() - expBarHeight - expBarBuffer - ANT_SPAWN_BUFFER);
         spawnX[i] = antX[i] + cos(angleFromSpawn[i]);
@@ -2834,7 +2875,7 @@ function enemyInteraction1(){
                 combo = 1;
               }
               score += 100 * combo;
-              expProgress += 100 * combo;
+              addExp(100 * combo * (1 + 0.1 * upgrade23Level));
               combo++;
               antHealth[i] = antMaxHealth[i]; // Reset health for respawn
             }
@@ -2898,10 +2939,10 @@ function dashCollision() {
           comboTime = 60;
           combo++;
           calculateBonus();
-          streakPoints += (comboPoints * antSize[i]);
-          addScore((100 + comboPoints) * antSize[i]);
+          streakPoints += Math.round(comboPoints * antSize[i]);
+          let scoreGained = addKillScore(100 + comboPoints, antSize[i], 'dash');
           health += antSize[i];
-          addDeathEffect(antX[i], antY[i], (100 + comboPoints) * antSize[i]);
+          addDeathEffect(antX[i], antY[i], scoreGained);
           antX[i] = random(0, getGameplayWidth());
           antY[i] = random(scoreBarHeight + ANT_SPAWN_BUFFER, getGameplayHeight() - expBarHeight - expBarBuffer - ANT_SPAWN_BUFFER);
           spawnX[i] = antX[i] + cos(angleFromSpawn[i]);
@@ -3676,10 +3717,10 @@ function enemyShoot1() {
               comboTime = 60;
               combo++;
               calculateBonus();
-              streakPoints += (comboPoints * antSize[ai]);
-              addScore((100 + comboPoints) * antSize[ai]);
+              streakPoints += Math.round(comboPoints * antSize[ai]);
+              let scoreGained = addKillScore(100 + comboPoints, antSize[ai], 'bullet');
               health += antSize[ai];
-              addDeathEffect(antX[ai], antY[ai], (100 + comboPoints) * antSize[ai]);
+              addDeathEffect(antX[ai], antY[ai], scoreGained);
               antX[ai] = random(0, getGameplayWidth());
               antY[ai] = random(scoreBarHeight + ANT_SPAWN_BUFFER, getGameplayHeight() - expBarHeight - expBarBuffer - ANT_SPAWN_BUFFER);
               spawnX[ai] = antX[ai] + cos(angleFromSpawn[ai]);
@@ -3748,10 +3789,10 @@ function enemyShoot1() {
                   comboTime = 60;
                   combo++;
                   calculateBonus();
-                  streakPoints += (comboPoints * antSize[aj]);
-                  addScore((100 + comboPoints) * antSize[aj]);
+                  streakPoints += Math.round(comboPoints * antSize[aj]);
+                  let scoreGained = addKillScore(100 + comboPoints, antSize[aj], 'bullet');
                   health += antSize[aj];
-                  addDeathEffect(antX[aj], antY[aj], (100 + comboPoints) * antSize[aj]);
+                  addDeathEffect(antX[aj], antY[aj], scoreGained);
                   antX[aj] = random(0, getGameplayWidth());
                   antY[aj] = random(scoreBarHeight + ANT_SPAWN_BUFFER, getGameplayHeight() - expBarHeight - expBarBuffer - ANT_SPAWN_BUFFER);
                   spawnX[aj] = antX[aj] + cos(angleFromSpawn[aj]);
@@ -3929,10 +3970,10 @@ function enemyShoot1() {
               comboTime = 60;
               combo++;
               calculateBonus();
-              streakPoints += (comboPoints * antSize[i]);
-              addScore((100 + comboPoints) * antSize[i]);
+              streakPoints += Math.round(comboPoints * antSize[i]);
+              let scoreGained = addKillScore(100 + comboPoints, antSize[i], 'bullet');
               health += antSize[i];
-              addDeathEffect(antX[i], antY[i], (100 + comboPoints) * antSize[i]);
+              addDeathEffect(antX[i], antY[i], scoreGained);
               antX[i] = random(0, getGameplayWidth());
               antY[i] = random(scoreBarHeight + ANT_SPAWN_BUFFER, getGameplayHeight() - expBarHeight - expBarBuffer - ANT_SPAWN_BUFFER);
               spawnX[i] = antX[i] + cos(angleFromSpawn[i]);
@@ -4416,13 +4457,13 @@ function beetleShoot() {
             comboTime = 60;
             combo++;
             calculateBonus();
-            streakPoints += (comboPoints * antSize[j]);
-            addScore((100 + comboPoints) * antSize[j]);
+            streakPoints += Math.round(comboPoints * antSize[j]);
+            let scoreGained = addKillScore(100 + comboPoints, antSize[j], 'bullet');
             // Only restore health if round is active and player is alive
             if (end == false && health > 0) {
               health += antSize[j];
             }
-            addDeathEffect(antX[j], antY[j], (100 + comboPoints) * antSize[j]);
+            addDeathEffect(antX[j], antY[j], scoreGained);
             antX[j] = random(0, getGameplayWidth());
             antY[j] = random(scoreBarHeight + ANT_SPAWN_BUFFER, getGameplayHeight() - expBarHeight - expBarBuffer - ANT_SPAWN_BUFFER);
             spawnX[j] = antX[j] + cos(angleFromSpawn[j]);
@@ -4610,10 +4651,10 @@ function handleWindAttack() {
               comboTime = 60;
               combo++;
               calculateBonus();
-              streakPoints += (comboPoints * antSize[i]);
-              addScore((100 + comboPoints) * antSize[i]);
+              streakPoints += Math.round(comboPoints * antSize[i]);
+              let scoreGained = addKillScore(100 + comboPoints, antSize[i], 'shockwave');
               health += antSize[i];
-              addDeathEffect(antX[i], antY[i], (100 + comboPoints) * antSize[i]);
+              addDeathEffect(antX[i], antY[i], scoreGained);
               antX[i] = random(0, getGameplayWidth());
               antY[i] = random(scoreBarHeight + ANT_SPAWN_BUFFER, getGameplayHeight() - expBarHeight - expBarBuffer - ANT_SPAWN_BUFFER);
               spawnX[i] = antX[i] + cos(angleFromSpawn[i]);
@@ -4681,8 +4722,8 @@ function calculateBonus(){
   } else if(comboTime > 0){
     comboTime = comboTime - 1;
     if (combo > 1) {
-            let roundedCombo = Math.ceil(combo / 5) * 5;
-            comboPoints = (roundedCombo / 5) * comboConstant; // Calculate bonus points
+            let comboStep = 5 - upgrade24Level; // Combo Surge: bonus grows every 5 → 1 kills
+            comboPoints = Math.ceil(combo / comboStep) * comboConstant; // Calculate bonus points
         } else {
             comboPoints = 0; // No points if combo is 1 or less
     }
@@ -6230,9 +6271,31 @@ function addDeathEffect(x, y, points = 100) {
   floatingTexts.push({
     x: x,
     y: y - 10,
-    text: `+${points.toFixed(1).replace(/\.0$/, '')}`,
+    text: `+${Math.round(points)}`,
     opacity: 255,
     riseSpeed: 1.5,
+  });
+}
+
+// Floating EXP text that follows the beetle; kills in quick succession add to the same popup
+function addExpPopup(amount) {
+  if (amount <= 0) return;
+  for (let t of floatingTexts) {
+    if (t.isExp && t.opacity > 180) {
+      t.amount += amount;
+      t.text = `+${t.amount} EXP`;
+      t.opacity = 255;
+      t.rise = 0;
+      return;
+    }
+  }
+  floatingTexts.push({
+    isExp: true,
+    amount: amount,
+    text: `+${amount} EXP`,
+    rise: 0,
+    opacity: 255,
+    riseSpeed: 1,
   });
 }
 
@@ -6698,15 +6761,30 @@ function drawDeathEffects() {
   for (let i = floatingTexts.length - 1; i >= 0; i--) {
     let t = floatingTexts[i];
     push();
-      textAlign(CENTER);
-      textSize(24);
       noStroke();
-      fill(255, 255, 0, t.opacity);
-      text(t.text, t.x, t.y);
+      if (t.isExp) {
+        // EXP: yellow like the EXP bar, beside the beetle
+        textAlign(LEFT);
+        textSize(20);
+        stroke(0, t.opacity);
+        strokeWeight(3);
+        fill(255, 255, 0, t.opacity);
+        text(t.text, playerX + 40, playerY - 30 - t.rise);
+      } else {
+        // Score: white, where the ant died
+        textAlign(CENTER);
+        textSize(24);
+        fill(255, t.opacity);
+        text(t.text, t.x, t.y);
+      }
     pop();
 
     // Animate floating upward and fading out
-    t.y -= t.riseSpeed;
+    if (t.isExp) {
+      t.rise += t.riseSpeed;
+    } else {
+      t.y -= t.riseSpeed;
+    }
     t.opacity -= 5;
     if (t.opacity <= 0) floatingTexts.splice(i, 1);
   }
@@ -6836,7 +6914,7 @@ function endGame(){
       textSize(48);
       fill(255, 220, 120);
       text(level, getMenuWidth() / 2 - getMenuWidth() * 0.18, getMenuHeight() * 0.46);
-      text(highScore.toFixed(1).replace(/\.0$/, ''), getMenuWidth() / 2 + getMenuWidth() * 0.18, getMenuHeight() * 0.46);
+      text(Math.round(highScore), getMenuWidth() / 2 + getMenuWidth() * 0.18, getMenuHeight() * 0.46);
 
       textSize(24);
       fill(180, 220, 255);
@@ -6845,10 +6923,10 @@ function endGame(){
 
       textSize(42);
       fill(240, 164, 0);
-      text(intermissionScore.toFixed(1).replace(/\.0$/, ''), getMenuWidth() / 2 - getMenuWidth() * 0.20, getMenuHeight() * 0.61);
+      text(Math.round(intermissionScore), getMenuWidth() / 2 - getMenuWidth() * 0.20, getMenuHeight() * 0.61);
 
       fill(240, 164, 0);
-      text(totalScore.toFixed(1).replace(/\.0$/, ''), getMenuWidth() / 2 + getMenuWidth() * 0.20, getMenuHeight() * 0.61);
+      text(Math.round(totalScore), getMenuWidth() / 2 + getMenuWidth() * 0.20, getMenuHeight() * 0.61);
 
       if (!gameOverMenu) {
         push();
@@ -7093,8 +7171,8 @@ if (timeCount < 0) {
 
       textSize(46);
       fill(240, 164, 0);
-      text(displayScore.toFixed(1).replace(/\.0$/, ''), getMenuWidth() / 2 - getMenuWidth() * 0.15, getMenuHeight() * 0.46);
-      text(displayTotal.toFixed(1).replace(/\.0$/, ''), getMenuWidth() / 2 + getMenuWidth() * 0.15, getMenuHeight() * 0.46);
+      text(Math.round(displayScore), getMenuWidth() / 2 - getMenuWidth() * 0.15, getMenuHeight() * 0.46);
+      text(Math.round(displayTotal), getMenuWidth() / 2 + getMenuWidth() * 0.15, getMenuHeight() * 0.46);
 
       textSize(24);
       fill(160, 220, 255);
@@ -7110,7 +7188,7 @@ if (timeCount < 0) {
       text(intermissionHealth.toFixed(2), getMenuWidth() / 2 - getMenuWidth() * 0.20, getMenuHeight() * 0.61);
 
       fill(255, 210, 120);
-      text(highScore.toFixed(1).replace(/\.0$/, ''), getMenuWidth() / 2 + getMenuWidth() * 0.20, getMenuHeight() * 0.61);
+      text(Math.round(highScore), getMenuWidth() / 2 + getMenuWidth() * 0.20, getMenuHeight() * 0.61);
 
       if (intermissionHealth < 10) {
         const pulsePhase = sin(frameCount * 10);
@@ -7141,43 +7219,7 @@ if (timeCount < 0) {
       upgradeKeyDebounce = 0;
       
       // Get upgrade levels and max levels
-      let upgradeLevels = [upgrade1Level, upgrade2Level, upgrade3Level, upgrade4Level, upgrade5Level, upgrade6Level, upgrade7Level, upgrade8Level, upgrade9Level, upgrade10Level, upgrade11Level, upgrade12Level, upgrade13Level, upgrade14Level, upgrade15Level, upgrade16Level, upgrade17Level, upgrade18Level, upgrade19Level, upgrade20Level];
-      let upgradeMaxLevels = [4, 5, 5, 9, 8, 5, 5, 5, 1, 1, 1, 4, 4, 1, 5, 5, 5, 3, 4, 5];  // Walking Speed, Dash Speed, Dash Cooldown, Add Shield, Add Bullets, Shield Regen, Bullet Reload, Bullet Speed, Free-Angle Aiming, Tiger Beetle, Oogpister Beetle, Horns, Potent Acid, Shockwave, Shockwave Radius, Shockwave Damage, Shockwave Cooldown, Shockwave Knockback, Shockwave Deflection, Health Regeneration
-      
-      // Filter out maxed upgrades and locked upgrades (prerequisites not met)
-      let availableUpgrades = [];
-      for (let i = 0; i < 20; i++) {
-        // Check if upgrade is not maxed
-        if (upgradeLevels[i] < upgradeMaxLevels[i]) {
-          // Check prerequisites
-          if (i === 5 && upgrade4Level === 0) continue;  // Shield Regeneration requires Add Shield
-          if (i === 6 && upgrade5Level === 0) continue;  // Bullet Reload requires Add Bullets
-          if (i === 7 && upgrade5Level === 0) continue;  // Bullet Speed requires Add Bullets
-          if (i === 8 && (upgrade5Level === 0 || upgrade7Level === 0 || upgrade8Level === 0)) continue;  // Free-Angle Aiming requires Add Bullets, Bullet Reload, and Bullet Speed
-          if (i === 9 && upgrade3Level < 5) continue;  // Tiger Beetle requires Dash Cooldown maxed
-          if (i === 10 && upgrade7Level < 3) continue;  // Oogpister Beetle requires Bullet Reload level 3+
-          if (i === 11 && level <= 5) continue;  // Horns unlocks after round 5
-          if (i === 12 && upgrade5Level === 0) continue;  // Potent Acid requires Add Bullets
-          if (i === 12 && level <= 5) continue;  // Potent Acid unlocks after round 5
-          if (i === 13 && level <= 5) continue;  // Shockwave unlocks after round 5
-          if (i === 14 && upgrade14Level === 0) continue;  // Shockwave Radius requires Shockwave Unlock
-          if (i === 15 && upgrade14Level === 0) continue;  // Shockwave Damage requires Shockwave Unlock
-          if (i === 16 && upgrade14Level === 0) continue;  // Shockwave Cooldown requires Shockwave Unlock
-          if (i === 17) continue;  // Shockwave Knockback removed (now constant)
-          if (i === 18 && upgrade14Level === 0) continue;  // Shockwave Deflection requires Shockwave Unlock
-          if (i === 19 && level <= 5) continue;  // Health Regeneration unlocks after round 5
-          availableUpgrades.push(i);
-        }
-      }
-      
-      // Randomly select up to 3 upgrades from available ones
-      displayedUpgrades = [];
-      let numToSelect = min(3, availableUpgrades.length);
-      for (let i = 0; i < numToSelect; i++) {
-        let randomIndex = floor(random(availableUpgrades.length));
-        displayedUpgrades.push(availableUpgrades[randomIndex]);
-        availableUpgrades.splice(randomIndex, 1);
-      }
+      pickUpgradeOptions();
       // Constrain selectedUpgrade to valid range
       if (displayedUpgrades.length > 0) {
         selectedUpgrade = constrain(selectedUpgrade, 0, displayedUpgrades.length - 1);
@@ -7226,6 +7268,19 @@ if (timeCount < 0) {
           selectedUpgrade = 2;
         }
         
+        // Reroll the offered upgrades (wait for key release between rerolls)
+        if (isRerollPressed()) {
+          if (!upgradeRerollPressed && upgradeKeyDebounce === 0 && canRerollUpgrades()) {
+            upgradeRerolls--;
+            pickUpgradeOptions(displayedUpgrades);
+            selectedUpgrade = constrain(selectedUpgrade, 0, displayedUpgrades.length - 1);
+            upgradeKeyDebounce = 10;
+          }
+          upgradeRerollPressed = true;
+        } else {
+          upgradeRerollPressed = false;
+        }
+
         // Confirm selection with Enter (wait for key release between selections)
         if (isConfirmPressed()) {
           if (!upgradeEnterPressed && upgradeKeyDebounce === 0) {
@@ -7434,7 +7489,7 @@ if (timeCount < 0) {
 
 function drawUpgradeScreen() {
   // Define all 20 upgrade options with their max levels
-  let upgradeMaxLevels = [4, 5, 5, 9, 8, 5, 5, 5, 1, 1, 1, 4, 4, 1, 5, 5, 5, 3, 4, 5];
+  let upgradeMaxLevels = UPGRADE_MAX_LEVELS;
   let allUpgrades = [
     {
       title: 'Walking Speed',
@@ -7555,6 +7610,48 @@ function drawUpgradeScreen() {
       description: 'Regenerate health after 200 frames without taking damage. Can exceed 10 health but slows down, stopping at 30. Rates: 0.001→0.1/frame. Unlocks after round 5.',
       level: upgrade20Level,
       maxLevel: 5
+    },
+    {
+      title: 'Runt Hunter',
+      description: 'Ants smaller than normal give EXP inversely proportional to their size.',
+      level: upgrade21Level,
+      maxLevel: 1
+    },
+    {
+      title: 'Increased Metabolism',
+      description: 'Each level makes EXP levels 10% cheaper (up to 70%).',
+      level: upgrade22Level,
+      maxLevel: 7
+    },
+    {
+      title: 'EXP Boost',
+      description: 'Each level makes ants give 10% more EXP (up to +100%).',
+      level: upgrade23Level,
+      maxLevel: 10
+    },
+    {
+      title: 'Combo Surge',
+      description: 'The combo bonus grows every 4, 3, 2, then every 1 kill instead of every 5.',
+      level: upgrade24Level,
+      maxLevel: 4
+    },
+    {
+      title: 'Dash Harvest',
+      description: 'Double EXP for ants killed by dashing.',
+      level: upgrade25Level,
+      maxLevel: 1
+    },
+    {
+      title: 'Shockwave Harvest',
+      description: 'Double EXP for ants killed by your shockwave. Requires Shockwave.',
+      level: upgrade26Level,
+      maxLevel: 1
+    },
+    {
+      title: 'Bullet Harvest',
+      description: 'Double EXP for ants killed by your bullets. Requires Add Bullets.',
+      level: upgrade27Level,
+      maxLevel: 1
     }
   ];
   
@@ -7668,6 +7765,27 @@ function drawUpgradeScreen() {
         const nxt = rates[nextLevel] ? rates[nextLevel] : 0;
         return `Regenerate health when safe. Current: ${cur} → ${level === allUpgrades[upgradeIndex].maxLevel ? `${cur} (max)` : nxt}`;
       }
+      case 20: { // Runt Hunter
+        return 'Small ants give EXP inversely proportional to size (1/3 size = 3× EXP).';
+      }
+      case 21: { // Increased Metabolism
+        return `EXP levels cost less. Current: -${level * 10}% → ${level === allUpgrades[upgradeIndex].maxLevel ? `-${level * 10}% (max)` : `-${nextLevel * 10}%`}`;
+      }
+      case 22: { // EXP Boost
+        return `Ants give more EXP. Current: +${level * 10}% → ${level === allUpgrades[upgradeIndex].maxLevel ? `+${level * 10}% (max)` : `+${nextLevel * 10}%`}`;
+      }
+      case 23: { // Combo Surge
+        return `Combo bonus (+50%) grows every ${5 - level} kills → ${level === allUpgrades[upgradeIndex].maxLevel ? `${5 - level} (max)` : `every ${5 - nextLevel}`}`;
+      }
+      case 24: { // Dash Harvest
+        return 'Ants killed by dashing give double EXP.';
+      }
+      case 25: { // Shockwave Harvest
+        return 'Ants killed by your shockwave give double EXP.';
+      }
+      case 26: { // Bullet Harvest
+        return 'Ants killed by your bullets give double EXP.';
+      }
       default:
         return allUpgrades[upgradeIndex].description;
     }
@@ -7700,6 +7818,13 @@ function drawUpgradeScreen() {
       case 17:{ cur = `${4 + (level * 2)}`; nxt = `${4 + (nextLevel * 2)}`; break; }
       case 18:{ cur = `${((level + 1) * 0.2 * 100).toFixed(0)}%`; nxt = `${((nextLevel + 1) * 0.2 * 100).toFixed(0)}%`; break; }
       case 19:{ const rates=[0,0.001,0.005,0.01,0.05,0.1]; cur = `${rates[level]}`; nxt = `${rates[nextLevel]}`; break; }
+      case 20:{ cur = level > 0 ? 'ON' : 'OFF'; nxt = 'ON'; break; }
+      case 21:{ cur = `-${level * 10}%`; nxt = `-${nextLevel * 10}%`; break; }
+      case 22:{ cur = `+${level * 10}%`; nxt = `+${nextLevel * 10}%`; break; }
+      case 23:{ cur = `every ${5 - level}`; nxt = `every ${5 - nextLevel}`; break; }
+      case 24:
+      case 25:
+      case 26:{ cur = level > 0 ? 'ON' : 'OFF'; nxt = 'ON'; break; }
       default: { cur = ''; nxt = ''; }
     }
     return { cur, nxt, isMax };
@@ -7772,6 +7897,14 @@ function drawUpgradeScreen() {
       textSize(18);
       textAlign(CENTER, CENTER);
       text(`[${i + 1}]`, cardX, cardY - cardHeight * 0.40);
+
+      // Rarity tag
+      let rarity = getUpgradeRarity(displayedUpgrades[i]);
+      if (rarity.label) {
+        fill(rarity.color[0], rarity.color[1], rarity.color[2]);
+        textSize(16);
+        text(rarity.label, cardX, cardY - cardHeight * 0.35);
+      }
 
       // Title
       if (selectedUpgrade === i) {
@@ -7855,14 +7988,102 @@ function drawUpgradeScreen() {
       }
       navText += '  Quick Select  |  Enter  Confirm';
       text(navText, getMenuWidth() / 2, getMenuHeight() * 0.85);
+
+      // Rerolls left this run
+      let rerollText = `R / Y  Reroll  (${upgradeRerolls} left this run)`;
+      if (canRerollUpgrades()) {
+        fill(255);
+      } else {
+        fill(120);
+      }
+      textSize(22);
+      text(rerollText, getMenuWidth() / 2, getMenuHeight() * 0.9);
     }
   endMenuScaling();
+}
+
+// Rarity of each upgrade: weight is its relative chance to be offered
+function getUpgradeRarity(upgradeId) {
+  if (upgradeId === 20) return { label: 'RARE', weight: 0.4, color: [80, 160, 255] };
+  if (upgradeId >= 24 && upgradeId <= 26) return { label: 'VERY RARE', weight: 0.2, color: [200, 90, 255] };
+  return { label: '', weight: 1, color: null };
+}
+
+// Whether an upgrade's prerequisites are met
+function isUpgradeUnlocked(i) {
+  if (i === 5 && upgrade4Level === 0) return false;  // Shield Regeneration requires Add Shield
+  if (i === 6 && upgrade5Level === 0) return false;  // Bullet Reload requires Add Bullets
+  if (i === 7 && upgrade5Level === 0) return false;  // Bullet Speed requires Add Bullets
+  if (i === 8 && (upgrade5Level === 0 || upgrade7Level === 0 || upgrade8Level === 0)) return false;  // Free-Angle Aiming requires Add Bullets, Bullet Reload, and Bullet Speed
+  if (i === 9 && upgrade3Level < 5) return false;  // Tiger Beetle requires Dash Cooldown maxed
+  if (i === 10 && upgrade7Level < 3) return false;  // Oogpister Beetle requires Bullet Reload level 3+
+  if (i === 11 && level <= 5) return false;  // Horns unlocks after round 5
+  if (i === 12 && upgrade5Level === 0) return false;  // Potent Acid requires Add Bullets
+  if (i === 12 && level <= 5) return false;  // Potent Acid unlocks after round 5
+  if (i === 13 && level <= 5) return false;  // Shockwave unlocks after round 5
+  if (i === 14 && upgrade14Level === 0) return false;  // Shockwave Radius requires Shockwave Unlock
+  if (i === 15 && upgrade14Level === 0) return false;  // Shockwave Damage requires Shockwave Unlock
+  if (i === 16 && upgrade14Level === 0) return false;  // Shockwave Cooldown requires Shockwave Unlock
+  if (i === 17) return false;  // Shockwave Knockback removed (now constant)
+  if (i === 18 && upgrade14Level === 0) return false;  // Bullet Deflection requires Shockwave Unlock
+  if (i === 19 && level <= 5) return false;  // Health Regeneration unlocks after round 5
+  if (i === 25 && upgrade14Level === 0) return false;  // Shockwave Harvest requires Shockwave Unlock
+  if (i === 26 && upgrade5Level === 0) return false;  // Bullet Harvest requires Add Bullets
+  return true;
+}
+
+// Fill displayedUpgrades with up to 3 unmaxed, unlocked upgrades, weighted by rarity.
+// Upgrades in `exclude` are only offered once nothing else is left.
+function pickUpgradeOptions(exclude = []) {
+  let upgradeLevels = [upgrade1Level, upgrade2Level, upgrade3Level, upgrade4Level, upgrade5Level, upgrade6Level, upgrade7Level, upgrade8Level, upgrade9Level, upgrade10Level, upgrade11Level, upgrade12Level, upgrade13Level, upgrade14Level, upgrade15Level, upgrade16Level, upgrade17Level, upgrade18Level, upgrade19Level, upgrade20Level, upgrade21Level, upgrade22Level, upgrade23Level, upgrade24Level, upgrade25Level, upgrade26Level, upgrade27Level];
+  let availableUpgrades = [];
+  for (let i = 0; i < UPGRADE_COUNT; i++) {
+    if (upgradeLevels[i] < UPGRADE_MAX_LEVELS[i] && isUpgradeUnlocked(i)) {
+      availableUpgrades.push(i);
+    }
+  }
+
+  displayedUpgrades = [];
+  let freshUpgrades = availableUpgrades.filter(id => !exclude.includes(id));
+  let repeatUpgrades = availableUpgrades.filter(id => exclude.includes(id));
+  for (let pool of [freshUpgrades, repeatUpgrades]) {
+    while (displayedUpgrades.length < 3 && pool.length > 0) {
+      let totalWeight = 0;
+      for (let id of pool) totalWeight += getUpgradeRarity(id).weight;
+      let roll = random(totalWeight);
+      let pick = 0;
+      while (pick < pool.length - 1 && roll >= getUpgradeRarity(pool[pick]).weight) {
+        roll -= getUpgradeRarity(pool[pick]).weight;
+        pick++;
+      }
+      displayedUpgrades.push(pool[pick]);
+      pool.splice(pick, 1);
+    }
+  }
+}
+
+// Whether rerolling could show at least one upgrade that isn't on screen now
+function canRerollUpgrades() {
+  if (upgradeRerolls <= 0) return false;
+  let upgradeLevels = [upgrade1Level, upgrade2Level, upgrade3Level, upgrade4Level, upgrade5Level, upgrade6Level, upgrade7Level, upgrade8Level, upgrade9Level, upgrade10Level, upgrade11Level, upgrade12Level, upgrade13Level, upgrade14Level, upgrade15Level, upgrade16Level, upgrade17Level, upgrade18Level, upgrade19Level, upgrade20Level, upgrade21Level, upgrade22Level, upgrade23Level, upgrade24Level, upgrade25Level, upgrade26Level, upgrade27Level];
+  for (let i = 0; i < UPGRADE_COUNT; i++) {
+    if (upgradeLevels[i] < UPGRADE_MAX_LEVELS[i] && isUpgradeUnlocked(i) && !displayedUpgrades.includes(i)) return true;
+  }
+  return false;
+}
+
+// Reroll key: R or gamepad Y / Triangle
+function isRerollPressed() {
+  if (keyIsDown(82)) return true;
+  if (gamepad && gamepad.buttons[3] && gamepad.buttons[3].pressed) return true;
+  return false;
 }
 
 function applyUpgrade(upgradeIndex) {
   // Get the actual upgrade ID from the displayed upgrades
   let actualUpgradeId = displayedUpgrades[upgradeIndex];
-  let upgradeMaxLevels = [4, 5, 5, 9, 8, 5, 5, 5, 1, 1, 1, 4, 4, 1, 5, 5, 5, 3, 4, 5];
+  let upgradeMaxLevels = UPGRADE_MAX_LEVELS;
+  let levelCost = getExpRequired();
   
   // Increment the selected upgrade's level (capped at respective max)
   if (actualUpgradeId === 0 && upgrade1Level < upgradeMaxLevels[0]) {
@@ -7905,52 +8126,33 @@ function applyUpgrade(upgradeIndex) {
     upgrade19Level++;
   } else if (actualUpgradeId === 19 && upgrade20Level < upgradeMaxLevels[19]) {
     upgrade20Level++;
+  } else if (actualUpgradeId === 20 && upgrade21Level < upgradeMaxLevels[20]) {
+    upgrade21Level++;
+  } else if (actualUpgradeId === 21 && upgrade22Level < upgradeMaxLevels[21]) {
+    upgrade22Level++;
+  } else if (actualUpgradeId === 22 && upgrade23Level < upgradeMaxLevels[22]) {
+    upgrade23Level++;
+  } else if (actualUpgradeId === 23 && upgrade24Level < upgradeMaxLevels[23]) {
+    upgrade24Level++;
+  } else if (actualUpgradeId === 24 && upgrade25Level < upgradeMaxLevels[24]) {
+    upgrade25Level++;
+  } else if (actualUpgradeId === 25 && upgrade26Level < upgradeMaxLevels[25]) {
+    upgrade26Level++;
+  } else if (actualUpgradeId === 26 && upgrade27Level < upgradeMaxLevels[26]) {
+    upgrade27Level++;
   }
   
   // Level up the EXP system
-  expProgress -= expRequired;
+  expProgress -= levelCost;
   expLevel++;
   let roundedEXPLevel = Math.ceil(expLevel / 5);
   expRequired += 500 * roundedEXPLevel;
   
   // Check if another upgrade is available immediately
-  if (expProgress >= expRequired) {
+  if (expProgress >= getExpRequired()) {
     upgradeAvailable = true;
     // Keep upgrade menu active and regenerate upgrade options
-    let upgradeLevels = [upgrade1Level, upgrade2Level, upgrade3Level, upgrade4Level, upgrade5Level, upgrade6Level, upgrade7Level, upgrade8Level, upgrade9Level, upgrade10Level, upgrade11Level, upgrade12Level, upgrade13Level, upgrade14Level, upgrade15Level, upgrade16Level, upgrade17Level, upgrade18Level, upgrade19Level, upgrade20Level];
-    let upgradeMaxLevels = [4, 5, 5, 9, 8, 5, 5, 5, 1, 1, 1, 4, 4, 1, 5, 5, 5, 3, 4, 5];
-    let availableUpgrades = [];
-    for (let i = 0; i < 20; i++) {
-      // Check if upgrade is not maxed
-      if (upgradeLevels[i] < upgradeMaxLevels[i]) {
-        // Check prerequisites
-        if (i === 5 && upgrade4Level === 0) continue;  // Shield Regeneration requires Add Shield
-        if (i === 6 && upgrade5Level === 0) continue;  // Bullet Reload requires Add Bullets
-        if (i === 7 && upgrade5Level === 0) continue;  // Bullet Speed requires Add Bullets
-        if (i === 8 && (upgrade5Level === 0 || upgrade7Level === 0 || upgrade8Level === 0)) continue;  // Free-Angle Aiming requires Add Bullets, Bullet Reload, and Bullet Speed
-        if (i === 9 && upgrade3Level < 5) continue;  // Tiger Beetle requires Dash Cooldown maxed
-        if (i === 10 && upgrade7Level < 3) continue;  // Oogpister Beetle requires Bullet Reload level 3+
-        if (i === 11 && level <= 5) continue;  // Horns unlocks after round 5
-        if (i === 12 && upgrade5Level === 0) continue;  // Potent Acid requires Add Bullets
-        if (i === 12 && level <= 5) continue;  // Potent Acid unlocks after round 5
-        if (i === 13 && level <= 5) continue;  // Shockwave unlocks after round 5
-        if (i === 14 && upgrade14Level === 0) continue;  // Shockwave Radius requires Shockwave Unlock
-        if (i === 15 && upgrade14Level === 0) continue;  // Shockwave Damage requires Shockwave Unlock
-        if (i === 16 && upgrade14Level === 0) continue;  // Shockwave Cooldown requires Shockwave Unlock
-        if (i === 17) continue;  // Shockwave Knockback removed (now constant)
-        if (i === 18 && upgrade14Level === 0) continue;  // Bullet Deflection requires Shockwave Unlock
-        if (i === 19 && level <= 5) continue;  // Health Regeneration unlocks after round 5
-        availableUpgrades.push(i);
-      }
-    }
-    
-    displayedUpgrades = [];
-    let numToSelect = min(3, availableUpgrades.length);
-    for (let i = 0; i < numToSelect; i++) {
-      let randomIndex = floor(random(availableUpgrades.length));
-      displayedUpgrades.push(availableUpgrades[randomIndex]);
-      availableUpgrades.splice(randomIndex, 1);
-    }
+    pickUpgradeOptions();
     selectedUpgrade = 0;  // Reset to first option
     // Constrain selectedUpgrade to valid range
     if (displayedUpgrades.length > 0) {
@@ -7963,8 +8165,8 @@ function applyUpgrade(upgradeIndex) {
   }
   
   //TODO: Add actual upgrade effects based on actualUpgradeId (0-19)
-  let levels = [upgrade1Level, upgrade2Level, upgrade3Level, upgrade4Level, upgrade5Level, upgrade6Level, upgrade7Level, upgrade8Level, upgrade9Level, upgrade10Level, upgrade11Level, upgrade12Level, upgrade13Level, upgrade14Level, upgrade15Level, upgrade16Level, upgrade17Level, upgrade18Level, upgrade19Level, upgrade20Level];
-  let upgradeNames = ['Walking Speed', 'Dash Speed', 'Dash Cooldown', 'Add Shield', 'Add Bullets', 'Shield Regeneration', 'Bullet Reload', 'Bullet Speed', 'Free-Angle Aiming', 'Tiger Beetle', 'Oogpister Beetle', 'Horns', 'Potent Acid', 'Shockwave', 'Shockwave Radius', 'Shockwave Damage', 'Shockwave Cooldown', 'Shockwave Knockback', 'Bullet Deflection', 'Health Regeneration'];
+  let levels = [upgrade1Level, upgrade2Level, upgrade3Level, upgrade4Level, upgrade5Level, upgrade6Level, upgrade7Level, upgrade8Level, upgrade9Level, upgrade10Level, upgrade11Level, upgrade12Level, upgrade13Level, upgrade14Level, upgrade15Level, upgrade16Level, upgrade17Level, upgrade18Level, upgrade19Level, upgrade20Level, upgrade21Level, upgrade22Level, upgrade23Level, upgrade24Level, upgrade25Level, upgrade26Level, upgrade27Level];
+  let upgradeNames = ['Walking Speed', 'Dash Speed', 'Dash Cooldown', 'Add Shield', 'Add Bullets', 'Shield Regeneration', 'Bullet Reload', 'Bullet Speed', 'Free-Angle Aiming', 'Tiger Beetle', 'Oogpister Beetle', 'Horns', 'Potent Acid', 'Shockwave', 'Shockwave Radius', 'Shockwave Damage', 'Shockwave Cooldown', 'Shockwave Knockback', 'Bullet Deflection', 'Health Regeneration', 'Runt Hunter', 'Increased Metabolism', 'EXP Boost', 'Combo Surge', 'Dash Harvest', 'Shockwave Harvest', 'Bullet Harvest'];
   console.log(`${upgradeNames[actualUpgradeId]} selected! Level: ${levels[actualUpgradeId]}`);
   
   // Update upgrade booleans
@@ -12022,6 +12224,14 @@ function savePlayerState(playerIndex) {
   p.upgrade18 = upgrade18Level;
   p.upgrade19 = upgrade19Level;
   p.upgrade20 = upgrade20Level;
+  p.upgrade21 = upgrade21Level;
+  p.upgrade22 = upgrade22Level;
+  p.upgrade23 = upgrade23Level;
+  p.upgrade24 = upgrade24Level;
+  p.upgrade25 = upgrade25Level;
+  p.upgrade26 = upgrade26Level;
+  p.upgrade27 = upgrade27Level;
+  p.upgradeRerolls = upgradeRerolls;
   
   // Save experience
   p.expLevel = expLevel;
@@ -12066,6 +12276,14 @@ function loadPlayerState(playerIndex) {
   upgrade18Level = p.upgrade18 || 0;  // Default to 0 if not saved yet
   upgrade19Level = p.upgrade19 || 0;  // Default to 0 if not saved yet
   upgrade20Level = p.upgrade20 || 0;  // Default to 0 if not saved yet
+  upgrade21Level = p.upgrade21 || 0;
+  upgrade22Level = p.upgrade22 || 0;
+  upgrade23Level = p.upgrade23 || 0;
+  upgrade24Level = p.upgrade24 || 0;
+  upgrade25Level = p.upgrade25 || 0;
+  upgrade26Level = p.upgrade26 || 0;
+  upgrade27Level = p.upgrade27 || 0;
+  upgradeRerolls = p.upgradeRerolls !== undefined ? p.upgradeRerolls : UPGRADE_REROLLS_PER_RUN;
   
   // Load experience
   expLevel = p.expLevel;
@@ -12383,8 +12601,8 @@ function drawMultiplayerScoreboard() {
       // Stats - smaller text for details
       textSize(18);
       fill(200, 200, 255);
-      text("Total: " + p.totalScore.toFixed(1).replace(/\.0$/, ''), getMenuWidth() * 0.3, y + 12);
-      text("Round: " + p.roundScore.toFixed(1).replace(/\.0$/, ''), getMenuWidth() * 0.3, y + 30);
+      text("Total: " + Math.round(p.totalScore), getMenuWidth() * 0.3, y + 12);
+      text("Round: " + Math.round(p.roundScore), getMenuWidth() * 0.3, y + 30);
       
       // EXP Level on the right
       textAlign(RIGHT);
@@ -13136,7 +13354,14 @@ function drawDevTools() {
         upgrade17: upgrade17Level,
         upgrade18: upgrade18Level,
         upgrade19: upgrade19Level,
-        upgrade20: upgrade20Level
+        upgrade20: upgrade20Level,
+        upgrade21: upgrade21Level,
+        upgrade22: upgrade22Level,
+        upgrade23: upgrade23Level,
+        upgrade24: upgrade24Level,
+        upgrade25: upgrade25Level,
+        upgrade26: upgrade26Level,
+        upgrade27: upgrade27Level
       };
     } else if (devToolsTab === 'multi') {
       // Multiplayer mode - get upgrades from selected player
@@ -13161,7 +13386,14 @@ function drawDevTools() {
           upgrade17: players[devToolsPlayerTab].upgrade17 || 0,
           upgrade18: players[devToolsPlayerTab].upgrade18 || 0,
           upgrade19: players[devToolsPlayerTab].upgrade19 || 0,
-          upgrade20: players[devToolsPlayerTab].upgrade20 || 0
+          upgrade20: players[devToolsPlayerTab].upgrade20 || 0,
+          upgrade21: players[devToolsPlayerTab].upgrade21 || 0,
+          upgrade22: players[devToolsPlayerTab].upgrade22 || 0,
+          upgrade23: players[devToolsPlayerTab].upgrade23 || 0,
+          upgrade24: players[devToolsPlayerTab].upgrade24 || 0,
+          upgrade25: players[devToolsPlayerTab].upgrade25 || 0,
+          upgrade26: players[devToolsPlayerTab].upgrade26 || 0,
+          upgrade27: players[devToolsPlayerTab].upgrade27 || 0
         };
       } else {
         // Player doesn't exist, show zeros
@@ -13169,7 +13401,8 @@ function drawDevTools() {
           upgrade1: 0, upgrade2: 0, upgrade3: 0, upgrade4: 0, upgrade5: 0,
           upgrade6: 0, upgrade7: 0, upgrade8: 0, upgrade9: 0, upgrade10: 0,
           upgrade11: 0, upgrade12: 0, upgrade13: 0, upgrade14: 0, upgrade15: 0,
-          upgrade16: 0, upgrade17: 0, upgrade18: 0, upgrade19: 0, upgrade20: 0
+          upgrade16: 0, upgrade17: 0, upgrade18: 0, upgrade19: 0, upgrade20: 0,
+          upgrade21: 0, upgrade22: 0, upgrade23: 0, upgrade24: 0, upgrade25: 0, upgrade26: 0, upgrade27: 0
         };
       }
     }
@@ -13197,7 +13430,14 @@ function drawDevTools() {
         { name: 'Shockwave Cooldown', level: currentUpgrades.upgrade17, maxLevel: 5, id: 16 },
         { name: 'Shockwave Knockback', level: currentUpgrades.upgrade18, maxLevel: 3, id: 17 },
         { name: 'Bullet Deflection', level: currentUpgrades.upgrade19, maxLevel: 4, id: 18 },
-        { name: 'Health Regeneration', level: currentUpgrades.upgrade20, maxLevel: 5, id: 19 }
+        { name: 'Health Regeneration', level: currentUpgrades.upgrade20, maxLevel: 5, id: 19 },
+        { name: 'Runt Hunter', level: currentUpgrades.upgrade21, maxLevel: 1, id: 20 },
+        { name: 'Increased Metabolism', level: currentUpgrades.upgrade22, maxLevel: 7, id: 21 },
+        { name: 'EXP Boost', level: currentUpgrades.upgrade23, maxLevel: 10, id: 22 },
+        { name: 'Combo Surge', level: currentUpgrades.upgrade24, maxLevel: 4, id: 23 },
+        { name: 'Dash Harvest', level: currentUpgrades.upgrade25, maxLevel: 1, id: 24 },
+        { name: 'Shockwave Harvest', level: currentUpgrades.upgrade26, maxLevel: 1, id: 25 },
+        { name: 'Bullet Harvest', level: currentUpgrades.upgrade27, maxLevel: 1, id: 26 }
       ];
     
     // Handle player sub-tab switching in multiplayer mode
@@ -13227,21 +13467,21 @@ function drawDevTools() {
     if ((devToolsTab === 'single' || devToolsTab === 'multi') && devToolsNavigationCooldown === 0) {
       if (keyIsDown(87) || keyIsDown(38)) {  // W or Up
         devToolsSelectedUpgrade -= 2;
-        if (devToolsSelectedUpgrade < 0) devToolsSelectedUpgrade += 20;
-        if (devToolsSelectedUpgrade > 19) devToolsSelectedUpgrade = 19;
+        if (devToolsSelectedUpgrade < 0) devToolsSelectedUpgrade += UPGRADE_COUNT;
+        if (devToolsSelectedUpgrade > UPGRADE_COUNT - 1) devToolsSelectedUpgrade = UPGRADE_COUNT - 1;
         devToolsNavigationCooldown = 10;
       } else if (keyIsDown(83) || keyIsDown(40)) {  // S or Down
         devToolsSelectedUpgrade += 2;
-        if (devToolsSelectedUpgrade > 19) devToolsSelectedUpgrade -= 20;
+        if (devToolsSelectedUpgrade > UPGRADE_COUNT - 1) devToolsSelectedUpgrade -= UPGRADE_COUNT;
         if (devToolsSelectedUpgrade < 0) devToolsSelectedUpgrade = 0;
         devToolsNavigationCooldown = 10;
       } else if (keyIsDown(65) || keyIsDown(37)) {  // A or Left
         devToolsSelectedUpgrade--;
-        if (devToolsSelectedUpgrade < 0) devToolsSelectedUpgrade = 19;
+        if (devToolsSelectedUpgrade < 0) devToolsSelectedUpgrade = UPGRADE_COUNT - 1;
         devToolsNavigationCooldown = 10;
       } else if (keyIsDown(68) || keyIsDown(39)) {  // D or Right
         devToolsSelectedUpgrade++;
-        if (devToolsSelectedUpgrade > 19) devToolsSelectedUpgrade = 0;
+        if (devToolsSelectedUpgrade > UPGRADE_COUNT - 1) devToolsSelectedUpgrade = 0;
         devToolsNavigationCooldown = 10;
       } else if (keyIsDown(13)) {  // Enter
         toggleDevUpgrade(devToolsSelectedUpgrade);
@@ -13316,7 +13556,7 @@ function drawDevTools() {
     rectMode(CORNER);
     noStroke();
     
-    for (let i = 0; i < 20; i++) {
+    for (let i = 0; i < UPGRADE_COUNT; i++) {
       let upgrade = allUpgrades[i];
       let col = i % 2;
       let row = floor(i / 2);
@@ -13425,11 +13665,11 @@ function drawDevTools() {
 function toggleDevUpgrade(upgradeId) {
   // Get current level based on tab
   let currentLevel = 0;
-  let maxLevels = [4, 5, 5, 9, 8, 5, 5, 5, 1, 1, 1, 4, 4, 1, 5, 5, 5, 3, 4, 5];
+  let maxLevels = UPGRADE_MAX_LEVELS;
   
   if (devToolsTab === 'single') {
     let upgradeLevels = [upgrade1Level, upgrade2Level, upgrade3Level, upgrade4Level, upgrade5Level, 
-                         upgrade6Level, upgrade7Level, upgrade8Level, upgrade9Level, upgrade10Level, upgrade11Level, upgrade12Level, upgrade13Level, upgrade14Level, upgrade15Level, upgrade16Level, upgrade17Level, upgrade18Level, upgrade19Level, upgrade20Level];
+                         upgrade6Level, upgrade7Level, upgrade8Level, upgrade9Level, upgrade10Level, upgrade11Level, upgrade12Level, upgrade13Level, upgrade14Level, upgrade15Level, upgrade16Level, upgrade17Level, upgrade18Level, upgrade19Level, upgrade20Level, upgrade21Level, upgrade22Level, upgrade23Level, upgrade24Level, upgrade25Level, upgrade26Level, upgrade27Level];
     currentLevel = upgradeLevels[upgradeId];
   } else {
     // Multiplayer - get from selected player
@@ -13454,7 +13694,14 @@ function toggleDevUpgrade(upgradeId) {
         players[devToolsPlayerTab].upgrade17 || 0,
         players[devToolsPlayerTab].upgrade18 || 0,
         players[devToolsPlayerTab].upgrade19 || 0,
-        players[devToolsPlayerTab].upgrade20 || 0
+        players[devToolsPlayerTab].upgrade20 || 0,
+        players[devToolsPlayerTab].upgrade21 || 0,
+        players[devToolsPlayerTab].upgrade22 || 0,
+        players[devToolsPlayerTab].upgrade23 || 0,
+        players[devToolsPlayerTab].upgrade24 || 0,
+        players[devToolsPlayerTab].upgrade25 || 0,
+        players[devToolsPlayerTab].upgrade26 || 0,
+        players[devToolsPlayerTab].upgrade27 || 0
       ];
       currentLevel = playerUpgrades[upgradeId];
     }
@@ -13529,7 +13776,7 @@ function activateDevPrerequisites(upgradeId, targetLevel) {
   let getCurrentLevel = (id) => {
     if (devToolsTab === 'single') {
       let levels = [upgrade1Level, upgrade2Level, upgrade3Level, upgrade4Level, upgrade5Level, 
-                    upgrade6Level, upgrade7Level, upgrade8Level, upgrade9Level, upgrade10Level, upgrade11Level, upgrade12Level, upgrade13Level, upgrade14Level, upgrade15Level, upgrade16Level, upgrade17Level, upgrade18Level, upgrade19Level, upgrade20Level];
+                    upgrade6Level, upgrade7Level, upgrade8Level, upgrade9Level, upgrade10Level, upgrade11Level, upgrade12Level, upgrade13Level, upgrade14Level, upgrade15Level, upgrade16Level, upgrade17Level, upgrade18Level, upgrade19Level, upgrade20Level, upgrade21Level, upgrade22Level, upgrade23Level, upgrade24Level, upgrade25Level, upgrade26Level, upgrade27Level];
       return levels[id];
     } else if (players[devToolsPlayerTab]) {
       let playerLevels = [
@@ -13552,7 +13799,14 @@ function activateDevPrerequisites(upgradeId, targetLevel) {
         players[devToolsPlayerTab].upgrade17 || 0,
         players[devToolsPlayerTab].upgrade18 || 0,
         players[devToolsPlayerTab].upgrade19 || 0,
-        players[devToolsPlayerTab].upgrade20 || 0
+        players[devToolsPlayerTab].upgrade20 || 0,
+        players[devToolsPlayerTab].upgrade21 || 0,
+        players[devToolsPlayerTab].upgrade22 || 0,
+        players[devToolsPlayerTab].upgrade23 || 0,
+        players[devToolsPlayerTab].upgrade24 || 0,
+        players[devToolsPlayerTab].upgrade25 || 0,
+        players[devToolsPlayerTab].upgrade26 || 0,
+        players[devToolsPlayerTab].upgrade27 || 0
       ];
       return playerLevels[id];
     }
@@ -13616,6 +13870,12 @@ function activateDevPrerequisites(upgradeId, targetLevel) {
   if (upgradeId === 18 && getCurrentLevel(13) === 0) {
     setDevUpgradeLevel(13, 1);  // Activate Shockwave Unlock
   }
+  if (upgradeId === 25 && getCurrentLevel(13) === 0) {
+    setDevUpgradeLevel(13, 1);  // Shockwave Harvest requires Shockwave Unlock
+  }
+  if (upgradeId === 26 && getCurrentLevel(4) === 0) {
+    setDevUpgradeLevel(4, 1);  // Bullet Harvest requires Add Bullets
+  }
 }
 
 // Deactivate upgrades that depend on this one
@@ -13662,6 +13922,7 @@ function deactivateDevDependentUpgrades(upgradeId) {
     setDevUpgradeLevel(8, 0);
     setDevUpgradeLevel(10, 0); // Also reset Oogpister Beetle since it requires Bullet Reload
     setDevUpgradeLevel(12, 0); // Also reset Potent Acid since it requires Add Bullets
+    setDevUpgradeLevel(26, 0); // Also reset Bullet Harvest since it requires Add Bullets
   }
   
   // If Bullet Reload (6) is reset, reset Free-Angle Aiming (8) and Oogpister Beetle (10)
@@ -13687,6 +13948,7 @@ function deactivateDevDependentUpgrades(upgradeId) {
     setDevUpgradeLevel(16, 0);
     setDevUpgradeLevel(17, 0);
     setDevUpgradeLevel(18, 0);
+    setDevUpgradeLevel(25, 0); // Shockwave Harvest
   }
 }
 
@@ -13712,6 +13974,13 @@ function setUpgradeLevel(upgradeId, level) {
   else if (upgradeId === 17) upgrade18Level = level;
   else if (upgradeId === 18) upgrade19Level = level;
   else if (upgradeId === 19) upgrade20Level = level;
+  else if (upgradeId === 20) upgrade21Level = level;
+  else if (upgradeId === 21) upgrade22Level = level;
+  else if (upgradeId === 22) upgrade23Level = level;
+  else if (upgradeId === 23) upgrade24Level = level;
+  else if (upgradeId === 24) upgrade25Level = level;
+  else if (upgradeId === 25) upgrade26Level = level;
+  else if (upgradeId === 26) upgrade27Level = level;
   
   // Apply the changes to game stats
   updateUpgradeBooleans();
@@ -13741,6 +14010,13 @@ function setDevUpgradeLevel(upgradeId, level) {
     else if (upgradeId === 17) upgrade18Level = level;
     else if (upgradeId === 18) upgrade19Level = level;
     else if (upgradeId === 19) upgrade20Level = level;
+    else if (upgradeId === 20) upgrade21Level = level;
+    else if (upgradeId === 21) upgrade22Level = level;
+    else if (upgradeId === 22) upgrade23Level = level;
+    else if (upgradeId === 23) upgrade24Level = level;
+    else if (upgradeId === 24) upgrade25Level = level;
+    else if (upgradeId === 25) upgrade26Level = level;
+    else if (upgradeId === 26) upgrade27Level = level;
     
     // Apply the changes to game stats
     updateUpgradeBooleans();
@@ -13767,6 +14043,13 @@ function setDevUpgradeLevel(upgradeId, level) {
       else if (upgradeId === 17) players[devToolsPlayerTab].upgrade18 = level;
       else if (upgradeId === 18) players[devToolsPlayerTab].upgrade19 = level;
       else if (upgradeId === 19) players[devToolsPlayerTab].upgrade20 = level;
+      else if (upgradeId === 20) players[devToolsPlayerTab].upgrade21 = level;
+      else if (upgradeId === 21) players[devToolsPlayerTab].upgrade22 = level;
+      else if (upgradeId === 22) players[devToolsPlayerTab].upgrade23 = level;
+      else if (upgradeId === 23) players[devToolsPlayerTab].upgrade24 = level;
+      else if (upgradeId === 24) players[devToolsPlayerTab].upgrade25 = level;
+      else if (upgradeId === 25) players[devToolsPlayerTab].upgrade26 = level;
+      else if (upgradeId === 26) players[devToolsPlayerTab].upgrade27 = level;
       
       // Update player's stats based on their new upgrade levels
       updatePlayerStats(devToolsPlayerTab);
