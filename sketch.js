@@ -704,7 +704,7 @@ let upgrade17Level = 0; // Shockwave Cooldown (max 5, 2.25s→0.375s)
 let upgrade18Level = 0; // Shockwave Knockback (max 3, 4→10)
 let upgrade19Level = 0; // Shockwave Bullet Deflection (max 4, 20%→100% bullet conversion)
 let upgrade20Level = 0; // Health Regeneration (max 5, regenerate health after 200 frames)
-let upgrade21Level = 0; // Runt Hunter (max 1, rare): ants smaller than normal give EXP inversely proportional to size
+let upgrade21Level = 0; // Runt Hunter (max 1, ultra rare): ants smaller than normal give EXP inversely proportional to size
 let upgrade22Level = 0; // Increased Metabolism (max 7): each level makes EXP levels 10% cheaper (up to 70%)
 let upgrade23Level = 0; // EXP Boost (max 10): each level adds 10% EXP (up to +100%)
 let upgrade24Level = 0; // Combo Surge (max 4): combo bonus steps every 5 → 1 kills
@@ -8004,7 +8004,7 @@ function drawUpgradeScreen() {
 
 // Rarity of each upgrade: weight is its relative chance to be offered
 function getUpgradeRarity(upgradeId) {
-  if (upgradeId === 20) return { label: 'RARE', weight: 0.4, color: [80, 160, 255] };
+  if (upgradeId === 20) return { label: 'ULTRA RARE', weight: 0.1, color: [255, 180, 0] };
   if (upgradeId >= 24 && upgradeId <= 26) return { label: 'VERY RARE', weight: 0.2, color: [200, 90, 255] };
   return { label: '', weight: 1, color: null };
 }
