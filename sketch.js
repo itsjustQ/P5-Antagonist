@@ -126,7 +126,7 @@ function getDifficultyButtonRect(value) {
 function applyHardModeRandomInitialAbility(antIndex) {
   // Hard mode gets one extra initial token that is immediately spent on a random trait ability.
   if (geneTokens[antIndex] <= 0) {
-    console.log(`Hard mode: Ant ${antIndex} had no extra token to spend`);
+    debugLog(`Hard mode: Ant ${antIndex} had no extra token to spend`);
     return;
   }
 
@@ -177,7 +177,7 @@ function applyHardModeRandomInitialAbility(antIndex) {
     percentage: 1
   });
 
-  console.log(`Hard mode: Ant ${antIndex} 6th token spent on ${trait.target}`);
+  debugLog(`Hard mode: Ant ${antIndex} 6th token spent on ${trait.target}`);
 }
 
 // Developer tools variables
@@ -597,6 +597,12 @@ let level = 1;
 const BASE_PLAYER_SPEED = 4;
 let levelEnd = 0;
 
+// Debug logging: per-shot/per-hit logs pile up in the browser console and slow the game over time
+const DEBUG_LOGGING = false;
+function debugLog(...args) {
+  if (DEBUG_LOGGING) console.log(...args);
+}
+
 let deathAnimations = [];
 let floatingTexts = [];
 let speedRings = []; // Sonic boom rings from accelerated bullets
@@ -907,8 +913,8 @@ function preload(){
 function setup() {
   
   createCanvas(windowWidth, windowHeight);
-  console.log('Window Width:', windowWidth);
-  console.log('Window Height:', windowHeight);
+  debugLog('Window Width:', windowWidth);
+  debugLog('Window Height:', windowHeight);
   //enemyCount = windowWidth/150 + windowHeight/150;
   //Beetle
   centerPlayer();
@@ -935,7 +941,7 @@ function setup() {
     if (customAntStats[0].antSize) initialAntSize = customAntStats[0].antSize;
     if (customAntStats[0].followValue !== undefined) initialFollowValue = customAntStats[0].followValue;
     if (customAntStats[0].autonomy !== undefined) initialAutonomy = customAntStats[0].autonomy;
-    console.log(`Using custom ant stats for initial spawn`);
+    debugLog(`Using custom ant stats for initial spawn`);
   } else {
     // Apply difficulty settings based on tier
     const tier = getDifficultyTier();
@@ -960,7 +966,7 @@ function setup() {
       initialFollowValue = 0;
       initialAutonomy = 1;
     }
-    console.log(`Using difficulty ${difficulty} (${tier}): size=${initialAntSize}, follow=${initialFollowValue}, autonomy=${initialAutonomy}`);
+    debugLog(`Using difficulty ${difficulty} (${tier}): size=${initialAntSize}, follow=${initialFollowValue}, autonomy=${initialAutonomy}`);
   }
   
   while (usedSlots < totalAntSlots && antIndex <= MAX_ANTS) {
@@ -971,7 +977,7 @@ function setup() {
       antY[i] = random(scoreBarHeight + ANT_SPAWN_BUFFER, getGameplayHeight() - expBarHeight - expBarBuffer - ANT_SPAWN_BUFFER);
       spawnX[i] = antX[i] + cos(angleFromSpawn[i]);
       spawnY[i] = antY[i] + sin(angleFromSpawn[i]);
-    //console.log(antX[i]);
+    //debugLog(antX[i]);
     antPrevX[i] = antX[i];
     antPrevY[i] = antY[i];
     
@@ -980,7 +986,7 @@ function setup() {
     strikeTime1[i] = 0;
     drawStrike1[i] = 1;
     bulletShot[i] = 0;
-    //console.log(bulletShot[i]);
+    //debugLog(bulletShot[i]);
     enemyBullets[i] = [];
     bulletSpeed[i] = 260; // Above first cap (250) for inverse stat
     bulletCooldown[i] = 160; // Above first cap (150) for inverse stat
@@ -1127,11 +1133,11 @@ function setup() {
     // Check if this ant will fit in remaining slots
     const SLOT_EPSILON = 0.001;
     if (usedSlots + antSize[i] > totalAntSlots + SLOT_EPSILON) {
-      console.log(`  Initial ant ${i} (size ${antSize[i].toFixed(2)}) won't fit in remaining slots (${(totalAntSlots - usedSlots).toFixed(2)}), stopping`);
+      debugLog(`  Initial ant ${i} (size ${antSize[i].toFixed(2)}) won't fit in remaining slots (${(totalAntSlots - usedSlots).toFixed(2)}), stopping`);
       break;  // Exit loop, we're done spawning
     }
     
-    console.log(`Initial ant ${i} created: size=${antSize[i].toFixed(2)}, used slots=${(usedSlots + antSize[i]).toFixed(2)}/${totalAntSlots}`);
+    debugLog(`Initial ant ${i} created: size=${antSize[i].toFixed(2)}, used slots=${(usedSlots + antSize[i]).toFixed(2)}/${totalAntSlots}`);
     
     // Track slot usage and increment counter
     usedSlots += antSize[i];
@@ -1141,7 +1147,7 @@ function setup() {
   // Set enemyCount to actual number of ants created
   enemyCount = antIndex - 1;
   playerSpeed = movementSpeed / enemyCount;
-  console.log(`Initial setup: Created ${enemyCount} ants using ${usedSlots.toFixed(2)}/${totalAntSlots} slots`);
+  debugLog(`Initial setup: Created ${enemyCount} ants using ${usedSlots.toFixed(2)}/${totalAntSlots} slots`);
   
   // Invest initial gene tokens for all ants
   for (let i = 1; i <= enemyCount; i++) {
@@ -1697,10 +1703,8 @@ function resetRunState() {
   windAttackAlpha = 0;
   windAttackPrevPressed = false;
   windAttackReadyFlash = 0;
-  playerBullets = [];
+  clearRoundEffects();
   playerBulletShot = false;
-  deathAnimations = [];
-  floatingTexts = [];
   antX[enemyIndex] = getGameplayWidth() * 0.75;
   antY[enemyIndex] = getGameplayHeight() * 0.5;
 
@@ -1766,13 +1770,13 @@ function restartGame() {
 }
 
 function applyCustomAntsToInitialPopulation() {
-  console.log("Applying custom ant stats to initial population");
-  console.log("Current enemy count:", enemyCount);
+  debugLog("Applying custom ant stats to initial population");
+  debugLog("Current enemy count:", enemyCount);
   
   // Use first place ant stats for all initial ants
   let s = customAntStats[0];
   ensureCustomAntTierCaps(s);
-  console.log("Custom ant stats:", s);
+  debugLog("Custom ant stats:", s);
   
   // Check if we need to respawn ants due to size change
   let customSize = s.antSize || 1;
@@ -1786,11 +1790,11 @@ function applyCustomAntsToInitialPopulation() {
     neededAnts++;
   }
   
-  console.log(`With size ${customSize}, need ${neededAnts} ants (current: ${enemyCount})`);
+  debugLog(`With size ${customSize}, need ${neededAnts} ants (current: ${enemyCount})`);
   
   // If count changed, we need to respawn
   if (neededAnts !== enemyCount) {
-    console.log(`Respawning population: ${enemyCount} -> ${neededAnts} ants`);
+    debugLog(`Respawning population: ${enemyCount} -> ${neededAnts} ants`);
     
     // Clear existing ants beyond the new count
     if (neededAnts < enemyCount) {
@@ -1836,12 +1840,12 @@ function applyCustomAntsToInitialPopulation() {
     
     enemyCount = neededAnts;
     playerSpeed = movementSpeed / enemyCount;
-    console.log(`New enemy count: ${enemyCount}`);
+    debugLog(`New enemy count: ${enemyCount}`);
   }
   
   // Now apply custom stats to all ants
   for (let i = 1; i <= enemyCount; i++) {
-    console.log(`Setting ant ${i} to custom stats`);
+    debugLog(`Setting ant ${i} to custom stats`);
     bulletSpeed[i] = s.bulletSpeed;
     bulletCooldown[i] = Math.floor(s.bulletCooldown);
     antSpeed[i] = s.antSpeed;
@@ -1957,10 +1961,10 @@ function applyCustomAntsToInitialPopulation() {
       standStill[i] = true;
     }
     
-    console.log(`Ant ${i} final stats: speed=${bulletSpeed[i]}, cooldown=${bulletCooldown[i]}, antSpeed=${antSpeed[i]}`);
+    debugLog(`Ant ${i} final stats: speed=${bulletSpeed[i]}, cooldown=${bulletCooldown[i]}, antSpeed=${antSpeed[i]}`);
   }
   
-  console.log("Custom ant stats applied successfully to all ants");
+  debugLog("Custom ant stats applied successfully to all ants");
 }
 
 function applyDifficultyToInitialPopulation() {
@@ -2141,7 +2145,7 @@ function applyDifficultyToInitialPopulation() {
     }
   }
 
-  console.log(`Applied difficulty ${difficulty} (${getDifficultyTier()}): ${enemyCount} ants, size=${sizeValue}, follow=${followValueSetting}, autonomy=${autonomySetting}`);
+  debugLog(`Applied difficulty ${difficulty} (${getDifficultyTier()}): ${enemyCount} ants, size=${sizeValue}, follow=${followValueSetting}, autonomy=${autonomySetting}`);
 }
 
 function syncActualWinnersToCustomStats(topAnts) {
@@ -2206,7 +2210,7 @@ function syncActualWinnersToCustomStats(topAnts) {
       };
     }
   }
-  console.log("Synced actual winners to custom ant stats for viewing");
+  debugLog("Synced actual winners to custom ant stats for viewing");
 }
 
 function returnToMainMenu() {
@@ -2568,7 +2572,7 @@ function drawEnemy(){
 
 
   }
-  //console.log(enemyIndex);
+  //debugLog(enemyIndex);
 }
 
 // Soft oval under a sprite, matching the bullet shadow style. Sized to the bug's body
@@ -3212,7 +3216,7 @@ function enemyInteraction1(){
         antRecoilVelY[i] = 0;
         antRecoilAirTimer[i] = 0;
         antLives[i]++;
-        console.log("Ant", i, "lives:", antLives[i]);
+        debugLog("Ant", i, "lives:", antLives[i]);
 
         if(!sGetHit1.isPlaying() || !sGetHit2.isPlaying()) {
           sHit = round(random(1,2));
@@ -3511,7 +3515,7 @@ function enemyShoot1() {
               antRapidFireNextFrame[i] = frameCount + 15; // Next bullet in 15 frames
             }
 
-            console.log(`Ant ${i} started Rapid fire sequence: ${bulletsToFire} bullets - Speed: ${bullet.trueSpeed.toFixed(3)} px/f`);
+            debugLog(`Ant ${i} started Rapid fire sequence: ${bulletsToFire} bullets - Speed: ${bullet.trueSpeed.toFixed(3)} px/f`);
           }
           // Every other fire type: fire the whole volley at once
           else {
@@ -3524,12 +3528,12 @@ function enemyShoot1() {
             let speedTier = getBulletSpeedTier(volleySpeed);
             let fireTypeName = { '-2': 'Hit Reload', '-1': 'Alt', 0: 'Single', 1: 'Burst', 2: 'Rapid', 3: 'Delayed Burst' }[fireType] || 'Unknown';
             if (fireType === 3) {
-              console.log(`Ant ${i} fired a ${fireTypeName} bullet (splits into ${Math.round(bulletBurstCount[i])} after ${Math.round(bulletBurstDelay[i])}f) - Speed: ${volleySpeed.toFixed(3)} px/f`);
+              debugLog(`Ant ${i} fired a ${fireTypeName} bullet (splits into ${Math.round(bulletBurstCount[i])} after ${Math.round(bulletBurstDelay[i])}f) - Speed: ${volleySpeed.toFixed(3)} px/f`);
             } else if (fireType === 1) {
               let spreadDegrees = (bulletBurstSpread[i] * 180 / Math.PI).toFixed(1);
-              console.log(`Ant ${i} fired ${volley.length} ${fireTypeName} bullets with ${spreadDegrees}° spread - Speed: ${volleySpeed.toFixed(3)} px/f`);
+              debugLog(`Ant ${i} fired ${volley.length} ${fireTypeName} bullets with ${spreadDegrees}° spread - Speed: ${volleySpeed.toFixed(3)} px/f`);
             } else {
-              console.log(`Ant ${i} fired ${volley.length} ${fireTypeName} ${speedTier.name} bullet(s) - Speed: ${volleySpeed.toFixed(3)} px/f`);
+              debugLog(`Ant ${i} fired ${volley.length} ${fireTypeName} ${speedTier.name} bullet(s) - Speed: ${volleySpeed.toFixed(3)} px/f`);
             }
           }
 
@@ -4469,7 +4473,7 @@ function handlePlayerHit(i, isKnockbackBullet = false, bulletX = 0, bulletY = 0,
     if (shield > 0){
       shield = shield - damage;
       antPoints[i] = antPoints[i] + damage;
-      console.log("Ant", i, "points:", antPoints[i]);
+      debugLog("Ant", i, "points:", antPoints[i]);
       if(!sShieldHit1.isPlaying() || !sShieldHit2.isPlaying()) {
         sHit = round(random(1,2));
         if(sHit == 1) {
@@ -4482,7 +4486,7 @@ function handlePlayerHit(i, isKnockbackBullet = false, bulletX = 0, bulletY = 0,
       playerLastDamageFrame = frameCount;  // Only track damage frame when health actually decreases
       health = health - damage;
       antPoints[i] = antPoints[i] + damage;
-      console.log("Ant", i, "points:", antPoints[i]);
+      debugLog("Ant", i, "points:", antPoints[i]);
       if(!sHit1.isPlaying() || !sHit2.isPlaying()) {
         sHit = round(random(1,2));
         if(sHit == 1) {
@@ -4908,7 +4912,7 @@ function beetleDash(){
     }
   } else {
     dashCoolDown = dashCoolDown - (1 / 100);
-    //console.log(round(dashCoolDown));
+    //debugLog(round(dashCoolDown));
     playerSpeed = movementSpeed / enemyCount;
     if (dashCoolDown <= 0){
       speedTime = 0.25;
@@ -5866,7 +5870,7 @@ function grantTokensForRound(roundNumber) {
       if (geneTokenLastRoundGained[i] < roundNumber) {
         geneTokens[i] += tokensToGrant;
         geneTokenLastRoundGained[i] = roundNumber;
-        console.log(`Ant ${i} gained ${tokensToGrant} gene tokens (now has ${geneTokens[i]})`);
+        debugLog(`Ant ${i} gained ${tokensToGrant} gene tokens (now has ${geneTokens[i]})`);
         
         // Immediately invest all tokens
         let investmentAttempts = 0;
@@ -6476,16 +6480,16 @@ bulletKnockbackMultiplier: { caps: [2, 3, 4, 5], inverse: false },
       investment.tier = bestCandidate.tier;
       investment.cap = bestCandidate.cap;
       investment.inverse = bestCandidate.inverse;
-      console.log(`Ant ${antIndex} invested token in ${bestCandidate.name} tier ${bestCandidate.tier + 1} (cap: ${bestCandidate.cap.toFixed(2)})`);
+      debugLog(`Ant ${antIndex} invested token in ${bestCandidate.name} tier ${bestCandidate.tier + 1} (cap: ${bestCandidate.cap.toFixed(2)})`);
       
       // If initial setup, bump stat to the cap value
       if (isInitialSetup) {
         eval(bestCandidate.name + '[' + antIndex + '] = ' + bestCandidate.cap);
-        console.log(`  -> Bumped ${bestCandidate.name} to ${bestCandidate.cap.toFixed(2)}`);
+        debugLog(`  -> Bumped ${bestCandidate.name} to ${bestCandidate.cap.toFixed(2)}`);
       }
     } else {
       investment.category = bestCandidate.category;
-      console.log(`Ant ${antIndex} invested token in ${bestCandidate.name} trait (${bestCandidate.category})`);
+      debugLog(`Ant ${antIndex} invested token in ${bestCandidate.name} trait (${bestCandidate.category})`);
     }
     
     geneTokenInvestments[antIndex].push(investment);
@@ -6509,7 +6513,7 @@ function updateTokenInvestments(antIndex, currentRound) {
       
       if (potentialValue <= 0.5) {
         shouldFree = true;
-        console.log(`Freeing token from ${investment.target} - potential too low`);
+        debugLog(`Freeing token from ${investment.target} - potential too low`);
       } else {
         // Check if another mutation in same category overtook this one
         const currentValue = eval(investment.target + '[' + antIndex + ']');
@@ -6543,7 +6547,7 @@ function updateTokenInvestments(antIndex, currentRound) {
         
         if (maxOtherValue > currentValue) {
           shouldFree = true;
-          console.log(`Freeing token from ${investment.target} - overtaken by another mutation`);
+          debugLog(`Freeing token from ${investment.target} - overtaken by another mutation`);
         }
       }
     } else if (investment.type === 'cap') {
@@ -6554,14 +6558,14 @@ function updateTokenInvestments(antIndex, currentRound) {
         // For inverse stats (lower is better), free if value goes back above the cap
         if (currentValue > investment.cap) {
           shouldFree = true;
-          console.log(`Freeing token from ${investment.target} tier ${investment.tier + 1} - value increased above cap`);
+          debugLog(`Freeing token from ${investment.target} tier ${investment.tier + 1} - value increased above cap`);
         }
       } else {
         // For normal stats (higher is better), free if value falls below the previous tier
         const previousCap = investment.tier > 0 ? investment.cap : 0;
         if (currentValue < previousCap) {
           shouldFree = true;
-          console.log(`Freeing token from ${investment.target} tier ${investment.tier + 1} - value fell below previous tier`);
+          debugLog(`Freeing token from ${investment.target} tier ${investment.tier + 1} - value fell below previous tier`);
         }
       }
     }
@@ -8526,7 +8530,7 @@ function applyUpgrade(upgradeIndex) {
   //TODO: Add actual upgrade effects based on actualUpgradeId (0-19)
   let levels = [upgrade1Level, upgrade2Level, upgrade3Level, upgrade4Level, upgrade5Level, upgrade6Level, upgrade7Level, upgrade8Level, upgrade9Level, upgrade10Level, upgrade11Level, upgrade12Level, upgrade13Level, upgrade14Level, upgrade15Level, upgrade16Level, upgrade17Level, upgrade18Level, upgrade19Level, upgrade20Level, upgrade21Level, upgrade22Level, upgrade23Level, upgrade24Level, upgrade25Level, upgrade26Level, upgrade27Level];
   let upgradeNames = ['Walking Speed', 'Dash Speed', 'Dash Cooldown', 'Add Shield', 'Add Bullets', 'Shield Regeneration', 'Bullet Reload', 'Bullet Speed', 'Free-Angle Aiming', 'Tiger Beetle', 'Oogpister Beetle', 'Horns', 'Potent Acid', 'Shockwave', 'Shockwave Radius', 'Shockwave Damage', 'Shockwave Cooldown', 'Shockwave Knockback', 'Bullet Deflection', 'Health Regeneration', 'Runt Hunter', 'Increased Metabolism', 'EXP Boost', 'Combo Surge', 'Dash Harvest', 'Shockwave Harvest', 'Bullet Harvest'];
-  console.log(`${upgradeNames[actualUpgradeId]} selected! Level: ${levels[actualUpgradeId]}`);
+  debugLog(`${upgradeNames[actualUpgradeId]} selected! Level: ${levels[actualUpgradeId]}`);
   
   // Update upgrade booleans
   updateUpgradeBooleans();
@@ -8740,15 +8744,15 @@ function printLiveAntRankings() {
   }
 
   antStats.sort((a, b) => b.ratio - a.ratio);
-  console.log("-------------------------------");
-  console.log("=== Live Ant Rankings ===");
+  debugLog("-------------------------------");
+  debugLog("=== Live Ant Rankings ===");
   for (let i = 0; i < antStats.length; i++) {
-    console.log(
+    debugLog(
       `#${i + 1}: Ant ${antStats[i].id}  | Points: ${antStats[i].points}  | Lives: ${antStats[i].lives}  | Ratio: ${antStats[i].ratio.toFixed(2)}`
     );
   }
 
-  console.log(`Currently winning ant: ${antStats[0].id} with ratio ${antStats[0].ratio.toFixed(2)}`);
+  debugLog(`Currently winning ant: ${antStats[0].id} with ratio ${antStats[0].ratio.toFixed(2)}`);
 
 }
 
@@ -8761,43 +8765,58 @@ function printWinningAntStats() {
   const count1 = Math.round((enemyCount + 1) * 0.5);
   const count2 = Math.round((enemyCount + 1) * 0.3);
   const count3 = (enemyCount + 1) - count1 - count2;
-  console.log("===============================");
-  console.log("=== Round Over: Top 3 Ants ===");
+  debugLog("===============================");
+  debugLog("=== Round Over: Top 3 Ants ===");
   for (let i = 0; i < topAnts.length; i++) {
     const ant = topAnts[i];
-    console.log(
+    debugLog(
       `#${i + 1}: Ant ${ant.id} | Points: ${ant.points} | Lives: ${ant.lives} | Ratio: ${safeFixed(ant.ratio)}`
     );
-    console.log(
+    debugLog(
       `   bulletSpeed: ${safeFixed(bulletSpeed[ant.id])}, bulletCooldown: ${bulletCooldown[ant.id]}, antSpeed: ${safeFixed(antSpeed[ant.id])}`
     );
-    console.log(
+    debugLog(
       `   shotOffsetX: ${safeFixed(shotOffsetX[ant.id])}, shotOffsetY: ${safeFixed(shotOffsetY[ant.id])}`
     );
-    console.log(
+    debugLog(
       `   followValue: ${safeFixed(followValue[ant.id])}, autonomy: ${safeFixed(autonomy[ant.id])}, bulletSize: ${safeFixed(bulletSize[ant.id])}`
     );
-    console.log(
+    debugLog(
       `   standingPointX: ${safeFixed(standingPointX[ant.id])}, standingPointY: ${standingPointY[ant.id]}, distanceFromAnchor: ${safeFixed(distanceFromAnchor[ant.id])}`
     );
-    console.log(
+    debugLog(
       `   anchorOffsetX: ${safeFixed(anchorOffsetX[ant.id])}, anchorOffsetY: ${safeFixed(anchorOffsetY[ant.id])}`
     );
   }
 
-  console.log(`
+  debugLog(`
 Next generation distribution:`);
-  console.log(`   ${count1} ants inherit from #1`);
-  console.log(`   ${count2} ants inherit from #2`);
-  console.log(`   ${count3} ants inherit from #3`);
-  console.log("===============================");
+  debugLog(`   ${count1} ants inherit from #1`);
+  debugLog(`   ${count2} ants inherit from #2`);
+  debugLog(`   ${count3} ants inherit from #3`);
+  debugLog("===============================");
 }
 
 
 
+// Drop lingering effects so nothing carries over between rounds and the arrays start fresh
+function clearRoundEffects() {
+  playerBullets = [];
+  landMines = [];
+  speedRings = [];
+  enemyExplosions = [];
+  enemyArcExplosionLinks = [];
+  enemyGroundImpacts = [];
+  enemySmears = [];
+  deathRefires = [];
+  enemyBeams = [];
+  deathAnimations = [];
+  floatingTexts = [];
+  flashingEntities = [];
+}
+
 function nextRound(){
-  deathRefires.length = 0;
-  enemyBeams.length = 0;
+  clearRoundEffects();
   beamHealthFlashFrames = 0;
   beamShieldFlashFrames = 0;
   // Multiplayer mode handling
@@ -8823,7 +8842,7 @@ function nextRound(){
   
   // Use custom ant stats if dev tools has them enabled
   if (devToolsUseCustomAnts) {
-    console.log("Using custom ant stats from dev tools");
+    debugLog("Using custom ant stats from dev tools");
     customAntStats.forEach(ensureCustomAntTierCaps);
     topAnts = [
       { id: -1, custom: true, stats: customAntStats[0] },
@@ -8832,7 +8851,7 @@ function nextRound(){
     ];
   } else {
     topAnts = getTopAnts();  // Get top 3 from actual performance
-    console.log("Top ants this round:", topAnts);
+    debugLog("Top ants this round:", topAnts);
     
     // Fill in missing top ants with the best ant if we don't have 3
     // This ensures all slot groups have a valid parent
@@ -8877,7 +8896,7 @@ function nextRound(){
   playerRotationValue = 0;
   bulletShot[enemyIndex] = 0;
   centerPlayer();
-  console.log("enemy count:", enemyCount);
+  debugLog("enemy count:", enemyCount);
 
   shield = shieldQuantity > 0 ? shieldQuantity : 0;
   shot = bulletQuantity > 0 ? bulletQuantity : 0;
@@ -8899,7 +8918,7 @@ function nextRound(){
   let slots2 = Math.round(totalAntSlots * 0.3);
   let slots3 = totalAntSlots - slots1 - slots2;  // Gets the remainder
   
-  console.log(`Slot allocation: #1=${slots1}, #2=${slots2}, #3=${slots3} (total ${totalAntSlots})`);
+  debugLog(`Slot allocation: #1=${slots1}, #2=${slots2}, #3=${slots3} (total ${totalAntSlots})`);
 
   // Create ants from each winner to fill their slot allocation
   let antIndex = 1;
@@ -8918,7 +8937,7 @@ function nextRound(){
     
     // Skip this group if no valid parent (safety check)
     if (!group.parent) {
-      console.log(`Skipping ${group.name}: no valid parent ant`);
+      debugLog(`Skipping ${group.name}: no valid parent ant`);
       continue;
     }
     
@@ -8936,7 +8955,7 @@ function nextRound(){
     if (parent) {
       // Check if this is a custom ant from dev tools
       if (parent.custom && parent.stats) {
-        console.log(`Ant ${i} inherits from custom ant template #${Math.abs(parent.id)}`);
+        debugLog(`Ant ${i} inherits from custom ant template #${Math.abs(parent.id)}`);
         let s = parent.stats;
         bulletSpeed[i]   = constrain(s.bulletSpeed   + random(-50, 50), getMinAllowedValue('bulletSpeed', i, s.geneTokenInvestments || []), 300);
         bulletCooldown[i]= constrain(floor(s.bulletCooldown + random(-5, 5)), getMinAllowedValue('bulletCooldown', i, s.geneTokenInvestments || []), 200);
@@ -9092,7 +9111,7 @@ function nextRound(){
         geneTokenLastRoundGained[i] = s.geneTokenLastRoundGained || 0;
       } else {
         // Regular ant from game performance
-        console.log(`Ant ${i} inherits from parent Ant ${parent.id}`);
+        debugLog(`Ant ${i} inherits from parent Ant ${parent.id}`);
         bulletSpeed[i]   = constrain(bulletSpeed[parent.id]   + random(-50, 50), getMinAllowedValue('bulletSpeed', parent.id), 300);
         bulletCooldown[i]= constrain(floor(bulletCooldown[parent.id] + random(-5, 5)), getMinAllowedValue('bulletCooldown', parent.id), 200);
         antSpeed[i]      = constrain(antSpeed[parent.id]      + random(-0.3, 0.3), 0.9, 3.5);
@@ -9641,7 +9660,7 @@ function nextRound(){
     // Check if this ant will fit in remaining slots (allow small floating point tolerance)
     const SLOT_EPSILON = 0.001;
     if (usedSlots + antSize[i] > group.slots + SLOT_EPSILON) {
-      console.log(`  Ant ${i} (size ${antSize[i].toFixed(2)}) won't fit in remaining slots (${(group.slots - usedSlots).toFixed(2)}), skipping`);
+      debugLog(`  Ant ${i} (size ${antSize[i].toFixed(2)}) won't fit in remaining slots (${(group.slots - usedSlots).toFixed(2)}), skipping`);
       // Don't increment antIndex - next group can try to use this slot
       break;  // Exit this winner's loop
     }
@@ -9654,23 +9673,23 @@ function nextRound(){
     antLives[i] = 1;
 
     
-    console.log(`Ant ${i} bulletSpeed = ${bulletSpeed[i]}, cooldown = ${bulletCooldown[i]}`);
+    debugLog(`Ant ${i} bulletSpeed = ${bulletSpeed[i]}, cooldown = ${bulletCooldown[i]}`);
     
     // Track slot usage and increment counters
     usedSlots += antSize[i];
     antIndex++;
     antsFromThisWinner++;
     
-    console.log(`  Ant ${i} from ${group.name}: size=${antSize[i].toFixed(2)}, used slots=${usedSlots.toFixed(2)}/${group.slots}`);
+    debugLog(`  Ant ${i} from ${group.name}: size=${antSize[i].toFixed(2)}, used slots=${usedSlots.toFixed(2)}/${group.slots}`);
     }
     
-    console.log(`Winner ${group.name}: created ${antsFromThisWinner} ants using ${usedSlots.toFixed(2)}/${group.slots} slots`);
+    debugLog(`Winner ${group.name}: created ${antsFromThisWinner} ants using ${usedSlots.toFixed(2)}/${group.slots} slots`);
   }
   
   // Set enemyCount to actual number of ants created
   enemyCount = antIndex - 1;
   playerSpeed = movementSpeed / enemyCount;
-  console.log(`Total: Created ${enemyCount} ants across all winners`);
+  debugLog(`Total: Created ${enemyCount} ants across all winners`);
 
   // Gene Token System - Update existing investments and allocate new tokens
   for (let i = 1; i <= enemyCount; i++) {
@@ -10224,7 +10243,7 @@ function drawStartScreen(){
         // Set difficulty
         difficulty = difficultySelection;
         
-        console.log(`Difficulty set to: ${difficulty} (${getDifficultyTier()})`);
+        debugLog(`Difficulty set to: ${difficulty} (${getDifficultyTier()})`);
         
         // For insane difficulty (8-10), show pre-game upgrade menu
         if (getDifficultyTier() === 'insane') {
@@ -10423,7 +10442,7 @@ function applyPreGameUpgrade(selectionIndex) {
   updateUpgradeBooleans();
   
   let upgradeNames = ['Walking Speed', 'Dash Speed', 'Dash Cooldown', 'Add Shield', 'Add Bullets', 'Shield Regeneration', 'Bullet Reload', 'Bullet Speed', 'Free-Angle Aiming'];
-  console.log(`Pre-game bonus upgrade applied: ${upgradeNames[upgradeId]}`);
+  debugLog(`Pre-game bonus upgrade applied: ${upgradeNames[upgradeId]}`);
   
   // Reset menu state
   preGameUpgradeMenu = false;
@@ -10449,7 +10468,7 @@ function applyPreGameUpgrade(selectionIndex) {
 }
 
 function skipPreGameUpgrade() {
-  console.log('Pre-game upgrade skipped');
+  debugLog('Pre-game upgrade skipped');
   
   // Reset menu state
   preGameUpgradeMenu = false;
@@ -13586,7 +13605,7 @@ bulletKnockbackMultiplier: { caps: [2, 3, 4, 5], inverse: false },
     
     // If enabling custom ants and game is running, apply immediately to current ants
     if (devToolsUseCustomAnts && start && !end) {
-      console.log("Custom ants enabled - applying to current ants immediately");
+      debugLog("Custom ants enabled - applying to current ants immediately");
       applyCustomAntsToInitialPopulation();
     }
     
