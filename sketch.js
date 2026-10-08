@@ -481,6 +481,12 @@ let dash = false;
 let dashReady = true;
 let dashReadyFlash = 0; // Flash timer when dash becomes ready
 let dashStripeOffset = 0; // Stripe animation offset for Tiger Beetle
+const MAX_HEALTH = 100;
+const HEALTH_BAR_SHOW_FRAMES = 60; // Frames the health bar stays visible after health changes
+const HEALTH_BAR_FADE_FRAMES = 20; // Last frames of the timer spent fading out
+let healthBarTimer = 0; // Frames left showing the player health bar
+let healthBarPrev = null; // Health last frame, to detect changes
+let healthStripeOffset = 0; // Stripe animation offset for the 91-100 rainbow health bar
 let dashPrevPressed = false; // Track previous dash button state for toggle
 let dashButtonTouched = false; // Track if dash button is currently touched
 
@@ -1469,7 +1475,15 @@ function draw() {
           health = min(health + regenAmount * regenMultiplier, 30);
         }
       }
-      
+
+      // Cap health and show the health bar whenever it changes
+      health = min(health, MAX_HEALTH);
+      if (healthBarPrev !== null && health !== healthBarPrev) {
+        healthBarTimer = HEALTH_BAR_SHOW_FRAMES;
+      }
+      healthBarPrev = health;
+      if (healthBarTimer > 0) healthBarTimer--;
+
       endGame();
       if (frameCount % 1000 === 0 && end === false) {  // roughly every 5 seconds at 60fps
         printLiveAntRankings();
@@ -1551,6 +1565,8 @@ function resetRunState() {
   dashCoolDown = 0;
   dashReadyFlash = 0;
   dashStripeOffset = 0;
+  healthBarTimer = 0;
+  healthBarPrev = null;
   dashPrevPressed = false;
   dashButtonTouched = false;
   windAttackReady = true;
@@ -2177,19 +2193,10 @@ function getGameplayMouseY() {
   return mouseY / scaleY;
 }
 
+// Solid clay-soil orange. Deep enough to read as dirt, but its mid brightness
+// still separates it from the bright reds, blues and greens drawn on top.
 function drawBackground() {
-  // Normal background (no stripes anymore)
-  imageMode(CORNER);
-  tx = 0;
-  ty = 0;
-  image(bg, tx * windowWidth / 2, ty * windowHeight / 2, windowWidth / 2, windowHeight / 2);
-  ty = ty + 1;
-  image(bg, tx * windowWidth / 2, ty * windowHeight / 2, windowWidth / 2, windowHeight / 2);
-  ty = 0;
-  tx = tx + 1;
-  image(bg, tx * windowWidth / 2, ty * windowHeight / 2, windowWidth / 2, windowHeight / 2);
-  ty = ty + 1;
-  image(bg, tx * windowWidth / 2, ty * windowHeight / 2, windowWidth / 2, windowHeight / 2);
+  background(196, 108, 46);
 }
 
 function drawScoreboard() {
@@ -2405,20 +2412,13 @@ function drawEnemy(){
     }
     
     if (shouldDraw) {
-      // Draw shadow when airborne
-      if (antAirHeight[i] > 0) {
-        push();
-        ellipseMode(CENTER);
-        noSmooth();
-        noStroke();
-        // Shadow darkness based on height (higher = lighter shadow)
-        let shadowAlpha = map(antAirHeight[i], 0, 30, 150, 50);
-        fill(0, 0, 0, shadowAlpha);
-        let shadowSize = (45 + (15 * antSize[i])) * 0.5;
-        ellipse(antX[i], antY[i], shadowSize, shadowSize);
-        smooth();
-        pop();
-      }
+      // Ground shadow; shrinks and lightens as the ant rises
+      let antShadowHeight = constrain(antAirHeight[i], 0, 30);
+      let antShadowAlpha = map(antShadowHeight, 0, 30, 80, 40) * (fadeAmount / 255);
+      let antShadowScale = (45 + (15 * antSize[i])) * map(antShadowHeight, 0, 30, 1, 0.75);
+      angleMode(DEGREES);
+      let antShadowAngle = atan2(playerY - antY[i], playerX - antX[i]);
+      drawGroundShadow(antX[i], antY[i], antShadowScale * 0.6, antShadowScale * 0.26, antShadowAngle, antShadowAlpha);
       
       push();
         // Apply fade if Tiger Beetle is active
@@ -2539,8 +2539,38 @@ function drawEnemy(){
   //console.log(enemyIndex);
 }
 
-function drawBeetle(){
+// Soft oval under a sprite, matching the bullet shadow style. Sized to the bug's body
+// (not its image frame), rotated with it, and nudged a few pixels down-right.
+function drawGroundShadow(x, y, w, h, angle, alpha, offsetX = 2, offsetY = 3) {
+  push();
+  angleMode(DEGREES);
+  ellipseMode(CENTER);
+  noStroke();
+  fill(0, 0, 0, alpha);
+  translate(x + offsetX, y + offsetY);
+  rotate(angle);
+  ellipse(0, 0, w, h);
+  pop();
+}
 
+let beetleShadowW = null;
+let beetleShadowH = null;
+
+function drawBeetle(){
+  // Upright shadow centered under the beetle: wider when it faces sideways, taller when it
+  // faces up/down. Dimensions ease toward their target so sharp turns don't snap it.
+  angleMode(DEGREES);
+  let beetleShadowAngle = (isAiming && freeAimEnabled) ? aimAngle : playerRotationValue;
+  let horizontalness = abs(cos(beetleShadowAngle));
+  let targetW = 130 * lerp(0.34, 0.46, horizontalness);
+  let targetH = 130 * lerp(0.46, 0.34, horizontalness);
+  if (beetleShadowW === null) {
+    beetleShadowW = targetW;
+    beetleShadowH = targetH;
+  }
+  beetleShadowW = lerp(beetleShadowW, targetW, 0.15);
+  beetleShadowH = lerp(beetleShadowH, targetH, 0.15);
+  drawGroundShadow(playerX, playerY, beetleShadowW, beetleShadowH, 0, 90, 0, 9);
 
   push();
     angleMode(DEGREES)
@@ -2622,6 +2652,12 @@ function drawBeetle(){
       noStroke();
     }
     
+    // Player health bar (centered under the beetle, appears briefly when health changes)
+    if (healthBarTimer > 0) {
+      let healthBarWidth = 50;
+      drawPlayerHealthBar(-healthBarWidth / 2, 50, healthBarWidth, 7, min(1, healthBarTimer / HEALTH_BAR_FADE_FRAMES));
+    }
+
     // Dash cooldown bar below beetle
     if (dash && dashReady && tigerBeetleActive) {
       // Tiger Beetle: panning black and white stripes
@@ -2767,6 +2803,79 @@ function drawBeetle(){
     shot = shot + (1 / bulletReloadRate);
   }
 
+}
+
+// Colors for each 10-health tier of the player health bar (index 0 = 1-10 ... 8 = 81-90; 91-100 is rainbow)
+const HEALTH_TIER_COLORS = [
+  [220, 40, 40],   // 1-10 red
+  [245, 140, 30],  // 11-20 orange
+  [245, 220, 40],  // 21-30 yellow
+  [60, 190, 70],   // 31-40 green
+  [50, 110, 230],  // 41-50 blue
+  [140, 60, 200],  // 51-60 purple
+  [245, 120, 190], // 61-70 pink
+  [255, 255, 255], // 71-80 white
+  [230, 185, 40]   // 81-90 gold
+];
+const HEALTH_RAINBOW_COLORS = [
+  [255, 170, 170], [255, 210, 160], [255, 245, 170],
+  [180, 240, 180], [170, 210, 255], [215, 180, 255]
+];
+
+// Draws the player health bar. The full bar is 10 health; each new 10 health
+// fills across in a new color over the previous tier's color.
+function drawPlayerHealthBar(barX, barY, barWidth, barHeight, alphaMult) {
+  let h = constrain(health, 0, MAX_HEALTH);
+  let tier = constrain(Math.ceil(h / 10), 1, 10); // 1 = 1-10, 10 = 91-100
+  let fillPercent = h <= 0 ? 0 : (h - (tier - 1) * 10) / 10;
+
+  // Background: previous tier's color (dark grey for the first tier)
+  stroke(0, 255 * alphaMult);
+  strokeWeight(1);
+  if (tier === 1) {
+    fill(50, 50, 50, 220 * alphaMult);
+  } else {
+    let c = HEALTH_TIER_COLORS[tier - 2];
+    fill(c[0], c[1], c[2], 240 * alphaMult);
+  }
+  rect(barX, barY, barWidth, barHeight, 2);
+
+  if (fillPercent <= 0) return;
+
+  if (tier < 10) {
+    let c = HEALTH_TIER_COLORS[tier - 1];
+    fill(c[0], c[1], c[2], 240 * alphaMult);
+    rect(barX, barY, barWidth * fillPercent, barHeight, 2);
+  } else {
+    // 91-100: light rainbow stripes panning like the Tiger Beetle bar
+    push();
+    drawingContext.save();
+    drawingContext.beginPath();
+    drawingContext.roundRect(barX, barY, barWidth * fillPercent, barHeight, 2);
+    drawingContext.clip();
+
+    let stripeWidth = 4;
+    let cycleWidth = stripeWidth * HEALTH_RAINBOW_COLORS.length;
+    let wrappedOffset = Math.floor(healthStripeOffset) % cycleWidth;
+    let numStripes = Math.ceil(barWidth / stripeWidth) + HEALTH_RAINBOW_COLORS.length * 2;
+    noStroke();
+    for (let i = 0; i < numStripes; i++) {
+      let c = HEALTH_RAINBOW_COLORS[i % HEALTH_RAINBOW_COLORS.length];
+      fill(c[0], c[1], c[2], 255 * alphaMult);
+      rect(Math.floor(barX + i * stripeWidth - wrappedOffset), barY, stripeWidth, barHeight);
+    }
+
+    drawingContext.restore();
+    pop();
+
+    // Outline over the stripes
+    noFill();
+    stroke(0, 255 * alphaMult);
+    strokeWeight(1);
+    rect(barX, barY, barWidth * fillPercent, barHeight, 2);
+
+    healthStripeOffset += 1.5;
+  }
 }
 
 function enemyInteraction1(){
@@ -6771,10 +6880,12 @@ function drawDeathEffects() {
         fill(255, 255, 0, t.opacity);
         text(t.text, playerX + 40, playerY - 30 - t.rise);
       } else {
-        // Score: white, where the ant died
+        // Score: blue with a dark outline (like the EXP popup), where the ant died
         textAlign(CENTER);
         textSize(24);
-        fill(255, t.opacity);
+        stroke(0, t.opacity);
+        strokeWeight(3);
+        fill(90, 170, 255, t.opacity);
         text(t.text, t.x, t.y);
       }
     pop();
