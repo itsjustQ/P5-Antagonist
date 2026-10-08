@@ -6,7 +6,8 @@ let ty;
 let start = false;
 let startMenu = false;
 let difficultyMenu = false;
-let difficultySelection = 5; // 1-10 slider
+let difficultySelection = 5; // 1-10 button carousel
+let difficultyScroll = 5; // Smoothed carousel position (follows difficultySelection)
 let difficulty = 5; // 1-10: 1-3=easy, 4-5=medium, 6-7=hard, 8-10=insane
 let pendingGameMode = null; // stores whether we're starting single or multiplayer
 let preGameUpgradeMenu = false; // For difficulty 8-10
@@ -35,6 +36,91 @@ function getDifficultyTier() {
   if (difficulty <= 5) return 'medium';
   if (difficulty <= 7) return 'hard';
   return 'insane';
+}
+
+// Tier label/color for a 1-10 difficulty value (used by the difficulty menu)
+function getDifficultyTierInfo(value) {
+  if (value <= 3) return { name: 'Easy', color: [100, 255, 100] };
+  if (value <= 5) return { name: 'Medium', color: [255, 255, 100] };
+  if (value <= 7) return { name: 'Hard', color: [255, 150, 100] };
+  return { name: 'Insane', color: [255, 80, 80] };
+}
+
+// Per-difficulty records (single player): best score and highest round reached
+function getDifficultyRecord(value) {
+  let bestScore = getItem('highScore_difficulty' + value);
+  let bestRound = getItem('highestRound_difficulty' + value);
+  return { score: bestScore == null ? 0 : bestScore, round: bestRound == null ? 0 : bestRound };
+}
+
+function updateDifficultyRecord(runScore, roundReached) {
+  if (multiplayerMode) return;
+  let record = getDifficultyRecord(difficulty);
+  if (runScore > record.score) storeItem('highScore_difficulty' + difficulty, runScore);
+  if (roundReached > record.round) storeItem('highestRound_difficulty' + difficulty, roundReached);
+}
+
+// Difficulty unlocks: each level unlocks by completing this round on the previous level
+const DIFFICULTY_UNLOCK_ROUND = 15;
+
+function getDifficultyCompletedRound(value) {
+  let completed = getItem('completedRound_difficulty' + value);
+  if (completed == null) completed = 0;
+  // Reaching round N means round N-1 was completed (covers runs saved before this was tracked)
+  return max(completed, getDifficultyRecord(value).round - 1);
+}
+
+function updateDifficultyCompletedRound(roundCompleted) {
+  if (multiplayerMode) return;
+  if (roundCompleted > getDifficultyCompletedRound(difficulty)) {
+    storeItem('completedRound_difficulty' + difficulty, roundCompleted);
+  }
+}
+
+function isDifficultyUnlocked(value) {
+  if (value <= 1 || devToolsUnlockAllDifficulties) return true;
+  return getDifficultyCompletedRound(value - 1) >= DIFFICULTY_UNLOCK_ROUND;
+}
+
+function openDifficultyMenu() {
+  difficultyMenu = true;
+  // Keep the last pick if it's still allowed, otherwise jump to the highest unlocked level
+  if (!isDifficultyUnlocked(difficultySelection)) {
+    difficultySelection = 1;
+    while (difficultySelection < 10 && isDifficultyUnlocked(difficultySelection + 1)) difficultySelection++;
+  }
+  difficultyScroll = difficultySelection;
+}
+
+// Small padlock centered at (x, y), roughly `s` pixels tall
+function drawLockIcon(x, y, s, alpha) {
+  push();
+    rectMode(CENTER);
+    noFill();
+    stroke(200, alpha);
+    strokeWeight(s * 0.12);
+    arc(x, y - s * 0.12, s * 0.5, s * 0.6, PI, TWO_PI);
+    line(x - s * 0.25, y - s * 0.12, x - s * 0.25, y + s * 0.05);
+    line(x + s * 0.25, y - s * 0.12, x + s * 0.25, y + s * 0.05);
+    noStroke();
+    fill(200, alpha);
+    rect(x, y + s * 0.2, s * 0.75, s * 0.5, s * 0.08);
+  pop();
+}
+
+// Difficulty menu button layout: a horizontal row that scrolls so the selection is centered
+const DIFFICULTY_BUTTON_SIZE = 150;
+const DIFFICULTY_BUTTON_GAP = 30;
+
+function getDifficultyButtonRect(value) {
+  let centerX = getMenuWidth() / 2 + (value - difficultyScroll) * (DIFFICULTY_BUTTON_SIZE + DIFFICULTY_BUTTON_GAP);
+  let centerY = getMenuHeight() * 0.36;
+  return {
+    x: centerX - DIFFICULTY_BUTTON_SIZE / 2,
+    y: centerY - DIFFICULTY_BUTTON_SIZE / 2,
+    w: DIFFICULTY_BUTTON_SIZE,
+    h: DIFFICULTY_BUTTON_SIZE
+  };
 }
 
 function applyHardModeRandomInitialAbility(antIndex) {
@@ -108,6 +194,7 @@ let devToolsTabSwitchCooldown = 0;
 let devToolsAntStatIndex = 0; // which stat is selected in ants tab
 let devToolsAntScrollOffset = 0; // scroll position for ant stats
 let devToolsUseCustomAnts = false; // whether to use custom ant stats in nextRound()
+let devToolsUnlockAllDifficulties = false; // bypass round-15 difficulty unlock requirements
 
 // Custom ant genetic stats for dev tools (3 ants: 1st, 2nd, 3rd place)
 let customAntStats = [
@@ -651,8 +738,8 @@ let buttons = {};
 
 //let canvasSize = 600;
 let playerSpeed = 3;
-let scoreBarHeight = 40;
-let expBarHeight = 25;
+let scoreBarHeight = 0; // Top/bottom HUD bars were removed; the play area now uses the full screen
+let expBarHeight = 0;
 let expBarBuffer = 15;
 let sideBuffer = 25;
 let score = 0;
@@ -676,6 +763,22 @@ let combo = 0;
 let comboConstant = 50;
 let comboPoints = 0;
 let streakPoints = 0;
+const COMBO_TIME_MAX = 60; // comboTime is reset to this on every kill
+let comboSparks = []; // Sparks burst from the combo meter when the combo bonus steps up
+let comboSparkTier = 0; // Combo bonus step last frame, to detect step-ups
+
+// Player EXP bar (under the health bar)
+const EXP_BAR_SHOW_FRAMES = 90; // Frames the player EXP bar stays visible after EXP changes
+let playerExpBarTimer = 0;
+let playerExpBarPrev = null;
+
+// Round intro: frozen screen with "ROUND N" and a 3-2-1 countdown
+const ROUND_INTRO_COUNT_FRAMES = 60; // Frames per countdown number
+const ROUND_INTRO_FRAMES = ROUND_INTRO_COUNT_FRAMES * 3;
+const ROUND_GO_FRAMES = 40; // "GO!" fades over live gameplay after the countdown
+let roundIntroTimer = 0; // Frames left in the countdown (0 = not running)
+let roundIntroSnapshot = null; // Frozen image of the round's first frame
+let roundGoTimer = 0;
 
 // EXP Level System
 let expLevel = 1;
@@ -710,13 +813,13 @@ let upgrade17Level = 0; // Shockwave Cooldown (max 5, 2.25s→0.375s)
 let upgrade18Level = 0; // Shockwave Knockback (max 3, 4→10)
 let upgrade19Level = 0; // Shockwave Bullet Deflection (max 4, 20%→100% bullet conversion)
 let upgrade20Level = 0; // Health Regeneration (max 5, regenerate health after 200 frames)
-let upgrade21Level = 0; // Runt Hunter (max 1, ultra rare): ants smaller than normal give EXP inversely proportional to size
+let upgrade21Level = 0; // Runt Hunter (max 1, ultra rare): ants smaller than normal give points inversely proportional to size
 let upgrade22Level = 0; // Increased Metabolism (max 7): each level makes EXP levels 10% cheaper (up to 70%)
-let upgrade23Level = 0; // EXP Boost (max 10): each level adds 10% EXP (up to +100%)
+let upgrade23Level = 0; // EXP Boost (max 10): each level adds 10% points (up to +100%)
 let upgrade24Level = 0; // Combo Surge (max 4): combo bonus steps every 5 → 1 kills
-let upgrade25Level = 0; // Dash Harvest (max 1, very rare): double EXP for dash kills
-let upgrade26Level = 0; // Shockwave Harvest (max 1, very rare): double EXP for shockwave kills
-let upgrade27Level = 0; // Bullet Harvest (max 1, very rare): double EXP for bullet kills
+let upgrade25Level = 0; // Dash Harvest (max 1, very rare): double points for dash kills
+let upgrade26Level = 0; // Shockwave Harvest (max 1, very rare): double points for shockwave kills
+let upgrade27Level = 0; // Bullet Harvest (max 1, very rare): double points for bullet kills
 const UPGRADE_COUNT = 27;
 const UPGRADE_MAX_LEVELS = [4, 5, 5, 9, 8, 5, 5, 5, 1, 1, 1, 4, 4, 1, 5, 5, 5, 3, 4, 5, 1, 7, 10, 4, 1, 1, 1];
 let displayedUpgrades = [];  // Array of up to 3 randomly selected upgrade indices (0-9)
@@ -808,10 +911,7 @@ function setup() {
   console.log('Window Height:', windowHeight);
   //enemyCount = windowWidth/150 + windowHeight/150;
   //Beetle
-  playerX = getGameplayWidth() / 2;
-  playerY = (scoreBarHeight + getGameplayHeight() - expBarHeight) / 2;
-  playerPrevX = playerX;
-  playerPrevY = playerY;
+  centerPlayer();
   flashingEntities = [];
   flashTimer = 0;
   playerBulletX = playerX;
@@ -846,7 +946,7 @@ function setup() {
       initialAutonomy = 0;
     } else if (tier === 'medium') {
       // 4-5: Keep distance movement
-      initialAntSize = 0.7;
+      initialAntSize = 1;
       initialFollowValue = 0;
       initialAutonomy = 1;
     } else if (tier === 'hard') {
@@ -1086,10 +1186,7 @@ function windowResized() {
   resizeCanvas(windowWidth, windowHeight);
   
   // Keep beetle centered in playable area when window resizes
-  playerX = getGameplayWidth() / 2;
-  playerY = (scoreBarHeight + getGameplayHeight() - expBarHeight) / 2;
-  playerPrevX = playerX;
-  playerPrevY = playerY;
+  centerPlayer();
   
   // Update button positions for mobile controls
   buttons.up = {x: 80, y: windowHeight - 140, w: 60, h: 60};
@@ -1309,7 +1406,14 @@ function draw() {
     return;  // Don't show other screens while pre-game menu is active
   }
 
-  if (start == true){
+  if (start == true && roundIntroTimer > 0 && roundIntroSnapshot) {
+    // Round intro: everything stays frozen until the countdown finishes
+    drawRoundIntro();
+  } else if (start == true){
+      // Only snapshot a round that was already started before this frame; nextRound() runs
+      // inside endGame() from the round-over screen, which would otherwise freeze that screen
+      let snapshotRoundIntro = roundIntroTimer > 0 && !roundIntroSnapshot;
+
       // Check if Tiger Beetle is dashing (for visual effects)
       if (tigerBeetleActive) {
         tigerBeetleMoving = dash;
@@ -1414,7 +1518,7 @@ function draw() {
       
       // UI elements (not scaled)
       drawBackground();
-      drawScoreboard();
+      updateScoreAndTimer();
       
       // Begin gameplay scaling based on level
       beginGameplayScaling();
@@ -1440,6 +1544,7 @@ function draw() {
       handleAntKnockback(); // Handle knocked back ants
       drawDeathEffects();
       drawSpeedRings();
+      updateComboSparks();
       endGameplayScaling();
       
       // Draw damage flash effects AFTER gameplay (not scaled)
@@ -1457,6 +1562,8 @@ function draw() {
       }
       if (beamHealthFlashFrames > 0) beamHealthFlashFrames--;
       if (beamShieldFlashFrames > 0) beamShieldFlashFrames--;
+
+      drawRoundTimer();
       
       // Shield regeneration (outside scaling)
       let maxShields = shieldQuantity > 0 ? shieldQuantity : 0;
@@ -1484,7 +1591,20 @@ function draw() {
       healthBarPrev = health;
       if (healthBarTimer > 0) healthBarTimer--;
 
+      // Show the player EXP bar whenever EXP changes
+      if (playerExpBarPrev !== null && expProgress !== playerExpBarPrev) {
+        playerExpBarTimer = EXP_BAR_SHOW_FRAMES;
+      }
+      playerExpBarPrev = expProgress;
+      if (playerExpBarTimer > 0) playerExpBarTimer--;
+
       endGame();
+
+      // First frame of a round: freeze it as the backdrop for the countdown
+      if (snapshotRoundIntro && roundIntroTimer > 0 && !roundIntroSnapshot && start && !end) {
+        roundIntroSnapshot = get();
+      }
+      drawRoundGo();
       if (frameCount % 1000 === 0 && end === false) {  // roughly every 5 seconds at 60fps
         printLiveAntRankings();
       }
@@ -1550,10 +1670,7 @@ function resetRunState() {
   playerRotationValue = 0;
   bulletShot[enemyIndex] = 0;
   bulletSpeed[enemyIndex] = 100;
-  playerX = getGameplayWidth() / 2;
-  playerY = (scoreBarHeight + getGameplayHeight() - expBarHeight) / 2;
-  playerPrevX = playerX;
-  playerPrevY = playerY;
+  centerPlayer();
   tigerBeetleMoving = false;
   flashingEntities = [];
   flashTimer = 0;
@@ -1567,6 +1684,10 @@ function resetRunState() {
   dashStripeOffset = 0;
   healthBarTimer = 0;
   healthBarPrev = null;
+  playerExpBarTimer = 0;
+  playerExpBarPrev = null;
+  comboSparks = [];
+  comboSparkTier = 0;
   dashPrevPressed = false;
   dashButtonTouched = false;
   windAttackReady = true;
@@ -1635,6 +1756,7 @@ function restartGame() {
   }
   
   start = true;
+  startRoundIntro();
   startMenu = false;
   endmusic.stop();
   titlemusic.stop();
@@ -1854,7 +1976,7 @@ function applyDifficultyToInitialPopulation() {
     followValueSetting = 0;
     autonomySetting = 0;
   } else if (tier === 'medium') {
-    sizeValue = 0.7;
+    sizeValue = 1;
     followValueSetting = 0;
     autonomySetting = 1;
   } else if (tier === 'hard') {
@@ -2171,6 +2293,15 @@ function endGameplayScaling() {
   pop();
 }
 
+// Put the beetle in the middle of the playable area. Gameplay runs in the current
+// round's reference size (not window pixels), so call this after level is set.
+function centerPlayer() {
+  playerX = getGameplayWidth() / 2;
+  playerY = (scoreBarHeight + getGameplayHeight() - expBarHeight) / 2;
+  playerPrevX = playerX;
+  playerPrevY = playerY;
+}
+
 // Get scaled gameplay dimensions
 function getGameplayWidth() {
   return getGameplayReferenceWidth();
@@ -2199,17 +2330,8 @@ function drawBackground() {
   background(196, 108, 46);
 }
 
-function drawScoreboard() {
-  rectMode(CORNER);
-  fill(0, 50, 120);  // Darker blue background
-  rect(0, 0, windowWidth, scoreBarHeight);
-
-  fill(255);  // White text
-  stroke(0);  // Black border
-  strokeWeight(2);
-  textSize(16);
-  textAlign(CENTER);
-
+// Track the high score and count down the round timer (the on-screen scoreboard is gone)
+function updateScoreAndTimer() {
   highScore = getItem('newHighScore');
   if (highScore == null) {
     highScore = 0;
@@ -2218,10 +2340,8 @@ function drawScoreboard() {
   // Calculate current run score based on mode
   let currentRunScore;
   if (multiplayerMode && players.length > 0) {
-    // In multiplayer, show current player's total + current round score
     currentRunScore = players[currentPlayerIndex].totalScore + score;
   } else {
-    // In single player, use global totalScore
     currentRunScore = totalScore + score;
   }
   
@@ -2230,116 +2350,30 @@ function drawScoreboard() {
     highScore = currentRunScore;
     storeItem('newHighScore', highScore);
   }
-
-  let padding = 10;
-  let yPos = scoreBarHeight * 0.65;
-  
-  // Available width for text
-  let sectionWidth = windowWidth / 7;
-  let startX = sectionWidth / 2;
-
-  // Left to right: Round, Time, Combo, Health, Score, Total, High Score
-  
-  // Round
-  fill(255);
-  text(`Round: ${level}`, startX, yPos);
-
-  // Time
-  text(`Time: ${round(timeCount)}`, startX + sectionWidth, yPos);
-
-  // Combo (colored - fades yellow → red → white)
-  let comboText = `Combo: ${combo}`;
-  if (streakPoints > 0) {
-    comboText += ` +${Math.round(streakPoints)}`;
+  if (!end) {
+    updateDifficultyRecord(currentRunScore, level);
   }
-  // Color transition: Yellow (60) → Red (30) → White (0)
-  let r, g, b;
-  if (comboTime > 30) {
-    // Yellow to Red transition
-    r = 255;
-    g = map(comboTime, 60, 30, 255, 0);  // 255 at 60 (yellow), 0 at 30 (red)
-    b = 0;
-  } else {
-    // Red to White transition
-    r = 255;
-    g = map(comboTime, 30, 0, 0, 255);   // 0 at 30 (red), 255 at 0 (white)
-    b = map(comboTime, 30, 0, 0, 255);   // 0 at 30 (red), 255 at 0 (white)
-  }
-  fill(r, g, b);
-  text(comboText, startX + sectionWidth * 2, yPos);
-
-  // Health
-  // Flash red box if health below 10
-  if (health < 10) {
-    let flashAlpha = map(sin(frameCount * 20/health), -1, 1, 50, 150);
-    fill(255, 0, 0, flashAlpha);
-    noStroke();
-    rectMode(CENTER);
-    rect(startX + sectionWidth * 3, scoreBarHeight / 2, sectionWidth * 0.8, scoreBarHeight * 1);
-    rectMode(CORNER);
-  }
-  
-  fill(255);
-  stroke(0);
-  strokeWeight(2);
-  text(`Health: ${health.toFixed(2)}`, startX + sectionWidth * 3, yPos);
-
-  // Score
-  text(`Score: ${Math.round(score)}`, startX + sectionWidth * 4, yPos);
-
-  // Total
-  text(`Total: ${Math.round(currentRunScore)}`, startX + sectionWidth * 5, yPos);
-
-  // High Score
-  text(`High Score: ${Math.round(highScore)}`, startX + sectionWidth * 6, yPos);
-
-  // EXP Progress Bar
-  drawExpBar();
 
   if (!end) {
     timeCount -= (1 / 100);
   }
 }
 
-function drawExpBar() {
-  // EXP bar dimensions
-  let barWidth = windowWidth;  // Full screen width
-  let barHeight = expBarHeight;
-  let barX = 0;  // Start at left edge
-  let barY = windowHeight - barHeight;  // At the bottom of screen
-  
-  // Background (empty bar)
-  fill(80, 80, 0);  // Dark yellow
+// Round timer in the upper left corner; turns red for the last 3 seconds
+function drawRoundTimer() {
+  let secondsLeft = max(0, round(timeCount));
+  push();
+  textAlign(LEFT, TOP);
+  textSize(32);
   stroke(0);
-  strokeWeight(2);
-  rectMode(CORNER);
-  rect(barX, barY, barWidth, barHeight);
-  
-  // Progress (filled portion)
-  let progressWidth = map(expProgress, 0, getExpRequired(), 0, barWidth);
-  fill(255, 255, 0);  // Bright yellow
-  noStroke();
-  rect(barX, barY, progressWidth, barHeight);
-  
-  // EXP Level text (with border)
-  if (upgradeAvailable) {
-    // Pulsing "Upgrade Available" text
-    let pulseSize = map(sin(frameCount * 0.1), -1, 1, 14, 18);
-    let pulseAlpha = map(sin(frameCount * 0.1), -1, 1, 180, 255);
-    fill(255, pulseAlpha);
-    stroke(0);
-    strokeWeight(3);
-    textSize(pulseSize);
-    textAlign(CENTER);
-    text(`UPGRADE AVAILABLE!`, windowWidth / 2, barY + barHeight / 2 + 5);
+  strokeWeight(4);
+  if (secondsLeft <= 3 && !end) {
+    fill(255, 70, 50);
   } else {
     fill(255);
-    stroke(0);
-    strokeWeight(3);
-    textSize(14);
-    textAlign(CENTER);
-    text(`EXP Level: ${expLevel} | ${Math.round(expProgress)}/${getExpRequired()}`, windowWidth / 2, barY + barHeight / 2 + 5);
   }
+  text(secondsLeft, 18, 14);
+  pop();
 }
 
 // EXP needed for the next level, after Increased Metabolism's discount
@@ -2347,11 +2381,10 @@ function getExpRequired() {
   return Math.round(expRequired * (1 - 0.1 * upgrade22Level));
 }
 
-// Add EXP rounded to a whole number and show it beside the beetle
+// Add EXP rounded to a whole number
 function addExp(amount) {
   amount = Math.round(amount);
   expProgress += amount;
-  addExpPopup(amount);
 
   // Check if upgrade should be available
   if (expProgress >= getExpRequired() && !upgradeAvailable) {
@@ -2360,20 +2393,19 @@ function addExp(amount) {
   }
 }
 
-// Award score and EXP for a kill. basePoints is before size scaling;
-// source is 'dash', 'shockwave', 'bullet', or null. Returns the score gained.
+// Award points for a kill; the same amount goes to both score and EXP. basePoints is
+// before size scaling; source is 'dash', 'shockwave', 'bullet', or null. Returns the points gained.
 function addKillScore(basePoints, size, source) {
-  let scoreGained = Math.round(basePoints * size);
-  score += scoreGained;
-
-  // Runt Hunter: ants smaller than normal give EXP inversely proportional to size
+  // Runt Hunter: ants smaller than normal give points inversely proportional to size
   let sizeFactor = (upgrade21Level > 0 && size < 1) ? 1 / size : size;
   let multiplier = 1 + 0.1 * upgrade23Level;  // EXP Boost
   if (source === 'dash' && upgrade25Level > 0) multiplier *= 2;
   if (source === 'shockwave' && upgrade26Level > 0) multiplier *= 2;
   if (source === 'bullet' && upgrade27Level > 0) multiplier *= 2;
-  addExp(basePoints * sizeFactor * multiplier);
-  return scoreGained;
+  let points = Math.round(basePoints * sizeFactor * multiplier);
+  score += points;
+  addExp(points);
+  return points;
 }
 
 function drawStrikes(){
@@ -2483,9 +2515,9 @@ function drawEnemy(){
           strokeWeight(1);
           rect(antX[i] - barWidth / 2, barY, barWidth, barHeight, 2);
           
-          // Color based on health: red (<1), yellow (1-1.5), yellow->green (1.5-2), green->blue (2-3)
+          // Color based on health: red (<=1, can be run over), yellow (1-1.5), yellow->green (1.5-2), green->blue (2-3)
           let barColor;
-          if (antHealth[i] < 1) {
+          if (antHealth[i] <= 1) {
             barColor = color(255, 50, 50); // Red
           } else if (antHealth[i] < 1.5) {
             // Yellow
@@ -2653,9 +2685,22 @@ function drawBeetle(){
     }
     
     // Player health bar (centered under the beetle, appears briefly when health changes)
-    if (healthBarTimer > 0) {
+    // Under 10 health it stays up and flashes red, pulsing faster as health drops (like the scoreboard)
+    let lowHealth = health < 10 && health > 0;
+    if (healthBarTimer > 0 || lowHealth) {
       let healthBarWidth = 50;
-      drawPlayerHealthBar(-healthBarWidth / 2, 50, healthBarWidth, 7, min(1, healthBarTimer / HEALTH_BAR_FADE_FRAMES));
+      let healthAlpha = lowHealth ? 1 : min(1, healthBarTimer / HEALTH_BAR_FADE_FRAMES);
+      drawPlayerHealthBar(-healthBarWidth / 2, 50, healthBarWidth, 7, healthAlpha);
+    }
+
+    // Player EXP bar right under the health bar (appears briefly when EXP changes)
+    if (playerExpBarTimer > 0) {
+      drawPlayerExpBar(-25, 60, 50, 4, min(1, playerExpBarTimer / HEALTH_BAR_FADE_FRAMES));
+    }
+
+    // Combo meter to the right of the health bar
+    if (combo > 0 && comboTime > 0) {
+      drawComboMeter();
     }
 
     // Dash cooldown bar below beetle
@@ -2805,6 +2850,241 @@ function drawBeetle(){
 
 }
 
+// Freeze the next gameplay frame and count down 3-2-1 before play starts
+function startRoundIntro() {
+  roundIntroTimer = ROUND_INTRO_FRAMES;
+  roundIntroSnapshot = null;
+  roundGoTimer = 0;
+}
+
+// Frozen round snapshot with the round number and countdown over it
+function drawRoundIntro() {
+  image(roundIntroSnapshot, 0, 0, windowWidth, windowHeight);
+  noStroke();
+  fill(0, 0, 0, 110);
+  rectMode(CORNER);
+  rect(0, 0, windowWidth, windowHeight);
+
+  let count = Math.ceil(roundIntroTimer / ROUND_INTRO_COUNT_FRAMES);
+  let countProgress = 1 - ((roundIntroTimer - 1) % ROUND_INTRO_COUNT_FRAMES) / ROUND_INTRO_COUNT_FRAMES;
+  let titleSize = min(windowWidth, windowHeight) * 0.13;
+
+  push();
+  textAlign(CENTER, CENTER);
+  stroke(0);
+  strokeWeight(titleSize * 0.1);
+  fill(255);
+  textSize(titleSize);
+  text(`ROUND ${level}`, windowWidth / 2, windowHeight * 0.38);
+
+  // Each number pops in large and settles, fading near the end of its second
+  let numSize = titleSize * 1.6 * map(countProgress, 0, 0.2, 1.5, 1, true);
+  let numAlpha = map(countProgress, 0.75, 1, 255, 60, true);
+  fill(255, 220, 40, numAlpha);
+  stroke(0, numAlpha);
+  strokeWeight(numSize * 0.08);
+  textSize(numSize);
+  text(count, windowWidth / 2, windowHeight * 0.6);
+  pop();
+
+  roundIntroTimer--;
+  if (roundIntroTimer <= 0) {
+    roundIntroSnapshot = null;
+    roundGoTimer = ROUND_GO_FRAMES;
+  }
+}
+
+// "GO!" fading out over live gameplay once the countdown ends
+function drawRoundGo() {
+  if (roundGoTimer <= 0) return;
+  let t = roundGoTimer / ROUND_GO_FRAMES;
+  let size = min(windowWidth, windowHeight) * 0.2 * lerp(1.3, 1, t);
+  push();
+  textAlign(CENTER, CENTER);
+  fill(120, 255, 120, 255 * t);
+  stroke(0, 255 * t);
+  strokeWeight(size * 0.08);
+  textSize(size);
+  text('GO!', windowWidth / 2, windowHeight * 0.5);
+  pop();
+  roundGoTimer--;
+}
+
+// Beetle-relative layout of the vertical combo meter (right of the health and EXP bars)
+const COMBO_METER_X = 30;
+const COMBO_METER_W = 7;
+const COMBO_METER_H = 26;
+const COMBO_METER_BOTTOM = 64;
+
+// Combo bonus step: the bonus grows by comboConstant each step (every 5 → 1 kills with Combo Surge)
+function getComboTier(c = combo) {
+  return c > 1 ? Math.ceil(c / (5 - upgrade24Level)) : 0;
+}
+
+// Fiery vertical meter that burns down and fades as the combo timer runs out, with the combo count beside it
+function drawComboMeter() {
+  let t = constrain(comboTime / COMBO_TIME_MAX, 0, 1);
+  let alphaMult = lerp(0.3, 1, t);
+  let x = COMBO_METER_X;
+  let top = COMBO_METER_BOTTOM - COMBO_METER_H;
+  let fillH = COMBO_METER_H * t;
+  let fillTop = COMBO_METER_BOTTOM - fillH;
+
+  // Background with an orange glow
+  drawingContext.save();
+  drawingContext.shadowColor = `rgba(255, 110, 0, ${0.8 * alphaMult})`;
+  drawingContext.shadowBlur = 10 * t;
+  stroke(0, 255 * alphaMult);
+  strokeWeight(1);
+  fill(40, 20, 10, 220 * alphaMult);
+  rect(x, top, COMBO_METER_W, COMBO_METER_H, 2);
+  drawingContext.restore();
+
+  // Flickering fire gradient: deep red at the bottom up to yellow-white at the flame front
+  noStroke();
+  for (let y = 0; y < fillH; y++) {
+    let f = fillH <= 1 ? 1 : y / (fillH - 1); // 0 at bottom, 1 at the top of the fill
+    let flicker = noise(y * 0.35, frameCount * 0.18) * 0.5 + 0.75;
+    let r = 255;
+    let g = constrain(lerp(40, 235, f) * flicker, 0, 255);
+    let b = constrain(lerp(0, 120, f * f) * flicker, 0, 255);
+    fill(r * min(1, 0.7 + f), g, b, 255 * alphaMult);
+    rect(x + 1, COMBO_METER_BOTTOM - 1 - y, COMBO_METER_W - 2, 1);
+  }
+
+  // Flame tongues licking above the fill
+  if (t > 0) {
+    for (let i = 0; i < 3; i++) {
+      let cx = x + 1.5 + i * (COMBO_METER_W - 3) / 2;
+      let lick = (2 + 6 * noise(i * 10, frameCount * 0.25)) * (0.4 + 0.6 * t);
+      fill(255, 120, 0, 200 * alphaMult);
+      triangle(cx - 2, fillTop + 1, cx + 2, fillTop + 1, cx, fillTop - lick);
+      fill(255, 230, 90, 230 * alphaMult);
+      triangle(cx - 1, fillTop + 1, cx + 1, fillTop + 1, cx, fillTop - lick * 0.55);
+    }
+  }
+
+  // Combo count, popping bigger right after a kill
+  let pop = map(comboTime, COMBO_TIME_MAX, COMBO_TIME_MAX - 8, 1.4, 1, true);
+  fill(255, lerp(140, 225, t), 30, 255 * alphaMult);
+  stroke(60, 10, 0, 255 * alphaMult);
+  strokeWeight(2.5);
+  textAlign(LEFT, CENTER);
+  textSize(12 * pop);
+  text(`x${combo}`, x + COMBO_METER_W + 4, top + COMBO_METER_H / 2);
+}
+
+// Embers rising off the combo meter, plus a spark burst each time the combo bonus steps up
+// (not on the 2nd kill, where the combo first starts). Drawn in gameplay space.
+function updateComboSparks() {
+  let active = combo > 0 && comboTime > 0;
+  let t = constrain(comboTime / COMBO_TIME_MAX, 0, 1);
+  let tier = active ? getComboTier() : 0;
+  let flameX = playerX + COMBO_METER_X + COMBO_METER_W / 2;
+  let flameY = playerY + COMBO_METER_BOTTOM - COMBO_METER_H * t;
+
+  if (tier > comboSparkTier && tier > getComboTier(2)) {
+    let count = 12 + min(tier, 12);
+    for (let i = 0; i < count; i++) {
+      let a = random(360);
+      let speed = random(1.5, 4.5);
+      comboSparks.push({
+        x: flameX, y: flameY,
+        vx: cos(a) * speed, vy: sin(a) * speed - 1.5,
+        gravity: 0.15,
+        life: random(18, 32), maxLife: 32,
+        hot: random() < 0.5
+      });
+    }
+  }
+  comboSparkTier = tier;
+
+  if (active && random() < 0.4 * t) {
+    comboSparks.push({
+      x: flameX + random(-COMBO_METER_W / 2, COMBO_METER_W / 2), y: flameY,
+      vx: random(-0.3, 0.3), vy: random(-1.4, -0.6),
+      gravity: -0.02,
+      life: random(15, 30), maxLife: 30,
+      hot: random() < 0.3
+    });
+  }
+
+  push();
+  angleMode(DEGREES);
+  strokeCap(ROUND);
+  for (let i = comboSparks.length - 1; i >= 0; i--) {
+    let s = comboSparks[i];
+    s.x += s.vx;
+    s.y += s.vy;
+    s.vx *= 0.92;
+    s.vy = s.vy * 0.92 + s.gravity;
+    s.life--;
+    if (s.life <= 0) {
+      comboSparks.splice(i, 1);
+      continue;
+    }
+    let a = 255 * s.life / s.maxLife;
+    strokeWeight(2);
+    stroke(255, s.hot ? 240 : lerp(60, 180, s.life / s.maxLife), s.hot ? 150 : 0, a);
+    line(s.x, s.y, s.x - s.vx * 2, s.y - s.vy * 2);
+  }
+  pop();
+}
+
+// EXP progress as shown on the player bar: levels already earned but not yet spent on
+// upgrades are counted, so the bar rolls over into the next level instead of sitting full
+function getExpDisplayState() {
+  let lvl = expLevel;
+  let progress = expProgress;
+  let required = expRequired;
+  let cost = getExpRequired();
+  while (cost > 0 && progress >= cost) {
+    progress -= cost;
+    lvl++;
+    required += 500 * Math.ceil(lvl / 5);
+    cost = Math.round(required * (1 - 0.1 * upgrade22Level));
+  }
+  return { level: lvl, progress: progress, required: cost };
+}
+
+// Small EXP bar under the health bar with the player's level beside it;
+// a gold box flashes around the level while an upgrade is waiting
+function drawPlayerExpBar(barX, barY, barWidth, barHeight, alphaMult) {
+  let state = getExpDisplayState();
+  let progress = constrain(state.progress / state.required, 0, 1);
+
+  stroke(0, 255 * alphaMult);
+  strokeWeight(1);
+  fill(80, 80, 0, 230 * alphaMult);
+  rect(barX, barY, barWidth, barHeight, 2);
+
+  if (progress > 0) {
+    fill(255, 255, 0, 255 * alphaMult);
+    rect(barX, barY, barWidth * progress, barHeight, 2);
+  }
+
+  // Level label to the left of the bar
+  let label = `Lv ${state.level}`;
+  let labelRight = barX - 5;
+  let labelY = barY + barHeight / 2;
+  textSize(11);
+  textAlign(RIGHT, CENTER);
+
+  if (upgradeAvailable) {
+    let flash = (sin(frameCount * 12) + 1) / 2;
+    let w = textWidth(label) + 6;
+    stroke(255, 200, 40, lerp(80, 255, flash) * alphaMult);
+    strokeWeight(lerp(1.5, 2.5, flash));
+    fill(255, 200, 40, lerp(20, 90, flash) * alphaMult);
+    rect(labelRight - w + 3, labelY - 8, w, 15, 3);
+  }
+
+  stroke(0, 255 * alphaMult);
+  strokeWeight(2.5);
+  fill(255, 255 * alphaMult);
+  text(label, labelRight, labelY);
+}
+
 // Colors for each 10-health tier of the player health bar (index 0 = 1-10 ... 8 = 81-90; 91-100 is rainbow)
 const HEALTH_TIER_COLORS = [
   [220, 40, 40],   // 1-10 red
@@ -2844,7 +3124,9 @@ function drawPlayerHealthBar(barX, barY, barWidth, barHeight, alphaMult) {
 
   if (tier < 10) {
     let c = HEALTH_TIER_COLORS[tier - 1];
-    fill(c[0], c[1], c[2], 240 * alphaMult);
+    // Under 10 health the red fill flashes in and out, faster as health drops (like the scoreboard)
+    let flash = h < 10 ? map(sin(frameCount * 20 / h), -1, 1, 0.15, 1) : 1;
+    fill(c[0], c[1], c[2], 240 * alphaMult * flash);
     rect(barX, barY, barWidth * fillPercent, barHeight, 2);
   } else {
     // 91-100: light rainbow stripes panning like the Tiger Beetle bar
@@ -2887,8 +3169,8 @@ function enemyInteraction1(){
     
     let antHitboxSize = 20.25 + (6.75 * antSize[i]);
     if(playerX > (antX[i] - antHitboxSize) && playerY > (antY[i] - antHitboxSize) && playerX < (antX[i] + antHitboxSize) && playerY < (antY[i] + antHitboxSize)) {
-      // Only run over ants with health < 1, and only if round is active and player is alive
-      if (end == false && health > 0 && antHealth[i] < 1){
+      // Only run over ants with health <= 1, and only if round is active and player is alive
+      if (end == false && health > 0 && antHealth[i] <= 1){
         comboTime = 60;
         combo = combo + 1;
         calculateBonus();
@@ -2983,8 +3265,8 @@ function enemyInteraction1(){
               if (combo < 1) {
                 combo = 1;
               }
-              score += 100 * combo;
-              addExp(100 * combo * (1 + 0.1 * upgrade23Level));
+              let scoreGained = addKillScore(100 * combo, 1, null);
+              addDeathEffect(antX[i], antY[i], scoreGained);
               combo++;
               antHealth[i] = antMaxHealth[i]; // Reset health for respawn
             }
@@ -6012,8 +6294,7 @@ bulletKnockbackMultiplier: { caps: [2, 3, 4, 5], inverse: false },
     // Ant size unlock varies by difficulty
     if (statName === 'antSize') {
       if ((getDifficultyTier() === 'hard' || getDifficultyTier() === 'insane') && currentRound >= 2) return true;
-      if (difficulty === 'medium' && currentRound >= 5) return true;
-      if (currentRound >= 10) return true; // Easy mode
+      if (currentRound >= 10) return true; // Easy and medium
     }
     
     return false;
@@ -6376,35 +6657,13 @@ function addDeathEffect(x, y, points = 100) {
     opacity: 255,
   });
 
-  // floating score text
+  // floating points text (score and EXP gained)
   floatingTexts.push({
     x: x,
     y: y - 10,
     text: `+${Math.round(points)}`,
     opacity: 255,
     riseSpeed: 1.5,
-  });
-}
-
-// Floating EXP text that follows the beetle; kills in quick succession add to the same popup
-function addExpPopup(amount) {
-  if (amount <= 0) return;
-  for (let t of floatingTexts) {
-    if (t.isExp && t.opacity > 180) {
-      t.amount += amount;
-      t.text = `+${t.amount} EXP`;
-      t.opacity = 255;
-      t.rise = 0;
-      return;
-    }
-  }
-  floatingTexts.push({
-    isExp: true,
-    amount: amount,
-    text: `+${amount} EXP`,
-    rise: 0,
-    opacity: 255,
-    riseSpeed: 1,
   });
 }
 
@@ -6871,31 +7130,17 @@ function drawDeathEffects() {
     let t = floatingTexts[i];
     push();
       noStroke();
-      if (t.isExp) {
-        // EXP: yellow like the EXP bar, beside the beetle
-        textAlign(LEFT);
-        textSize(20);
-        stroke(0, t.opacity);
-        strokeWeight(3);
-        fill(255, 255, 0, t.opacity);
-        text(t.text, playerX + 40, playerY - 30 - t.rise);
-      } else {
-        // Score: blue with a dark outline (like the EXP popup), where the ant died
-        textAlign(CENTER);
-        textSize(24);
-        stroke(0, t.opacity);
-        strokeWeight(3);
-        fill(90, 170, 255, t.opacity);
-        text(t.text, t.x, t.y);
-      }
+      // Points: yellow like the EXP bar, rising from where the ant died
+      textAlign(CENTER);
+      textSize(24);
+      stroke(0, t.opacity);
+      strokeWeight(3);
+      fill(255, 255, 0, t.opacity);
+      text(t.text, t.x, t.y);
     pop();
 
     // Animate floating upward and fading out
-    if (t.isExp) {
-      t.rise += t.riseSpeed;
-    } else {
-      t.y -= t.riseSpeed;
-    }
+    t.y -= t.riseSpeed;
     t.opacity -= 5;
     if (t.opacity <= 0) floatingTexts.splice(i, 1);
   }
@@ -6990,7 +7235,7 @@ function endGame(){
       gameOverMenu = false;
       gameOverMenuCooldown = 0;
       totalScore = totalScore + score;
-      score = 0;  // Reset score to prevent double-counting in drawScoreboard
+      score = 0;  // Reset score to prevent double-counting in updateScoreAndTimer
       levelEnd = 1;
     }
     highScore = getItem('newHighScore');
@@ -7001,6 +7246,7 @@ function endGame(){
       storeItem('newHighScore', totalScore);
       highScore = totalScore;
     }
+    updateDifficultyRecord(totalScore, level);
     end = true;
 
     beginMenuScaling();
@@ -7222,7 +7468,7 @@ if (timeCount < 0) {
       // Only update global totalScore in single player mode
       if (!multiplayerMode) {
         totalScore = totalScore + score;
-        score = 0;  // Reset score to prevent double-counting in drawScoreboard
+        score = 0;  // Reset score to prevent double-counting in updateScoreAndTimer
       }
       levelEnd = 1;
     }
@@ -7246,6 +7492,8 @@ if (timeCount < 0) {
       storeItem('newHighScore', totalScore);
       highScore = totalScore;
     }
+    updateDifficultyRecord(totalScore, level);
+    updateDifficultyCompletedRound(level); // Surviving the timer completes this round
 
     const intermissionRound = level;
     const intermissionHealth = health;
@@ -7724,7 +7972,7 @@ function drawUpgradeScreen() {
     },
     {
       title: 'Runt Hunter',
-      description: 'Ants smaller than normal give EXP inversely proportional to their size.',
+      description: 'Ants smaller than normal give score and EXP inversely proportional to their size.',
       level: upgrade21Level,
       maxLevel: 1
     },
@@ -7736,7 +7984,7 @@ function drawUpgradeScreen() {
     },
     {
       title: 'EXP Boost',
-      description: 'Each level makes ants give 10% more EXP (up to +100%).',
+      description: 'Each level makes ants give 10% more score and EXP (up to +100%).',
       level: upgrade23Level,
       maxLevel: 10
     },
@@ -7748,19 +7996,19 @@ function drawUpgradeScreen() {
     },
     {
       title: 'Dash Harvest',
-      description: 'Double EXP for ants killed by dashing.',
+      description: 'Double score and EXP for ants killed by dashing.',
       level: upgrade25Level,
       maxLevel: 1
     },
     {
       title: 'Shockwave Harvest',
-      description: 'Double EXP for ants killed by your shockwave. Requires Shockwave.',
+      description: 'Double score and EXP for ants killed by your shockwave. Requires Shockwave.',
       level: upgrade26Level,
       maxLevel: 1
     },
     {
       title: 'Bullet Harvest',
-      description: 'Double EXP for ants killed by your bullets. Requires Add Bullets.',
+      description: 'Double score and EXP for ants killed by your bullets. Requires Add Bullets.',
       level: upgrade27Level,
       maxLevel: 1
     }
@@ -7877,25 +8125,25 @@ function drawUpgradeScreen() {
         return `Regenerate health when safe. Current: ${cur} → ${level === allUpgrades[upgradeIndex].maxLevel ? `${cur} (max)` : nxt}`;
       }
       case 20: { // Runt Hunter
-        return 'Small ants give EXP inversely proportional to size (1/3 size = 3× EXP).';
+        return 'Small ants give score and EXP inversely proportional to size (1/3 size = 3×).';
       }
       case 21: { // Increased Metabolism
         return `EXP levels cost less. Current: -${level * 10}% → ${level === allUpgrades[upgradeIndex].maxLevel ? `-${level * 10}% (max)` : `-${nextLevel * 10}%`}`;
       }
       case 22: { // EXP Boost
-        return `Ants give more EXP. Current: +${level * 10}% → ${level === allUpgrades[upgradeIndex].maxLevel ? `+${level * 10}% (max)` : `+${nextLevel * 10}%`}`;
+        return `Ants give more score and EXP. Current: +${level * 10}% → ${level === allUpgrades[upgradeIndex].maxLevel ? `+${level * 10}% (max)` : `+${nextLevel * 10}%`}`;
       }
       case 23: { // Combo Surge
         return `Combo bonus (+50%) grows every ${5 - level} kills → ${level === allUpgrades[upgradeIndex].maxLevel ? `${5 - level} (max)` : `every ${5 - nextLevel}`}`;
       }
       case 24: { // Dash Harvest
-        return 'Ants killed by dashing give double EXP.';
+        return 'Ants killed by dashing give double score and EXP.';
       }
       case 25: { // Shockwave Harvest
-        return 'Ants killed by your shockwave give double EXP.';
+        return 'Ants killed by your shockwave give double score and EXP.';
       }
       case 26: { // Bullet Harvest
-        return 'Ants killed by your bullets give double EXP.';
+        return 'Ants killed by your bullets give double score and EXP.';
       }
       default:
         return allUpgrades[upgradeIndex].description;
@@ -8597,6 +8845,7 @@ function nextRound(){
   }
   
   level++;
+  startRoundIntro();
   if (level <= 16){
     totalAntSlots++;  // Increase available slots instead of fixed enemy count
   }
@@ -8614,11 +8863,9 @@ function nextRound(){
       timeCount = 60; 
   }
   
-  // antSize mutation rate: varies by difficulty (hard/insane: round 2+, medium: round 5+, easy: round 10+)
+  // antSize mutation rate: varies by difficulty (hard/insane: round 2+, easy/medium: round 10+)
   let antSizeMutationRate = 0;
   if ((getDifficultyTier() === 'hard' || getDifficultyTier() === 'insane') && level >= 2) {
-    antSizeMutationRate = 0.2;
-  } else if (getDifficultyTier() === 'medium' && level >= 5) {
     antSizeMutationRate = 0.2;
   } else if (level >= 10) {
     antSizeMutationRate = 0.2;
@@ -8629,8 +8876,7 @@ function nextRound(){
 
   playerRotationValue = 0;
   bulletShot[enemyIndex] = 0;
-  playerX = width / 2;
-  playerY = height / 2;
+  centerPlayer();
   console.log("enemy count:", enemyCount);
 
   shield = shieldQuantity > 0 ? shieldQuantity : 0;
@@ -9563,6 +9809,7 @@ function drawStartScreen(){
           applyDifficultyToInitialPopulation();
         }
         start = true;
+        startRoundIntro();
         // Don't change music here - title music already playing and will continue for turn screen
         menuNavigationCooldown = 20;
       }
@@ -9721,7 +9968,7 @@ function drawStartScreen(){
             my > option0Y - option0H/2 && my < option0Y + option0H/2) {
           if (menuNavigationCooldown === 0) {
             pendingGameMode = 'single';
-            difficultyMenu = true;
+            openDifficultyMenu();
             startMenu = false;
             menuNavigationCooldown = 20;
           }
@@ -9731,7 +9978,7 @@ function drawStartScreen(){
                  my > option1Y - option1H/2 && my < option1Y + option1H/2) {
           if (menuNavigationCooldown === 0) {
             pendingGameMode = 'multiplayer';
-            difficultyMenu = true;
+            openDifficultyMenu();
             startMenu = false;
             menuNavigationCooldown = 20;
           }
@@ -9753,12 +10000,12 @@ function drawStartScreen(){
         if (startMenuSelection === 0) {
           // Single Player - go to difficulty menu
           pendingGameMode = 'single';
-          difficultyMenu = true;
+          openDifficultyMenu();
           startMenu = false;
         } else if (startMenuSelection === 1) {
           // Multiplayer - go to difficulty menu
           pendingGameMode = 'multiplayer';
-          difficultyMenu = true;
+          openDifficultyMenu();
           startMenu = false;
         } else if (startMenuSelection === 2) {
           antdex = true;
@@ -9794,101 +10041,172 @@ function drawStartScreen(){
       textSize(60);
       text("Select Difficulty", getMenuWidth() / 2, getMenuHeight() * 0.12);
       
-      // Current difficulty number and tier
-      let tier = 'Easy';
-      let tierColor = [100, 255, 100];
-      if (difficultySelection <= 3) {
-        tier = 'Easy';
-        tierColor = [100, 255, 100];
-      } else if (difficultySelection <= 5) {
-        tier = 'Medium';
-        tierColor = [255, 255, 100];
-      } else if (difficultySelection <= 7) {
-        tier = 'Hard';
-        tierColor = [255, 150, 100];
-      } else {
-        tier = 'Insane';
-        tierColor = [255, 80, 80];
-      }
-      
-      fill(tierColor);
-      textSize(80);
-      text(difficultySelection, getMenuWidth() / 2, getMenuHeight() * 0.25);
-      
-      fill(tierColor);
-      textSize(40);
-      text(tier, getMenuWidth() / 2, getMenuHeight() * 0.35);
-      
-      // Slider bar
-      let barX = getMenuWidth() * 0.2;
-      let barY = getMenuHeight() * 0.47;
-      let barW = getMenuWidth() * 0.6;
-      let barH = 20;
-      
-      push();
-        // Background bar
-        fill(60);
-        stroke(120);
-        strokeWeight(2);
-        rectMode(CORNER);
-        rect(barX, barY, barW, barH, 10);
-        
-        // Filled portion
-        let fillW = ((difficultySelection - 1) / 9) * barW;
-        fill(tierColor);
-        noStroke();
-        rect(barX, barY, fillW, barH, 10);
-        
-        // Slider notches
-        stroke(100);
-        strokeWeight(1);
+      // Hovering a button with the mouse selects it
+      if (movedX !== 0 || movedY !== 0) {
         for (let i = 1; i <= 10; i++) {
-          let notchX = barX + ((i - 1) / 9) * barW;
-          line(notchX, barY, notchX, barY + barH);
+          if (pointInRect(getMenuMouseX(), getMenuMouseY(), getDifficultyButtonRect(i))) {
+            difficultySelection = i;
+            break;
+          }
         }
-        
-        // Slider handle
-        let handleX = barX + ((difficultySelection - 1) / 9) * barW;
-        fill(255);
-        stroke(tierColor);
-        strokeWeight(3);
-        ellipse(handleX, barY + barH / 2, 30, 30);
-      pop();
-      
-      // Description based on tier
-      fill(180);
-      textSize(20);
-      textAlign(CENTER);
-      let descText = '';
-      if (difficultySelection <= 3) {
-        descText = `${difficultySelection} gene tokens to start • Gain ${difficultySelection} every 5 rounds • Normal ant size`;
-      } else if (difficultySelection <= 5) {
-        descText = `${difficultySelection} gene tokens to start • Gain ${difficultySelection} every 5 rounds • Keep Distance movement • Smaller ants`;
-      } else if (difficultySelection <= 7) {
-        descText = `${difficultySelection} gene tokens to start • Gain ${difficultySelection} every 5 rounds • Keep Distance • Random ability • Small ants`;
-      } else {
-        descText = `${difficultySelection} gene tokens to start • Gain ${difficultySelection} every 5 rounds • Keep Distance • Random ability • Tiny ants • Free upgrade!`;
       }
-      text(descText, getMenuWidth() / 2, getMenuHeight() * 0.58);
-      
-      // Feature list
-      fill(150);
-      textSize(16);
-      textAlign(LEFT);
-      let featY = getMenuHeight() * 0.68;
-      let featX = getMenuWidth() * 0.15;
-      
-      text("• 1-3 (Easy): Basic ants", featX, featY);
-      text("• 4-5 (Medium): Keep Distance behavior", featX, featY + 25);
-      text("• 6-7 (Hard): + Random starting ability", featX, featY + 50);
-      text("• 8-10 (Insane): + Pre-game upgrade", featX, featY + 75);
-      
+
+      // Difficulty buttons 1-10 in a row that scrolls to keep the selection centered
+      difficultyScroll = lerp(difficultyScroll, difficultySelection, 0.2);
+      if (abs(difficultyScroll - difficultySelection) < 0.01) difficultyScroll = difficultySelection;
+
+      push();
+        rectMode(CORNER);
+        textAlign(CENTER, CENTER);
+        for (let i = 1; i <= 10; i++) {
+          let r = getDifficultyButtonRect(i);
+          if (r.x + r.w < 0 || r.x > getMenuWidth()) continue;
+
+          let info = getDifficultyTierInfo(i);
+          let selected = (i === difficultySelection);
+          let locked = !isDifficultyUnlocked(i);
+          // Fade buttons out toward the screen edges
+          let distFromCenter = abs((r.x + r.w / 2) - getMenuWidth() / 2);
+          let edgeAlpha = constrain(map(distFromCenter, getMenuWidth() * 0.3, getMenuWidth() * 0.5, 255, 40), 40, 255);
+
+          if (locked) {
+            fill(selected ? 70 : 30, edgeAlpha);
+            stroke(selected ? 255 : 90, edgeAlpha);
+            strokeWeight(selected ? 4 : 2);
+          } else if (selected) {
+            fill(info.color[0], info.color[1], info.color[2], edgeAlpha);
+            stroke(255, edgeAlpha);
+            strokeWeight(4);
+          } else {
+            fill(45, edgeAlpha);
+            stroke(info.color[0], info.color[1], info.color[2], edgeAlpha);
+            strokeWeight(2);
+          }
+          rect(r.x, r.y, r.w, r.h, 16);
+
+          noStroke();
+          if (locked) {
+            fill(110, edgeAlpha);
+            textSize(64);
+            text(i, r.x + r.w / 2, r.y + r.h * 0.42);
+            drawLockIcon(r.x + r.w / 2, r.y + r.h * 0.8, 22, edgeAlpha);
+          } else {
+            fill(selected ? 20 : 230, edgeAlpha);
+            textSize(64);
+            text(i, r.x + r.w / 2, r.y + r.h * 0.42);
+            textSize(20);
+            text(info.name, r.x + r.w / 2, r.y + r.h * 0.8);
+          }
+        }
+
+        // Scroll hints when more buttons are off-screen
+        noStroke();
+        fill(200, 160);
+        textSize(40);
+        if (getDifficultyButtonRect(1).x < 0) text('‹', 25, getMenuHeight() * 0.36);
+        if (getDifficultyButtonRect(10).x + DIFFICULTY_BUTTON_SIZE > getMenuWidth()) text('›', getMenuWidth() - 25, getMenuHeight() * 0.36);
+      pop();
+
+      // Details panel for the selected difficulty: its attributes and your records on it
+      let sel = difficultySelection;
+      let selInfo = getDifficultyTierInfo(sel);
+      let selRecord = getDifficultyRecord(sel);
+
+      let attributes = [
+        `Start with ${sel} gene token${sel === 1 ? '' : 's'}`,
+        `Gain ${sel} gene token${sel === 1 ? '' : 's'} every 5 rounds`
+      ];
+      if (sel <= 3) {
+        attributes.push('Basic ant movement');
+        attributes.push('Normal ant size (can change from round 10)');
+      } else if (sel <= 5) {
+        attributes.push('Keep Distance movement');
+        attributes.push('Normal ant size (can change from round 10)');
+      } else if (sel <= 7) {
+        attributes.push('Keep Distance movement');
+        attributes.push('Small ants (can change from round 2)');
+        attributes.push('Random starting ability');
+      } else {
+        attributes.push('Keep Distance movement');
+        attributes.push('Tiny ants (can change from round 2)');
+        attributes.push('Random starting ability');
+        attributes.push('Free pre-game upgrade');
+      }
+
+      let panelX = getMenuWidth() * 0.12;
+      let panelY = getMenuHeight() * 0.54;
+      let panelW = getMenuWidth() * 0.76;
+      let panelH = getMenuHeight() * 0.33;
+      let lineH = 24;
+
+      push();
+        rectMode(CORNER);
+        fill(35);
+        stroke(selInfo.color);
+        strokeWeight(2);
+        rect(panelX, panelY, panelW, panelH, 12);
+        noStroke();
+
+        // Left column: attributes
+        let colLeftX = panelX + 30;
+        let headerY = panelY + 34;
+        textAlign(LEFT, BASELINE);
+        fill(selInfo.color);
+        textSize(22);
+        text(`Difficulty ${sel} - ${selInfo.name}`, colLeftX, headerY);
+        fill(200);
+        textSize(17);
+        for (let a = 0; a < attributes.length; a++) {
+          text('• ' + attributes[a], colLeftX, headerY + 32 + a * lineH);
+        }
+
+        // Divider
+        let dividerX = panelX + panelW * 0.62;
+        stroke(80);
+        strokeWeight(1);
+        line(dividerX, panelY + 18, dividerX, panelY + panelH - 18);
+        noStroke();
+
+        let colRightX = dividerX + 30;
+        if (isDifficultyUnlocked(sel)) {
+          // Right column: records for this difficulty
+          fill(selInfo.color);
+          textSize(22);
+          text('Your Records', colRightX, headerY);
+          fill(150);
+          textSize(16);
+          text('High Score', colRightX, headerY + 40);
+          text('Highest Round', colRightX, headerY + 110);
+          fill(255);
+          textSize(32);
+          text(selRecord.score > 0 ? Math.round(selRecord.score) : '—', colRightX, headerY + 76);
+          text(selRecord.round > 0 ? selRecord.round : '—', colRightX, headerY + 146);
+        } else {
+          // Right column: what it takes to unlock this difficulty
+          let prevCompleted = getDifficultyCompletedRound(sel - 1);
+          drawLockIcon(colRightX + 11, headerY - 8, 22, 255);
+          fill(255, 80, 80);
+          textSize(22);
+          text('Locked', colRightX + 32, headerY);
+          fill(200);
+          textSize(17);
+          text(`Complete round ${DIFFICULTY_UNLOCK_ROUND} on`, colRightX, headerY + 40);
+          text(`Difficulty ${sel - 1} to unlock`, colRightX, headerY + 64);
+          fill(150);
+          textSize(16);
+          text(`Best on Difficulty ${sel - 1}`, colRightX, headerY + 110);
+          fill(255);
+          textSize(32);
+          text(`${prevCompleted} / ${DIFFICULTY_UNLOCK_ROUND}`, colRightX, headerY + 146);
+        }
+      pop();
+
       // Instructions
       let fadeAlpha = map(sin(frameCount * 0.05), -1, 1, 30, 70);
       fill(200, fadeAlpha);
       textSize(18);
       textAlign(CENTER);
-      text('←/→ or ↑/↓  Adjust  |  Enter or A  Confirm  |  Esc  Back', getMenuWidth() / 2, getMenuHeight() * 0.93);
+      text('←/→ or ↑/↓ or Click  Select  |  Enter or A  Confirm  |  Esc  Back', getMenuWidth() / 2, getMenuHeight() * 0.93);
       
       // Back to main menu
       if (keyIsDown(ESCAPE) && menuNavigationCooldown === 0) {
@@ -9897,8 +10215,12 @@ function drawStartScreen(){
         menuNavigationCooldown = 20;
       }
       
-      // Confirm selection
-      if (isConfirmPressed() && menuNavigationCooldown === 0) {
+      // Confirm selection (locked difficulties can be previewed but not started)
+      // isConfirmPressed() only fires once per press, so read it a single time
+      let confirmPressed = isConfirmPressed() && menuNavigationCooldown === 0;
+      if (confirmPressed && !isDifficultyUnlocked(difficultySelection)) {
+        menuNavigationCooldown = 20;
+      } else if (confirmPressed) {
         // Set difficulty
         difficulty = difficultySelection;
         
@@ -9920,6 +10242,7 @@ function drawStartScreen(){
               applyDifficultyToInitialPopulation();
             }
             start = true;
+            startRoundIntro();
             difficultyMenu = false;
             pendingGameMode = null;
             titlemusic.stop();
@@ -10116,6 +10439,7 @@ function applyPreGameUpgrade(selectionIndex) {
       applyDifficultyToInitialPopulation();
     }
     start = true;
+    startRoundIntro();
     pendingGameMode = null;
     titlemusic.stop();
     gamemusic.play();
@@ -10141,6 +10465,7 @@ function skipPreGameUpgrade() {
       applyDifficultyToInitialPopulation();
     }
     start = true;
+    startRoundIntro();
     pendingGameMode = null;
     titlemusic.stop();
     gamemusic.play();
@@ -10486,6 +10811,16 @@ function pointInRect(px, py, rect) {
 }
 
 function mousePressed() {
+  // Difficulty menu: clicking a button selects it
+  if (difficultyMenu) {
+    for (let i = 1; i <= 10; i++) {
+      if (pointInRect(getMenuMouseX(), getMenuMouseY(), getDifficultyButtonRect(i))) {
+        difficultySelection = i;
+        return;
+      }
+    }
+  }
+
   // Handle upgrade menu clicks
   if (upgradeMenuActive) {
     let cardWidth = getMenuWidth() * 0.25;
@@ -12536,8 +12871,7 @@ function advanceToNextPlayer() {
   health = 10;
   
   // Reset player position and state
-  playerX = width / 2;
-  playerY = height / 2;
+  centerPlayer();
   playerRotationValue = 0;
   
   // Reset shields and bullets based on upgrades
@@ -12616,8 +12950,7 @@ function advanceToNextAlivePlayer() {
   }
   
   // Reset player position and state
-  playerX = width / 2;
-  playerY = height / 2;
+  centerPlayer();
   playerRotationValue = 0;
   
   // Reset shields and bullets based on upgrades
@@ -12810,6 +13143,7 @@ function drawPlayerTurnScreen() {
     if (isConfirmPressed() && menuNavigationCooldown === 0) {
       showPlayerTurnScreen = false;
       loadPlayerState(currentPlayerIndex);
+      startRoundIntro();
       menuNavigationCooldown = 20;
       
       // Start game music when player begins their turn
@@ -13356,7 +13690,37 @@ function drawDevTools() {
     textSize(16);
     fill(200, fadeAlpha);
     text('Shift + / + \\ to exit', getMenuWidth() / 2, 130);
-    
+
+    // Unlock-all-difficulties toggle (top right, works from any tab)
+    let unlockW = 230;
+    let unlockH = 28;
+    let unlockX = getMenuWidth() - unlockW - 20;
+    let unlockY = 20;
+    rectMode(CORNER);
+    if (devToolsUnlockAllDifficulties) {
+      fill(100, 255, 100);
+      stroke(150, 255, 150);
+    } else {
+      fill(60);
+      stroke(90);
+    }
+    strokeWeight(2);
+    rect(unlockX, unlockY, unlockW, unlockH, 8);
+    noStroke();
+    textAlign(CENTER, CENTER);
+    textSize(14);
+    fill(devToolsUnlockAllDifficulties ? 10 : 180);
+    text(devToolsUnlockAllDifficulties ? '✓ All Difficulties UNLOCKED' : 'Difficulty Locks ON',
+         unlockX + unlockW / 2, unlockY + unlockH / 2);
+    textSize(10);
+    fill(200, fadeAlpha);
+    text('Press U to toggle', unlockX + unlockW / 2, unlockY + unlockH + 10);
+
+    if (devToolsKeyCooldown === 0 && keyIsDown(85)) {  // U key
+      devToolsUnlockAllDifficulties = !devToolsUnlockAllDifficulties;
+      devToolsKeyCooldown = 15;
+    }
+
     // Tab system (3 tabs)
     let tabWidth = 180;
     let tabHeight = 36;
