@@ -6295,10 +6295,10 @@ bulletKnockbackMultiplier: { caps: [2, 3, 4, 5], inverse: false },
     if (statName === 'deathLandmine' && (deathType === -1 || deathType === 1)) return true; // Smear or Landmine (mutation stat)
     if (statName === 'deathRefire' && (deathType === 2 || deathType === 3)) return true; // Refire or Turret (mutation stat)
     
-    // Ant size unlock varies by difficulty
+    // Ant size unlock varies by difficulty (matches size mutation start rounds)
     if (statName === 'antSize') {
-      if ((getDifficultyTier() === 'hard' || getDifficultyTier() === 'insane') && currentRound >= 2) return true;
-      if (currentRound >= 10) return true; // Easy and medium
+      const sizeUnlockRound = { easy: 20, medium: 15, hard: 10, insane: 5 }[getDifficultyTier()];
+      if (currentRound >= sizeUnlockRound) return true;
     }
     
     return false;
@@ -8882,13 +8882,9 @@ function nextRound(){
       timeCount = 60; 
   }
   
-  // antSize mutation rate: varies by difficulty (hard/insane: round 2+, easy/medium: round 10+)
-  let antSizeMutationRate = 0;
-  if ((getDifficultyTier() === 'hard' || getDifficultyTier() === 'insane') && level >= 2) {
-    antSizeMutationRate = 0.2;
-  } else if (level >= 10) {
-    antSizeMutationRate = 0.2;
-  }
+  // antSize mutation rate: starts at a difficulty-based round (easy 20, medium 15, hard 10, insane 5)
+  const sizeMutationStartRound = { easy: 20, medium: 15, hard: 10, insane: 5 }[getDifficultyTier()];
+  let antSizeMutationRate = level >= sizeMutationStartRound ? 0.2 : 0;
 
   // Gene Token System - Grant tokens every 5 rounds, then evaluate/allocate
   grantTokensForRound(level);
