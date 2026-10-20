@@ -10133,17 +10133,17 @@ function drawStartScreen(){
       ];
       if (sel <= 3) {
         attributes.push('Basic ant movement');
-        attributes.push('Normal ant size (can change from round 10)');
+        attributes.push('Normal ant size (can change from round 20)');
       } else if (sel <= 5) {
         attributes.push('Keep Distance movement');
-        attributes.push('Normal ant size (can change from round 10)');
+        attributes.push('Normal ant size (can change from round 15)');
       } else if (sel <= 7) {
         attributes.push('Keep Distance movement');
-        attributes.push('Small ants (can change from round 2)');
+        attributes.push('Small ants (can change from round 10)');
         attributes.push('Random starting ability');
       } else {
         attributes.push('Keep Distance movement');
-        attributes.push('Tiny ants (can change from round 2)');
+        attributes.push('Tiny ants (can change from round 5)');
         attributes.push('Random starting ability');
         attributes.push('Free pre-game upgrade');
       }
