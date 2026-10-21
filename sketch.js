@@ -593,6 +593,38 @@ let shotBreak = 0;
 let playerBullets = []; 
 let playerBulletShot = false;
 let playerBulletRotationValue;
+
+// Special shot modes. Q / right click / left trigger cycles through them in this order (locked ones
+// are skipped); holding it for SHOT_MODE_HOLD_RESET_FRAMES goes back to the default shot.
+const SHOT_MODE_DEFAULT = 0;
+const SHOT_MODE_SPRAY = 1;
+const SHOT_MODE_PIERCE = 2;
+const SHOT_MODE_IMPACT = 3;
+const SHOT_MODE_TIMED = 4;
+const SHOT_MODE_PROXIMITY = 5;
+const SHOT_MODES = [
+  { name: 'Default', color: [58, 166, 18], center: null },
+  { name: 'Spray', color: [160, 160, 160], center: null },
+  { name: 'Piercing', color: [50, 120, 255], center: null },
+  { name: 'Impact Bomb', color: [40, 200, 40], center: [255, 225, 0] },
+  { name: 'Timed Bomb', color: [40, 200, 40], center: [255, 140, 0] },
+  { name: 'Proximity Bomb', color: [40, 200, 40], center: [230, 30, 30] }
+];
+const SPECIAL_SHOT_AMMO_COST = 2;           // A special shot uses 2 regular ammo at once
+const SHOT_MODE_HOLD_RESET_FRAMES = 20;
+const SHOT_MODE_MENU_LINGER_FRAMES = 30;    // Mode menu stays up this long after the button stops being used
+const TIMED_BOMB_FUSE_FRAMES = 60;
+const PROXIMITY_BOMB_RANGE = 100;
+const PLAYER_BOMB_BLAST_FRAMES = 24;
+const PLAYER_SPRAY_FRAMES = 18;
+let shotMode = SHOT_MODE_DEFAULT;
+let shotModePrev = SHOT_MODE_DEFAULT;       // The mode the player just switched away from
+let shotModeHeldFrames = 0;
+let shotModeMenuTimer = 0;
+let shotModeMenuScroll = 0;                 // Rows the mode menu still has to scroll (eases to 0)
+let playerShotMode = SHOT_MODE_DEFAULT;     // Mode of the shot queued in playerBulletShot
+let playerSprays = [];                      // Spray cones (visual only, damage is instant)
+let playerBombBlasts = [];                  // Bomb explosions (visual only, damage is instant)
 let liveRankingsPrinted = false;
 let level = 1;
 const BASE_PLAYER_SPEED = 4;
@@ -832,8 +864,17 @@ let upgrade24Level = 0; // Combo Surge (max 4): combo bonus steps every 5 → 1 
 let upgrade25Level = 0; // Dash Harvest (max 1, very rare): double points for dash kills
 let upgrade26Level = 0; // Shockwave Harvest (max 1, very rare): double points for shockwave kills
 let upgrade27Level = 0; // Bullet Harvest (max 1, very rare): double points for bullet kills
-const UPGRADE_COUNT = 27;
-const UPGRADE_MAX_LEVELS = [4, 5, 5, 9, 8, 5, 5, 5, 1, 1, 1, 4, 4, 1, 5, 5, 5, 3, 4, 5, 1, 7, 10, 4, 1, 1, 1];
+let upgrade28Level = 0; // Spray Acid (max 1, requires Add Bullets): unlocks the spray shot mode (instant grey cone)
+let upgrade29Level = 0; // Spray Length (max 4, 100→200px, requires Spray Acid)
+let upgrade30Level = 0; // Spray Width (max 4, 20→100px, requires Spray Acid)
+let upgrade31Level = 0; // Piercing Acid (max 1, requires Add Bullets): unlocks the piercing shot mode (pierces 1 ant)
+let upgrade32Level = 0; // Piercing Depth (max 9, 1→10 ants pierced, requires Piercing Acid)
+let upgrade33Level = 0; // Impact Bomb (max 1, requires Add Bullets): unlocks the impact bomb shot mode
+let upgrade34Level = 0; // Timed Bomb (max 1, requires Impact Bomb): unlocks the timed bomb shot mode
+let upgrade35Level = 0; // Proximity Bomb (max 1, requires Timed Bomb): unlocks the proximity bomb shot mode
+let upgrade36Level = 0; // Blast Radius (max 3, 60→180px, requires Impact Bomb)
+const UPGRADE_COUNT = 36;
+const UPGRADE_MAX_LEVELS = [4, 5, 5, 9, 8, 5, 5, 5, 1, 1, 1, 4, 4, 1, 5, 5, 5, 3, 4, 5, 1, 7, 10, 4, 1, 1, 1, 1, 4, 4, 1, 9, 1, 1, 1, 3];
 let displayedUpgrades = [];  // Array of up to 3 randomly selected upgrade indices (0-9)
 
 // Pre-game upgrade menu variables (insane difficulty 8-10)
@@ -953,7 +994,8 @@ function checkIconImages() {
 
 function setup() {
   
-  createCanvas(windowWidth, windowHeight);
+  let gameCanvas = createCanvas(windowWidth, windowHeight);
+  gameCanvas.elt.addEventListener('contextmenu', e => e.preventDefault()); // Right click switches shot mode
   // A restored canvas means the browser reset its graphics state, which can wipe the icons too
   drawingContext.canvas.addEventListener('contextrestored', reloadIconImages);
   debugLog('Window Width:', windowWidth);
@@ -1794,6 +1836,15 @@ function resetRunState() {
   upgrade25Level = 0;
   upgrade26Level = 0;
   upgrade27Level = 0;
+  upgrade28Level = 0;
+  upgrade29Level = 0;
+  upgrade30Level = 0;
+  upgrade31Level = 0;
+  upgrade32Level = 0;
+  upgrade33Level = 0;
+  upgrade34Level = 0;
+  upgrade35Level = 0;
+  upgrade36Level = 0;
   upgradeRerolls = UPGRADE_REROLLS_PER_RUN;
   displayedUpgrades = [];
   updateUpgradeBooleans();  // Reset all upgrade booleans to false
@@ -2663,6 +2714,95 @@ function iconGridShiftX(left, right) {
   return 0;
 }
 
+// One stretched ammo spanning two ammo slots, in the current shot mode's color (bombs get their
+// type's color in the center). Matches the acid icon's look: black outline, lighter highlight.
+function drawSpecialAmmo(cx, cy, slotSpacing, full) {
+  let mode = SHOT_MODES[shotMode];
+  let h = 9.4; // Height of the dot inside the 50px acid icon
+  let w = h + slotSpacing;
+  push();
+  rectMode(CENTER);
+  stroke(0);
+  strokeWeight(1.5);
+  if (full) {
+    fill(mode.color[0], mode.color[1], mode.color[2]);
+  } else {
+    fill(lerp(77, mode.color[0], 0.3), lerp(77, mode.color[1], 0.3), lerp(77, mode.color[2], 0.3)); // Reloading
+  }
+  rect(cx, cy, w, h, h / 2);
+  noStroke();
+  if (mode.center) {
+    fill(mode.center[0], mode.center[1], mode.center[2], full ? 255 : 110);
+    ellipse(cx, cy, 4.5, 4.5);
+  } else if (full) {
+    fill(255, 255, 255, 110);
+    rect(cx + 1.5, cy - 1.5, w - 7, 2, 1);
+  }
+  pop();
+}
+
+// Mode menu: the mode just switched away from, the selected mode, and the next one in the cycle,
+// each with its color. Right-aligned at rightX (beetle-local coords) and centered on centerY.
+function drawShotModeMenu(rightX, centerY) {
+  let rowH = 11;
+  let swatch = 6;
+  let alpha = min(1, shotModeMenuTimer / 10); // Fades out over the last few frames
+  shotModeMenuScroll *= 0.7;
+  if (shotModeMenuScroll < 0.01) shotModeMenuScroll = 0;
+
+  let rows = [
+    { mode: shotModePrev, offset: -1 },
+    { mode: shotMode, offset: 0 },
+    { mode: getNextShotMode(shotMode), offset: 1 }
+  ];
+
+  push();
+  textSize(9);
+  textStyle(BOLD);
+  let textW = 0;
+  for (let r of rows) textW = max(textW, textWidth(SHOT_MODES[r.mode].name));
+  let menuW = textW + swatch + 12;
+  let menuH = rowH * 3 + 4;
+  rightX += iconGridShiftX(rightX - menuW, rightX); // Stay inside the left/right edges
+  let leftX = rightX - menuW;
+
+  rectMode(CORNER);
+  noStroke();
+  fill(0, 0, 0, 140 * alpha);
+  rect(leftX, centerY - menuH / 2, menuW, menuH, 4);
+
+  // Clip so rows scrolling in and out don't spill past the panel
+  drawingContext.save();
+  drawingContext.beginPath();
+  drawingContext.rect(leftX, centerY - menuH / 2, menuW, menuH);
+  drawingContext.clip();
+
+  textAlign(RIGHT, CENTER);
+  for (let r of rows) {
+    let y = centerY + (r.offset + shotModeMenuScroll) * rowH;
+    let m = SHOT_MODES[r.mode];
+    let selected = r.offset === 0;
+    let rowAlpha = (selected ? 255 : 120) * alpha;
+    let swatchX = rightX - 4 - swatch / 2;
+
+    stroke(0, rowAlpha);
+    strokeWeight(1);
+    fill(m.color[0], m.color[1], m.color[2], rowAlpha);
+    ellipse(swatchX, y, swatch, swatch);
+    if (m.center) {
+      noStroke();
+      fill(m.center[0], m.center[1], m.center[2], rowAlpha);
+      ellipse(swatchX, y, 2.5, 2.5);
+    }
+
+    noStroke();
+    fill(255, rowAlpha);
+    text(m.name, swatchX - swatch / 2 - 3, y);
+  }
+  drawingContext.restore();
+  pop();
+}
+
 function drawBeetle(){
   // Upright shadow centered under the beetle: wider when it faces sideways, taller when it
   // faces up/down. Dimensions ease toward their target so sharp turns don't snap it.
@@ -2723,17 +2863,32 @@ function drawBeetle(){
     bulletStartX += iconsShiftX;
     shieldStartX += iconsShiftX;
 
+    // In a special shot mode the whole grid shows special ammo: every pair of slots becomes one
+    // stretched ammo in the mode's color, since a special shot uses 2 at once. Pairs start on even
+    // slots, so they never straddle two rows of the 4-column grid.
+    let specialAmmoGrid = shotMode !== SHOT_MODE_DEFAULT;
+
     for (let i = 0; i < maxBullets; i++) {
       let col = i % 4;  // 4 columns
       let row = Math.floor(i / 4);  // 4 rows max
       let bx = bulletStartX + col * bulletSpacing;
       let by = bulletStartY + row * bulletSpacing;
-      
-      if (shot >= i + 1) {
+
+      if (specialAmmoGrid && i - (i % 2) + 1 < maxBullets) {
+        if (i % 2 === 0) {
+          drawSpecialAmmo(bx + bulletSpacing / 2, by, bulletSpacing, shot >= i + SPECIAL_SHOT_AMMO_COST);
+        }
+        // Odd slots are covered by the pair's stretched ammo
+      } else if (shot >= i + 1) {
         image(acidFull, bx, by, bulletIconSize, bulletIconSize);
       } else {
         image(acidEmpty, bx, by, bulletIconSize, bulletIconSize);
       }
+    }
+
+    // Shot mode menu to the left of the ammo grid
+    if (shotModeMenuTimer > 0 && maxBullets > 0) {
+      drawShotModeMenu(bulletStartX - BULLET_ICON_HALF - 6, bulletStartY);
     }
 
     // Shield icons on right side - dynamic 3x3 grid (up to 9 shields)
@@ -4767,12 +4922,14 @@ function detectKeyboardInput(){
         windAttackPrevPressed = windAttackPressed;
       }
 
-      if (isShootPressed() && shot >= 1 && shotBreak <= 0){
-        shot = shot - 1;
-        shotBreak = 0.1;
-        playerBulletShot = true;
+      if (isShootPressed()) {
+        tryPlayerShoot();
       }
     }
+  }
+
+  if (end == false) {
+    updateShotModeInput();
   }
   
   // Calculate ant movement vectors for followAnt behavior
@@ -4857,10 +5014,8 @@ function handleMobileInput(x, y) {
           }
         }
       }
-      if (key === "shoot" && shot >= 1 && shotBreak <= 0) {
-        shot -= 1;
-        shotBreak = 0.1;
-        playerBulletShot = true;
+      if (key === "shoot") {
+        tryPlayerShoot();
       }
     }
   }
@@ -4876,21 +5031,32 @@ function beetleShoot() {
   // Fire bullet when ready
   if (playerBulletShot) {
     sSpit1.play(); // optional: keeps your sound feedback
-    playerBullets.push({
-      x: playerX,
-      y: playerY,
-      rotation: playerRotationValue
-    });
+    if (playerShotMode === SHOT_MODE_SPRAY) {
+      firePlayerSpray(playerX, playerY, playerRotationValue);
+    } else {
+      playerBullets.push({
+        x: playerX,
+        y: playerY,
+        rotation: playerRotationValue,
+        mode: playerShotMode,
+        life: 0,
+        hitAnts: [] // Ants a piercing bullet has already gone through
+      });
+    }
     playerBulletShot = false;
   }
 
   // Update bullets
   for (let i = playerBullets.length - 1; i >= 0; i--) {
     let b = playerBullets[i];
+    let mode = b.mode || SHOT_MODE_DEFAULT; // Deflected bullets are plain shots
+    b.life = (b.life || 0) + 1;
 
     // Move bullet in its facing direction
     // Check if using free aim (arbitrary angle) or cardinal directions
-    if (b.rotation === 90 || b.rotation === 0 || b.rotation === 270 || b.rotation === 180) {
+    if (b.stopped) {
+      // Timed bomb that reached the edge waits there for its fuse
+    } else if (b.rotation === 90 || b.rotation === 0 || b.rotation === 270 || b.rotation === 180) {
       // Cardinal directions (original behavior)
       if (b.rotation == 90)  b.y += 4 * playerBulletSpeed;
       if (b.rotation == 0)   b.x += 4 * playerBulletSpeed;
@@ -4905,85 +5071,375 @@ function beetleShoot() {
 
     // draw bullet
     if (!(tigerBeetleActive && tigerBeetleMoving)) {
-      push();
-      angleMode(DEGREES);
-      imageMode(CENTER);
-      translate(b.x, b.y);
-      rotate(b.rotation);
-      image(bulletImage, 0, 0, 20, 20);
-      pop();
+      drawPlayerBullet(b, mode);
+    }
+
+    // Timed bombs go off when their fuse runs out, proximity bombs when an ant gets close
+    if ((mode === SHOT_MODE_TIMED && b.life >= TIMED_BOMB_FUSE_FRAMES) ||
+        (mode === SHOT_MODE_PROXIMITY && isAntWithin(b.x, b.y, PROXIMITY_BOMB_RANGE))) {
+      explodePlayerBomb(b.x, b.y, mode);
+      playerBullets.splice(i, 1);
+      continue;
     }
 
     // bullet collisions - use spatial grid for optimization
     let nearbyCells = getNearbyCells(b.x, b.y);
     let bulletHit = false;
-    
+
     for (let cell of nearbyCells) {
       if (bulletHit) break;
-      
+
       for (let j of cell.ants) {
         // Skip if ant is airborne (in the air, not just knocked back)
         if (antAirHeight[j] > 0) continue;
-        
+
         if (
           b.x < antX[j] + 25 &&
           b.x > antX[j] - 25 &&
           b.y < antY[j] + 25 &&
           b.y > antY[j] - 25
         ) {
-          // Deal damage to ant with Potent Acid multiplier
-          let bulletDamage = 1 + (upgrade13Level * 0.2);
-          antHealth[j] -= bulletDamage;
-          antLastHitTime[j] = millis();
-          
-          // Stun if damaged but not killed
-          if (antHealth[j] > 0) {
-            antStunned[j] = true;
-            antStunTimer[j] = 30;
-            antLastShotFrame[j] = frameCount; // Reset shooting cooldown
-            antRapidFireActive[j] = false; // Cancel rapid fire
+          // Timed and proximity bombs fly over ants; their fuse decides when they go off
+          if (mode === SHOT_MODE_TIMED || mode === SHOT_MODE_PROXIMITY) continue;
+
+          if (mode === SHOT_MODE_IMPACT) {
+            explodePlayerBomb(b.x, b.y, mode);
+            bulletHit = true;
+            break;
           }
-          
-          // Only kill ant if health drops to 0 or below
-          if (antHealth[j] <= 0) {
-            antLives[j]++;
-            comboTime = 60;
-            combo++;
-            calculateBonus();
-            streakPoints += Math.round(comboPoints * antSize[j]);
-            let scoreGained = addKillScore(100 + comboPoints, antSize[j], 'bullet');
-            // Only restore health if round is active and player is alive
-            if (end == false && health > 0) {
-              health += antSize[j];
-            }
-            addDeathEffect(antX[j], antY[j], scoreGained);
-            antX[j] = random(0, getGameplayWidth());
-            antY[j] = random(scoreBarHeight + ANT_SPAWN_BUFFER, getGameplayHeight() - expBarHeight - expBarBuffer - ANT_SPAWN_BUFFER);
-            spawnX[j] = antX[j] + cos(angleFromSpawn[j]);
-            spawnY[j] = antY[j] + sin(angleFromSpawn[j]);
-            antHealth[j] = antMaxHealth[j];  // Reset health on respawn
-            antKnockedBack[j] = false;
-            antKnockbackTimer[j] = 0;
-            antLastShotFrame[j] = frameCount; // Respawned ants wait out a full cooldown before firing
+
+          if (b.hitAnts && b.hitAnts.includes(j)) continue; // Piercing bullet already went through this ant
+
+          damageAntWithPlayerAcid(j);
+
+          // Piercing bullets keep going until they've passed through their pierce count
+          if (mode === SHOT_MODE_PIERCE && b.hitAnts.length < getPierceCount()) {
+            b.hitAnts.push(j);
+            continue;
           }
-          
-          // Always remove bullet after hitting ant
-          playerBullets.splice(i, 1);
+
+          // Otherwise remove bullet after hitting ant
           bulletHit = true;
           break;
         }
       }
     }
 
-    // remove bullet if off-screen or hitting EXP bar
-    if (
-      b.x < 0 ||
-      b.x > getGameplayWidth() ||
-      b.y < scoreBarHeight ||
-      b.y > getGameplayHeight() - expBarHeight
-    ) {
+    if (bulletHit) {
       playerBullets.splice(i, 1);
+      continue;
     }
+
+    // remove bullet if off-screen or hitting EXP bar
+    let minY = scoreBarHeight;
+    let maxY = getGameplayHeight() - expBarHeight;
+    if (b.x < 0 || b.x > getGameplayWidth() || b.y < minY || b.y > maxY) {
+      let edgeX = constrain(b.x, 0, getGameplayWidth());
+      let edgeY = constrain(b.y, minY, maxY);
+      if (mode === SHOT_MODE_TIMED) {
+        // Timed bombs stop at the edge and still wait out their fuse
+        b.x = edgeX;
+        b.y = edgeY;
+        b.stopped = true;
+      } else {
+        // Impact and proximity bombs go off against the edge
+        if (mode === SHOT_MODE_IMPACT || mode === SHOT_MODE_PROXIMITY) {
+          explodePlayerBomb(edgeX, edgeY, mode);
+        }
+        playerBullets.splice(i, 1);
+      }
+    }
+  }
+
+  updatePlayerSprays();
+  updatePlayerBombBlasts();
+}
+
+// ========== SPECIAL SHOTS ==========
+
+function getSprayLength(level = upgrade29Level) {
+  return 100 + level * 25; // 100 → 200
+}
+
+function getSprayWidth(level = upgrade30Level) {
+  return 20 + level * 20; // 20 → 100
+}
+
+function getPierceCount(depthLevel = upgrade32Level) {
+  return 1 + depthLevel; // Ants a piercing bullet passes through: 1 → 10
+}
+
+function getBombRadius(level = upgrade36Level) {
+  return 60 + level * 40; // 60 → 180
+}
+
+// Bullet damage with the Potent Acid multiplier; every special shot deals the same
+function getPlayerBulletDamage() {
+  return 1 + (upgrade13Level * 0.2);
+}
+
+function isShotModeUnlocked(mode) {
+  switch (mode) {
+    case SHOT_MODE_DEFAULT: return true;
+    case SHOT_MODE_SPRAY: return upgrade28Level > 0;
+    case SHOT_MODE_PIERCE: return upgrade31Level > 0;
+    case SHOT_MODE_IMPACT: return upgrade33Level > 0;
+    case SHOT_MODE_TIMED: return upgrade34Level > 0;
+    case SHOT_MODE_PROXIMITY: return upgrade35Level > 0;
+  }
+  return false;
+}
+
+function hasSpecialShotModes() {
+  for (let m = 1; m < SHOT_MODES.length; m++) {
+    if (isShotModeUnlocked(m)) return true;
+  }
+  return false;
+}
+
+// Next unlocked mode after `mode` in the cycle order (wraps back to default)
+function getNextShotMode(mode) {
+  for (let step = 1; step <= SHOT_MODES.length; step++) {
+    let m = (mode + step) % SHOT_MODES.length;
+    if (isShotModeUnlocked(m)) return m;
+  }
+  return SHOT_MODE_DEFAULT;
+}
+
+function setShotMode(mode) {
+  if (mode === shotMode) return;
+  shotModePrev = shotMode;
+  shotMode = mode;
+  shotModeMenuScroll = 1; // The new mode scrolls up into the middle row
+}
+
+function resetShotMode() {
+  shotMode = SHOT_MODE_DEFAULT;
+  shotModePrev = SHOT_MODE_DEFAULT;
+  shotModeHeldFrames = 0;
+  shotModeMenuTimer = 0;
+  shotModeMenuScroll = 0;
+  playerShotMode = SHOT_MODE_DEFAULT;
+  playerSprays = [];
+  playerBombBlasts = [];
+}
+
+// Each press cycles to the next unlocked mode; holding the button returns to the default shot
+function updateShotModeInput() {
+  if (!isShotModeUnlocked(shotMode)) setShotMode(SHOT_MODE_DEFAULT); // Its upgrade was taken away (dev tools)
+  if (shotModeMenuTimer > 0) shotModeMenuTimer--;
+
+  if (!isShotModePressed()) {
+    shotModeHeldFrames = 0;
+    return;
+  }
+
+  if (shotModeHeldFrames === 0) {
+    setShotMode(getNextShotMode(shotMode));
+  }
+  shotModeHeldFrames++;
+  if (shotModeHeldFrames === SHOT_MODE_HOLD_RESET_FRAMES) {
+    setShotMode(SHOT_MODE_DEFAULT);
+  }
+  if (hasSpecialShotModes()) {
+    shotModeMenuTimer = SHOT_MODE_MENU_LINGER_FRAMES;
+  }
+}
+
+// Queue a shot in the current mode if there's enough ammo (special shots use 2 at once)
+function tryPlayerShoot() {
+  let cost = shotMode === SHOT_MODE_DEFAULT ? 1 : SPECIAL_SHOT_AMMO_COST;
+  if (shot >= cost && shotBreak <= 0) {
+    shot -= cost;
+    shotBreak = 0.1;
+    playerBulletShot = true;
+    playerShotMode = shotMode;
+  }
+}
+
+// Player acid hits ant j for one bullet's damage. Kills from every shot type count as bullet kills.
+function damageAntWithPlayerAcid(j) {
+  antHealth[j] -= getPlayerBulletDamage();
+  antLastHitTime[j] = millis();
+
+  // Stun if damaged but not killed
+  if (antHealth[j] > 0) {
+    antStunned[j] = true;
+    antStunTimer[j] = 30;
+    antLastShotFrame[j] = frameCount; // Reset shooting cooldown
+    antRapidFireActive[j] = false; // Cancel rapid fire
+    return;
+  }
+
+  antLives[j]++;
+  comboTime = 60;
+  combo++;
+  calculateBonus();
+  streakPoints += Math.round(comboPoints * antSize[j]);
+  let scoreGained = addKillScore(100 + comboPoints, antSize[j], 'bullet');
+  // Only restore health if round is active and player is alive
+  if (end == false && health > 0) {
+    health += antSize[j];
+  }
+  addDeathEffect(antX[j], antY[j], scoreGained);
+  antX[j] = random(0, getGameplayWidth());
+  antY[j] = random(scoreBarHeight + ANT_SPAWN_BUFFER, getGameplayHeight() - expBarHeight - expBarBuffer - ANT_SPAWN_BUFFER);
+  spawnX[j] = antX[j] + cos(angleFromSpawn[j]);
+  spawnY[j] = antY[j] + sin(angleFromSpawn[j]);
+  antHealth[j] = antMaxHealth[j];  // Reset health on respawn
+  antKnockedBack[j] = false;
+  antKnockbackTimer[j] = 0;
+  antLastShotFrame[j] = frameCount; // Respawned ants wait out a full cooldown before firing
+}
+
+function isAntWithin(x, y, range) {
+  for (let j = 1; j <= enemyCount; j++) {
+    if (antAirHeight[j] > 0) continue;
+    if (dist(x, y, antX[j], antY[j]) < range) return true;
+  }
+  return false;
+}
+
+function drawPlayerBullet(b, mode) {
+  push();
+  angleMode(DEGREES);
+  translate(b.x, b.y);
+  rotate(b.rotation);
+  if (mode === SHOT_MODE_DEFAULT) {
+    imageMode(CENTER);
+    image(bulletImage, 0, 0, 20, 20);
+  } else if (mode === SHOT_MODE_PIERCE) {
+    // Long blue acid dart
+    let c = SHOT_MODES[mode].color;
+    stroke(0);
+    strokeWeight(1.5);
+    fill(c[0], c[1], c[2]);
+    ellipse(0, 0, 22, 9);
+    noStroke();
+    fill(170, 210, 255);
+    ellipse(3, -1, 9, 3);
+  } else {
+    // Bomb: green ball with its type's center color (timed bombs blink faster as the fuse runs out)
+    let c = SHOT_MODES[mode].color;
+    let center = SHOT_MODES[mode].center;
+    stroke(0);
+    strokeWeight(1.5);
+    fill(c[0], c[1], c[2]);
+    ellipse(0, 0, 15, 15);
+    noStroke();
+    let centerAlpha = 255;
+    if (mode === SHOT_MODE_TIMED) {
+      let blinkRate = lerp(0.15, 0.8, b.life / TIMED_BOMB_FUSE_FRAMES);
+      centerAlpha = 140 + 115 * sin(b.life * blinkRate * 57.3);
+    }
+    fill(center[0], center[1], center[2], centerAlpha);
+    ellipse(0, 0, 7, 7);
+  }
+  pop();
+}
+
+// Bomb blast: damages every grounded ant within the blast radius at once
+function explodePlayerBomb(x, y, mode) {
+  let radius = getBombRadius();
+  for (let j = 1; j <= enemyCount; j++) {
+    if (antAirHeight[j] > 0) continue;
+    if (dist(x, y, antX[j], antY[j]) <= radius) {
+      damageAntWithPlayerAcid(j);
+    }
+  }
+  playerBombBlasts.push({ x: x, y: y, radius: radius, mode: mode, life: 0 });
+  if (!sSpit2.isPlaying()) sSpit2.play();
+}
+
+function updatePlayerBombBlasts() {
+  for (let i = playerBombBlasts.length - 1; i >= 0; i--) {
+    let blast = playerBombBlasts[i];
+    blast.life++;
+    if (blast.life >= PLAYER_BOMB_BLAST_FRAMES) {
+      playerBombBlasts.splice(i, 1);
+      continue;
+    }
+    if (tigerBeetleActive && tigerBeetleMoving) continue;
+
+    // Green blast that snaps out to full size and fades, with the bomb type's color at its center
+    let t = blast.life / PLAYER_BOMB_BLAST_FRAMES;
+    let r = blast.radius * (0.6 + 0.4 * (1 - Math.pow(1 - t, 3)));
+    let alpha = 220 * (1 - t);
+    let c = SHOT_MODES[blast.mode].color;
+    let center = SHOT_MODES[blast.mode].center;
+    push();
+    noStroke();
+    fill(c[0], c[1], c[2], alpha * 0.45);
+    ellipse(blast.x, blast.y, r * 2);
+    fill(c[0], c[1], c[2], alpha * 0.7);
+    ellipse(blast.x, blast.y, r * 1.4);
+    fill(center[0], center[1], center[2], alpha);
+    ellipse(blast.x, blast.y, r * 0.6);
+    pop();
+  }
+}
+
+const PLAYER_HITBOX_HALF = 25; // Beetle's square bullet hitbox reaches 25px from its center each way
+
+// Spray: an instant cone of acid that hits every grounded ant inside it. The cone starts narrow at the
+// edge of the beetle's hitbox in the direction it's facing (like an ant's stream) and widens to the
+// full spray width at its tip.
+function firePlayerSpray(beetleX, beetleY, angle) {
+  let len = getSprayLength();
+  let tipWidth = getSprayWidth();
+  let baseWidth = tipWidth * 0.2;
+  let antRadius = 12; // Ant body counts as hit when it overlaps the cone, not just its center
+  let dirX = cos(angle);
+  let dirY = sin(angle);
+  // Where the facing direction leaves the square hitbox (further out on diagonals)
+  let edgeDist = PLAYER_HITBOX_HALF / max(Math.abs(dirX), Math.abs(dirY));
+  let x = beetleX + dirX * edgeDist;
+  let y = beetleY + dirY * edgeDist;
+  for (let j = 1; j <= enemyCount; j++) {
+    if (antAirHeight[j] > 0) continue;
+    let dx = antX[j] - x;
+    let dy = antY[j] - y;
+    let along = dx * dirX + dy * dirY;
+    if (along < -antRadius || along > len + antRadius) continue;
+    let across = Math.abs(-dx * dirY + dy * dirX);
+    let halfWidth = lerp(baseWidth, tipWidth, constrain(along, 0, len) / len) / 2;
+    if (across <= halfWidth + antRadius) {
+      damageAntWithPlayerAcid(j);
+    }
+  }
+  playerSprays.push({ x: x, y: y, angle: angle, len: len, baseWidth: baseWidth, tipWidth: tipWidth, life: 0 });
+  // Smoke puffs along the cone, like an ant's bursting stream
+  for (let k = 1; k <= 3; k++) {
+    let d = len * k / 3;
+    spawnSmokeImpact(x + dirX * d, y + dirY * d, lerp(baseWidth, tipWidth, k / 3) * 0.5, 2);
+  }
+}
+
+function updatePlayerSprays() {
+  for (let i = playerSprays.length - 1; i >= 0; i--) {
+    let s = playerSprays[i];
+    s.life++;
+    if (s.life >= PLAYER_SPRAY_FRAMES) {
+      playerSprays.splice(i, 1);
+      continue;
+    }
+    if (tigerBeetleActive && tigerBeetleMoving) continue;
+
+    let t = s.life / PLAYER_SPRAY_FRAMES;
+    let alpha = 200 * (1 - t);
+    let c = SHOT_MODES[SHOT_MODE_SPRAY].color;
+    push();
+    angleMode(DEGREES);
+    translate(s.x, s.y);
+    rotate(s.angle);
+    noStroke();
+    // Outer haze, then a denser core
+    fill(c[0], c[1], c[2], alpha * 0.5);
+    quad(0, -s.baseWidth / 2, s.len, -s.tipWidth / 2, s.len, s.tipWidth / 2, 0, s.baseWidth / 2);
+    ellipse(s.len, 0, s.tipWidth * 0.35, s.tipWidth);
+    fill(200, 200, 200, alpha * 0.6);
+    quad(0, -s.baseWidth / 4, s.len * 0.9, -s.tipWidth / 4, s.len * 0.9, s.tipWidth / 4, 0, s.baseWidth / 4);
+    pop();
   }
 }
 
@@ -9041,6 +9497,60 @@ function drawUpgradeScreen() {
       description: 'Double score and EXP for ants killed by your bullets. Requires Add Bullets.',
       level: upgrade27Level,
       maxLevel: 1
+    },
+    {
+      title: 'Spray Acid',
+      description: 'Unlock the spray shot mode: an instant grey cone of acid. Costs 2 ammo. Requires Add Bullets.',
+      level: upgrade28Level,
+      maxLevel: 1
+    },
+    {
+      title: 'Spray Length',
+      description: 'Lengthen the spray cone. Each level adds 25 pixels (100→200). Requires Spray Acid.',
+      level: upgrade29Level,
+      maxLevel: 4
+    },
+    {
+      title: 'Spray Width',
+      description: 'Widen the spray cone. Each level adds 20 pixels (20→100). Requires Spray Acid.',
+      level: upgrade30Level,
+      maxLevel: 4
+    },
+    {
+      title: 'Piercing Acid',
+      description: 'Unlock the piercing shot mode: blue bullets that pass through 1 ant. Costs 2 ammo. Requires Add Bullets.',
+      level: upgrade31Level,
+      maxLevel: 1
+    },
+    {
+      title: 'Piercing Depth',
+      description: 'Piercing bullets pass through 1 more ant per level (1→10). Requires Piercing Acid.',
+      level: upgrade32Level,
+      maxLevel: 9
+    },
+    {
+      title: 'Impact Bomb',
+      description: 'Unlock the impact bomb shot mode: explodes on impact. Costs 2 ammo. Requires Add Bullets.',
+      level: upgrade33Level,
+      maxLevel: 1
+    },
+    {
+      title: 'Timed Bomb',
+      description: 'Unlock the timed bomb shot mode: explodes after 1 second. Requires Impact Bomb.',
+      level: upgrade34Level,
+      maxLevel: 1
+    },
+    {
+      title: 'Proximity Bomb',
+      description: 'Unlock the proximity bomb shot mode: explodes when an ant comes within 100 pixels. Requires Timed Bomb.',
+      level: upgrade35Level,
+      maxLevel: 1
+    },
+    {
+      title: 'Blast Radius',
+      description: 'Increase bomb blast radius. Each level adds 40 pixels (60→180). Requires Impact Bomb.',
+      level: upgrade36Level,
+      maxLevel: 3
     }
   ];
   
@@ -9175,6 +9685,41 @@ function drawUpgradeScreen() {
       case 26: { // Bullet Harvest
         return 'Ants killed by your bullets give double score and EXP.';
       }
+      case 27: { // Spray Acid
+        return 'Unlock spray shots (Q / right click / LT to switch). An instant grey cone of acid for 2 ammo.';
+      }
+      case 28: { // Spray Length
+        const cur = getSprayLength(level);
+        const nxt = getSprayLength(nextLevel);
+        return `Lengthen the spray cone. Current: ${cur}px → ${level === allUpgrades[upgradeIndex].maxLevel ? `${cur}px (max)` : `${nxt}px`}`;
+      }
+      case 29: { // Spray Width
+        const cur = getSprayWidth(level);
+        const nxt = getSprayWidth(nextLevel);
+        return `Widen the spray cone. Current: ${cur}px → ${level === allUpgrades[upgradeIndex].maxLevel ? `${cur}px (max)` : `${nxt}px`}`;
+      }
+      case 30: { // Piercing Acid
+        return 'Unlock piercing shots (Q / right click / LT to switch). Blue bullets pass through 1 ant, for 2 ammo.';
+      }
+      case 31: { // Piercing Depth
+        const cur = getPierceCount(level);
+        const nxt = getPierceCount(nextLevel);
+        return `Pierce more ants. Current: ${cur} → ${level === allUpgrades[upgradeIndex].maxLevel ? `${cur} (max)` : nxt}`;
+      }
+      case 32: { // Impact Bomb
+        return 'Unlock impact bombs (Q / right click / LT to switch). Explodes on impact, for 2 ammo.';
+      }
+      case 33: { // Timed Bomb
+        return 'Unlock timed bombs. Explodes 1 second after firing, for 2 ammo.';
+      }
+      case 34: { // Proximity Bomb
+        return 'Unlock proximity bombs. Explodes when an ant comes within 100px, for 2 ammo.';
+      }
+      case 35: { // Blast Radius
+        const cur = getBombRadius(level);
+        const nxt = getBombRadius(nextLevel);
+        return `Increase bomb blast radius. Current: ${cur}px → ${level === allUpgrades[upgradeIndex].maxLevel ? `${cur}px (max)` : `${nxt}px`}`;
+      }
       default:
         return allUpgrades[upgradeIndex].description;
     }
@@ -9214,6 +9759,15 @@ function drawUpgradeScreen() {
       case 24:
       case 25:
       case 26:{ cur = level > 0 ? 'ON' : 'OFF'; nxt = 'ON'; break; }
+      case 28:{ cur = `${getSprayLength(level)}px`; nxt = `${getSprayLength(nextLevel)}px`; break; }
+      case 29:{ cur = `${getSprayWidth(level)}px`; nxt = `${getSprayWidth(nextLevel)}px`; break; }
+      case 31:{ cur = `${getPierceCount(level)}`; nxt = `${getPierceCount(nextLevel)}`; break; }
+      case 35:{ cur = `${getBombRadius(level)}px`; nxt = `${getBombRadius(nextLevel)}px`; break; }
+      case 27:
+      case 30:
+      case 32:
+      case 33:
+      case 34:{ cur = level > 0 ? 'ON' : 'OFF'; nxt = 'ON'; break; }
       default: { cur = ''; nxt = ''; }
     }
     return { cur, nxt, isMax };
@@ -9418,13 +9972,21 @@ function isUpgradeUnlocked(i) {
   if (i === 19 && level <= 5) return false;  // Health Regeneration unlocks after round 5
   if (i === 25 && upgrade14Level === 0) return false;  // Shockwave Harvest requires Shockwave Unlock
   if (i === 26 && upgrade5Level === 0) return false;  // Bullet Harvest requires Add Bullets
+  if (i === 27 && upgrade5Level === 0) return false;  // Spray Acid requires Add Bullets
+  if ((i === 28 || i === 29) && upgrade28Level === 0) return false;  // Spray Length/Width require Spray Acid
+  if (i === 30 && upgrade5Level === 0) return false;  // Piercing Acid requires Add Bullets
+  if (i === 31 && upgrade31Level === 0) return false;  // Piercing Depth requires Piercing Acid
+  if (i === 32 && upgrade5Level === 0) return false;  // Impact Bomb requires Add Bullets
+  if (i === 33 && upgrade33Level === 0) return false;  // Timed Bomb requires Impact Bomb
+  if (i === 34 && upgrade34Level === 0) return false;  // Proximity Bomb requires Timed Bomb
+  if (i === 35 && upgrade33Level === 0) return false;  // Blast Radius requires Impact Bomb
   return true;
 }
 
 // Fill displayedUpgrades with up to 3 unmaxed, unlocked upgrades, weighted by rarity.
 // Upgrades in `exclude` are only offered once nothing else is left.
 function pickUpgradeOptions(exclude = []) {
-  let upgradeLevels = [upgrade1Level, upgrade2Level, upgrade3Level, upgrade4Level, upgrade5Level, upgrade6Level, upgrade7Level, upgrade8Level, upgrade9Level, upgrade10Level, upgrade11Level, upgrade12Level, upgrade13Level, upgrade14Level, upgrade15Level, upgrade16Level, upgrade17Level, upgrade18Level, upgrade19Level, upgrade20Level, upgrade21Level, upgrade22Level, upgrade23Level, upgrade24Level, upgrade25Level, upgrade26Level, upgrade27Level];
+  let upgradeLevels = [upgrade1Level, upgrade2Level, upgrade3Level, upgrade4Level, upgrade5Level, upgrade6Level, upgrade7Level, upgrade8Level, upgrade9Level, upgrade10Level, upgrade11Level, upgrade12Level, upgrade13Level, upgrade14Level, upgrade15Level, upgrade16Level, upgrade17Level, upgrade18Level, upgrade19Level, upgrade20Level, upgrade21Level, upgrade22Level, upgrade23Level, upgrade24Level, upgrade25Level, upgrade26Level, upgrade27Level, upgrade28Level, upgrade29Level, upgrade30Level, upgrade31Level, upgrade32Level, upgrade33Level, upgrade34Level, upgrade35Level, upgrade36Level];
   let availableUpgrades = [];
   for (let i = 0; i < UPGRADE_COUNT; i++) {
     if (upgradeLevels[i] < UPGRADE_MAX_LEVELS[i] && isUpgradeUnlocked(i)) {
@@ -9454,7 +10016,7 @@ function pickUpgradeOptions(exclude = []) {
 // Whether rerolling could show at least one upgrade that isn't on screen now
 function canRerollUpgrades() {
   if (upgradeRerolls <= 0) return false;
-  let upgradeLevels = [upgrade1Level, upgrade2Level, upgrade3Level, upgrade4Level, upgrade5Level, upgrade6Level, upgrade7Level, upgrade8Level, upgrade9Level, upgrade10Level, upgrade11Level, upgrade12Level, upgrade13Level, upgrade14Level, upgrade15Level, upgrade16Level, upgrade17Level, upgrade18Level, upgrade19Level, upgrade20Level, upgrade21Level, upgrade22Level, upgrade23Level, upgrade24Level, upgrade25Level, upgrade26Level, upgrade27Level];
+  let upgradeLevels = [upgrade1Level, upgrade2Level, upgrade3Level, upgrade4Level, upgrade5Level, upgrade6Level, upgrade7Level, upgrade8Level, upgrade9Level, upgrade10Level, upgrade11Level, upgrade12Level, upgrade13Level, upgrade14Level, upgrade15Level, upgrade16Level, upgrade17Level, upgrade18Level, upgrade19Level, upgrade20Level, upgrade21Level, upgrade22Level, upgrade23Level, upgrade24Level, upgrade25Level, upgrade26Level, upgrade27Level, upgrade28Level, upgrade29Level, upgrade30Level, upgrade31Level, upgrade32Level, upgrade33Level, upgrade34Level, upgrade35Level, upgrade36Level];
   for (let i = 0; i < UPGRADE_COUNT; i++) {
     if (upgradeLevels[i] < UPGRADE_MAX_LEVELS[i] && isUpgradeUnlocked(i) && !displayedUpgrades.includes(i)) return true;
   }
@@ -9529,6 +10091,24 @@ function applyUpgrade(upgradeIndex) {
     upgrade26Level++;
   } else if (actualUpgradeId === 26 && upgrade27Level < upgradeMaxLevels[26]) {
     upgrade27Level++;
+  } else if (actualUpgradeId === 27 && upgrade28Level < upgradeMaxLevels[27]) {
+    upgrade28Level++;
+  } else if (actualUpgradeId === 28 && upgrade29Level < upgradeMaxLevels[28]) {
+    upgrade29Level++;
+  } else if (actualUpgradeId === 29 && upgrade30Level < upgradeMaxLevels[29]) {
+    upgrade30Level++;
+  } else if (actualUpgradeId === 30 && upgrade31Level < upgradeMaxLevels[30]) {
+    upgrade31Level++;
+  } else if (actualUpgradeId === 31 && upgrade32Level < upgradeMaxLevels[31]) {
+    upgrade32Level++;
+  } else if (actualUpgradeId === 32 && upgrade33Level < upgradeMaxLevels[32]) {
+    upgrade33Level++;
+  } else if (actualUpgradeId === 33 && upgrade34Level < upgradeMaxLevels[33]) {
+    upgrade34Level++;
+  } else if (actualUpgradeId === 34 && upgrade35Level < upgradeMaxLevels[34]) {
+    upgrade35Level++;
+  } else if (actualUpgradeId === 35 && upgrade36Level < upgradeMaxLevels[35]) {
+    upgrade36Level++;
   }
   
   // Level up the EXP system
@@ -9554,8 +10134,8 @@ function applyUpgrade(upgradeIndex) {
   }
   
   //TODO: Add actual upgrade effects based on actualUpgradeId (0-19)
-  let levels = [upgrade1Level, upgrade2Level, upgrade3Level, upgrade4Level, upgrade5Level, upgrade6Level, upgrade7Level, upgrade8Level, upgrade9Level, upgrade10Level, upgrade11Level, upgrade12Level, upgrade13Level, upgrade14Level, upgrade15Level, upgrade16Level, upgrade17Level, upgrade18Level, upgrade19Level, upgrade20Level, upgrade21Level, upgrade22Level, upgrade23Level, upgrade24Level, upgrade25Level, upgrade26Level, upgrade27Level];
-  let upgradeNames = ['Walking Speed', 'Dash Speed', 'Dash Cooldown', 'Add Shield', 'Add Bullets', 'Shield Regeneration', 'Bullet Reload', 'Bullet Speed', 'Free-Angle Aiming', 'Tiger Beetle', 'Oogpister Beetle', 'Horns', 'Potent Acid', 'Shockwave', 'Shockwave Radius', 'Shockwave Damage', 'Shockwave Cooldown', 'Shockwave Knockback', 'Bullet Deflection', 'Health Regeneration', 'Runt Hunter', 'Increased Metabolism', 'EXP Boost', 'Combo Surge', 'Dash Harvest', 'Shockwave Harvest', 'Bullet Harvest'];
+  let levels = [upgrade1Level, upgrade2Level, upgrade3Level, upgrade4Level, upgrade5Level, upgrade6Level, upgrade7Level, upgrade8Level, upgrade9Level, upgrade10Level, upgrade11Level, upgrade12Level, upgrade13Level, upgrade14Level, upgrade15Level, upgrade16Level, upgrade17Level, upgrade18Level, upgrade19Level, upgrade20Level, upgrade21Level, upgrade22Level, upgrade23Level, upgrade24Level, upgrade25Level, upgrade26Level, upgrade27Level, upgrade28Level, upgrade29Level, upgrade30Level, upgrade31Level, upgrade32Level, upgrade33Level, upgrade34Level, upgrade35Level, upgrade36Level];
+  let upgradeNames = ['Walking Speed', 'Dash Speed', 'Dash Cooldown', 'Add Shield', 'Add Bullets', 'Shield Regeneration', 'Bullet Reload', 'Bullet Speed', 'Free-Angle Aiming', 'Tiger Beetle', 'Oogpister Beetle', 'Horns', 'Potent Acid', 'Shockwave', 'Shockwave Radius', 'Shockwave Damage', 'Shockwave Cooldown', 'Shockwave Knockback', 'Bullet Deflection', 'Health Regeneration', 'Runt Hunter', 'Increased Metabolism', 'EXP Boost', 'Combo Surge', 'Dash Harvest', 'Shockwave Harvest', 'Bullet Harvest', 'Spray Acid', 'Spray Length', 'Spray Width', 'Piercing Acid', 'Piercing Depth', 'Impact Bomb', 'Timed Bomb', 'Proximity Bomb', 'Blast Radius'];
   debugLog(`${upgradeNames[actualUpgradeId]} selected! Level: ${levels[actualUpgradeId]}`);
   
   // Update upgrade booleans
@@ -9828,6 +10408,7 @@ Next generation distribution:`);
 // Drop lingering effects so nothing carries over between rounds and the arrays start fresh
 function clearRoundEffects() {
   playerBullets = [];
+  resetShotMode(); // Every round starts on the default shot (also clears sprays and bomb blasts)
   landMines = [];
   speedRings = [];
   enemyExplosions = [];
@@ -11870,8 +12451,8 @@ function mousePressed() {
     }
   }
 
-  // Handle upgrade menu clicks
-  if (upgradeMenuActive) {
+  // Handle upgrade menu clicks (left button only; right click switches shot mode)
+  if (upgradeMenuActive && mouseButton === LEFT) {
     let cardWidth = getMenuWidth() * 0.25;
     let cardHeight = getMenuHeight() * 0.48;
     let cardY = getMenuHeight() * 0.50;
@@ -13686,6 +14267,14 @@ function isWindAttackPressed() {
   return false;
 }
 
+// Shot mode switch: Q, right mouse button, or gamepad left trigger (L2/LT)
+function isShotModePressed() {
+  if (keyIsDown(81)) return true; // Q key
+  if (mouseIsPressed && mouseButton === RIGHT) return true;
+  if (gamepad && gamepad.buttons[6] && gamepad.buttons[6].pressed) return true; // Left trigger (L2/LT)
+  return false;
+}
+
 // Get left stick X axis value (-1 to 1)
 function getLeftStickX() {
   if (!gamepad) return 0;
@@ -13738,6 +14327,15 @@ function savePlayerState(playerIndex) {
   p.upgrade25 = upgrade25Level;
   p.upgrade26 = upgrade26Level;
   p.upgrade27 = upgrade27Level;
+  p.upgrade28 = upgrade28Level;
+  p.upgrade29 = upgrade29Level;
+  p.upgrade30 = upgrade30Level;
+  p.upgrade31 = upgrade31Level;
+  p.upgrade32 = upgrade32Level;
+  p.upgrade33 = upgrade33Level;
+  p.upgrade34 = upgrade34Level;
+  p.upgrade35 = upgrade35Level;
+  p.upgrade36 = upgrade36Level;
   p.upgradeRerolls = upgradeRerolls;
   
   // Save experience
@@ -13790,8 +14388,18 @@ function loadPlayerState(playerIndex) {
   upgrade25Level = p.upgrade25 || 0;
   upgrade26Level = p.upgrade26 || 0;
   upgrade27Level = p.upgrade27 || 0;
+  upgrade28Level = p.upgrade28 || 0;
+  upgrade29Level = p.upgrade29 || 0;
+  upgrade30Level = p.upgrade30 || 0;
+  upgrade31Level = p.upgrade31 || 0;
+  upgrade32Level = p.upgrade32 || 0;
+  upgrade33Level = p.upgrade33 || 0;
+  upgrade34Level = p.upgrade34 || 0;
+  upgrade35Level = p.upgrade35 || 0;
+  upgrade36Level = p.upgrade36 || 0;
   upgradeRerolls = p.upgradeRerolls !== undefined ? p.upgradeRerolls : UPGRADE_REROLLS_PER_RUN;
-  
+  resetShotMode(); // Each player's turn starts on the default shot
+
   // Load experience
   expLevel = p.expLevel;
   expProgress = p.expProgress;
@@ -14898,7 +15506,16 @@ function drawDevTools() {
         upgrade24: upgrade24Level,
         upgrade25: upgrade25Level,
         upgrade26: upgrade26Level,
-        upgrade27: upgrade27Level
+        upgrade27: upgrade27Level,
+        upgrade28: upgrade28Level,
+        upgrade29: upgrade29Level,
+        upgrade30: upgrade30Level,
+        upgrade31: upgrade31Level,
+        upgrade32: upgrade32Level,
+        upgrade33: upgrade33Level,
+        upgrade34: upgrade34Level,
+        upgrade35: upgrade35Level,
+        upgrade36: upgrade36Level
       };
     } else if (devToolsTab === 'multi') {
       // Multiplayer mode - get upgrades from selected player
@@ -14930,7 +15547,16 @@ function drawDevTools() {
           upgrade24: players[devToolsPlayerTab].upgrade24 || 0,
           upgrade25: players[devToolsPlayerTab].upgrade25 || 0,
           upgrade26: players[devToolsPlayerTab].upgrade26 || 0,
-          upgrade27: players[devToolsPlayerTab].upgrade27 || 0
+          upgrade27: players[devToolsPlayerTab].upgrade27 || 0,
+          upgrade28: players[devToolsPlayerTab].upgrade28 || 0,
+          upgrade29: players[devToolsPlayerTab].upgrade29 || 0,
+          upgrade30: players[devToolsPlayerTab].upgrade30 || 0,
+          upgrade31: players[devToolsPlayerTab].upgrade31 || 0,
+          upgrade32: players[devToolsPlayerTab].upgrade32 || 0,
+          upgrade33: players[devToolsPlayerTab].upgrade33 || 0,
+          upgrade34: players[devToolsPlayerTab].upgrade34 || 0,
+          upgrade35: players[devToolsPlayerTab].upgrade35 || 0,
+          upgrade36: players[devToolsPlayerTab].upgrade36 || 0
         };
       } else {
         // Player doesn't exist, show zeros
@@ -14939,7 +15565,8 @@ function drawDevTools() {
           upgrade6: 0, upgrade7: 0, upgrade8: 0, upgrade9: 0, upgrade10: 0,
           upgrade11: 0, upgrade12: 0, upgrade13: 0, upgrade14: 0, upgrade15: 0,
           upgrade16: 0, upgrade17: 0, upgrade18: 0, upgrade19: 0, upgrade20: 0,
-          upgrade21: 0, upgrade22: 0, upgrade23: 0, upgrade24: 0, upgrade25: 0, upgrade26: 0, upgrade27: 0
+          upgrade21: 0, upgrade22: 0, upgrade23: 0, upgrade24: 0, upgrade25: 0, upgrade26: 0, upgrade27: 0,
+          upgrade28: 0, upgrade29: 0, upgrade30: 0, upgrade31: 0, upgrade32: 0, upgrade33: 0, upgrade34: 0, upgrade35: 0, upgrade36: 0
         };
       }
     }
@@ -14974,7 +15601,16 @@ function drawDevTools() {
         { name: 'Combo Surge', level: currentUpgrades.upgrade24, maxLevel: 4, id: 23 },
         { name: 'Dash Harvest', level: currentUpgrades.upgrade25, maxLevel: 1, id: 24 },
         { name: 'Shockwave Harvest', level: currentUpgrades.upgrade26, maxLevel: 1, id: 25 },
-        { name: 'Bullet Harvest', level: currentUpgrades.upgrade27, maxLevel: 1, id: 26 }
+        { name: 'Bullet Harvest', level: currentUpgrades.upgrade27, maxLevel: 1, id: 26 },
+        { name: 'Spray Acid', level: currentUpgrades.upgrade28, maxLevel: 1, id: 27 },
+        { name: 'Spray Length', level: currentUpgrades.upgrade29, maxLevel: 4, id: 28 },
+        { name: 'Spray Width', level: currentUpgrades.upgrade30, maxLevel: 4, id: 29 },
+        { name: 'Piercing Acid', level: currentUpgrades.upgrade31, maxLevel: 1, id: 30 },
+        { name: 'Piercing Depth', level: currentUpgrades.upgrade32, maxLevel: 9, id: 31 },
+        { name: 'Impact Bomb', level: currentUpgrades.upgrade33, maxLevel: 1, id: 32 },
+        { name: 'Timed Bomb', level: currentUpgrades.upgrade34, maxLevel: 1, id: 33 },
+        { name: 'Proximity Bomb', level: currentUpgrades.upgrade35, maxLevel: 1, id: 34 },
+        { name: 'Blast Radius', level: currentUpgrades.upgrade36, maxLevel: 3, id: 35 }
       ];
     
     // Handle player sub-tab switching in multiplayer mode
@@ -15206,7 +15842,7 @@ function toggleDevUpgrade(upgradeId) {
   
   if (devToolsTab === 'single') {
     let upgradeLevels = [upgrade1Level, upgrade2Level, upgrade3Level, upgrade4Level, upgrade5Level, 
-                         upgrade6Level, upgrade7Level, upgrade8Level, upgrade9Level, upgrade10Level, upgrade11Level, upgrade12Level, upgrade13Level, upgrade14Level, upgrade15Level, upgrade16Level, upgrade17Level, upgrade18Level, upgrade19Level, upgrade20Level, upgrade21Level, upgrade22Level, upgrade23Level, upgrade24Level, upgrade25Level, upgrade26Level, upgrade27Level];
+                         upgrade6Level, upgrade7Level, upgrade8Level, upgrade9Level, upgrade10Level, upgrade11Level, upgrade12Level, upgrade13Level, upgrade14Level, upgrade15Level, upgrade16Level, upgrade17Level, upgrade18Level, upgrade19Level, upgrade20Level, upgrade21Level, upgrade22Level, upgrade23Level, upgrade24Level, upgrade25Level, upgrade26Level, upgrade27Level, upgrade28Level, upgrade29Level, upgrade30Level, upgrade31Level, upgrade32Level, upgrade33Level, upgrade34Level, upgrade35Level, upgrade36Level];
     currentLevel = upgradeLevels[upgradeId];
   } else {
     // Multiplayer - get from selected player
@@ -15238,7 +15874,16 @@ function toggleDevUpgrade(upgradeId) {
         players[devToolsPlayerTab].upgrade24 || 0,
         players[devToolsPlayerTab].upgrade25 || 0,
         players[devToolsPlayerTab].upgrade26 || 0,
-        players[devToolsPlayerTab].upgrade27 || 0
+        players[devToolsPlayerTab].upgrade27 || 0,
+        players[devToolsPlayerTab].upgrade28 || 0,
+        players[devToolsPlayerTab].upgrade29 || 0,
+        players[devToolsPlayerTab].upgrade30 || 0,
+        players[devToolsPlayerTab].upgrade31 || 0,
+        players[devToolsPlayerTab].upgrade32 || 0,
+        players[devToolsPlayerTab].upgrade33 || 0,
+        players[devToolsPlayerTab].upgrade34 || 0,
+        players[devToolsPlayerTab].upgrade35 || 0,
+        players[devToolsPlayerTab].upgrade36 || 0
       ];
       currentLevel = playerUpgrades[upgradeId];
     }
@@ -15313,7 +15958,7 @@ function activateDevPrerequisites(upgradeId, targetLevel) {
   let getCurrentLevel = (id) => {
     if (devToolsTab === 'single') {
       let levels = [upgrade1Level, upgrade2Level, upgrade3Level, upgrade4Level, upgrade5Level, 
-                    upgrade6Level, upgrade7Level, upgrade8Level, upgrade9Level, upgrade10Level, upgrade11Level, upgrade12Level, upgrade13Level, upgrade14Level, upgrade15Level, upgrade16Level, upgrade17Level, upgrade18Level, upgrade19Level, upgrade20Level, upgrade21Level, upgrade22Level, upgrade23Level, upgrade24Level, upgrade25Level, upgrade26Level, upgrade27Level];
+                    upgrade6Level, upgrade7Level, upgrade8Level, upgrade9Level, upgrade10Level, upgrade11Level, upgrade12Level, upgrade13Level, upgrade14Level, upgrade15Level, upgrade16Level, upgrade17Level, upgrade18Level, upgrade19Level, upgrade20Level, upgrade21Level, upgrade22Level, upgrade23Level, upgrade24Level, upgrade25Level, upgrade26Level, upgrade27Level, upgrade28Level, upgrade29Level, upgrade30Level, upgrade31Level, upgrade32Level, upgrade33Level, upgrade34Level, upgrade35Level, upgrade36Level];
       return levels[id];
     } else if (players[devToolsPlayerTab]) {
       let playerLevels = [
@@ -15343,7 +15988,16 @@ function activateDevPrerequisites(upgradeId, targetLevel) {
         players[devToolsPlayerTab].upgrade24 || 0,
         players[devToolsPlayerTab].upgrade25 || 0,
         players[devToolsPlayerTab].upgrade26 || 0,
-        players[devToolsPlayerTab].upgrade27 || 0
+        players[devToolsPlayerTab].upgrade27 || 0,
+        players[devToolsPlayerTab].upgrade28 || 0,
+        players[devToolsPlayerTab].upgrade29 || 0,
+        players[devToolsPlayerTab].upgrade30 || 0,
+        players[devToolsPlayerTab].upgrade31 || 0,
+        players[devToolsPlayerTab].upgrade32 || 0,
+        players[devToolsPlayerTab].upgrade33 || 0,
+        players[devToolsPlayerTab].upgrade34 || 0,
+        players[devToolsPlayerTab].upgrade35 || 0,
+        players[devToolsPlayerTab].upgrade36 || 0
       ];
       return playerLevels[id];
     }
@@ -15413,6 +16067,24 @@ function activateDevPrerequisites(upgradeId, targetLevel) {
   if (upgradeId === 26 && getCurrentLevel(4) === 0) {
     setDevUpgradeLevel(4, 1);  // Bullet Harvest requires Add Bullets
   }
+
+  // Special shots (27-35): each unlock requires Add Bullets, sub upgrades require their unlock,
+  // and bombs unlock in order impact → timed → proximity
+  if (upgradeId >= 27 && upgradeId <= 35 && getCurrentLevel(4) === 0) {
+    setDevUpgradeLevel(4, 1);
+  }
+  if ((upgradeId === 28 || upgradeId === 29) && getCurrentLevel(27) === 0) {
+    setDevUpgradeLevel(27, 1);  // Spray Length/Width require Spray Acid
+  }
+  if (upgradeId === 31 && getCurrentLevel(30) === 0) {
+    setDevUpgradeLevel(30, 1);  // Piercing Depth requires Piercing Acid
+  }
+  if ((upgradeId === 33 || upgradeId === 34 || upgradeId === 35) && getCurrentLevel(32) === 0) {
+    setDevUpgradeLevel(32, 1);  // Timed Bomb and Blast Radius require Impact Bomb
+  }
+  if (upgradeId === 34 && getCurrentLevel(33) === 0) {
+    setDevUpgradeLevel(33, 1);  // Proximity Bomb requires Timed Bomb
+  }
 }
 
 // Deactivate upgrades that depend on this one
@@ -15460,6 +16132,24 @@ function deactivateDevDependentUpgrades(upgradeId) {
     setDevUpgradeLevel(10, 0); // Also reset Oogpister Beetle since it requires Bullet Reload
     setDevUpgradeLevel(12, 0); // Also reset Potent Acid since it requires Add Bullets
     setDevUpgradeLevel(26, 0); // Also reset Bullet Harvest since it requires Add Bullets
+    for (let id = 27; id <= 35; id++) setDevUpgradeLevel(id, 0); // And every special shot upgrade
+  }
+
+  // Special shot unlocks reset their sub upgrades (and later bombs in the unlock order)
+  if (upgradeId === 27) {
+    setDevUpgradeLevel(28, 0);
+    setDevUpgradeLevel(29, 0);
+  }
+  if (upgradeId === 30) {
+    setDevUpgradeLevel(31, 0);
+  }
+  if (upgradeId === 32) {
+    setDevUpgradeLevel(33, 0);
+    setDevUpgradeLevel(34, 0);
+    setDevUpgradeLevel(35, 0);
+  }
+  if (upgradeId === 33) {
+    setDevUpgradeLevel(34, 0);
   }
   
   // If Bullet Reload (6) is reset, reset Free-Angle Aiming (8) and Oogpister Beetle (10)
@@ -15518,6 +16208,15 @@ function setUpgradeLevel(upgradeId, level) {
   else if (upgradeId === 24) upgrade25Level = level;
   else if (upgradeId === 25) upgrade26Level = level;
   else if (upgradeId === 26) upgrade27Level = level;
+  else if (upgradeId === 27) upgrade28Level = level;
+  else if (upgradeId === 28) upgrade29Level = level;
+  else if (upgradeId === 29) upgrade30Level = level;
+  else if (upgradeId === 30) upgrade31Level = level;
+  else if (upgradeId === 31) upgrade32Level = level;
+  else if (upgradeId === 32) upgrade33Level = level;
+  else if (upgradeId === 33) upgrade34Level = level;
+  else if (upgradeId === 34) upgrade35Level = level;
+  else if (upgradeId === 35) upgrade36Level = level;
   
   // Apply the changes to game stats
   updateUpgradeBooleans();
@@ -15554,6 +16253,15 @@ function setDevUpgradeLevel(upgradeId, level) {
     else if (upgradeId === 24) upgrade25Level = level;
     else if (upgradeId === 25) upgrade26Level = level;
     else if (upgradeId === 26) upgrade27Level = level;
+    else if (upgradeId === 27) upgrade28Level = level;
+    else if (upgradeId === 28) upgrade29Level = level;
+    else if (upgradeId === 29) upgrade30Level = level;
+    else if (upgradeId === 30) upgrade31Level = level;
+    else if (upgradeId === 31) upgrade32Level = level;
+    else if (upgradeId === 32) upgrade33Level = level;
+    else if (upgradeId === 33) upgrade34Level = level;
+    else if (upgradeId === 34) upgrade35Level = level;
+    else if (upgradeId === 35) upgrade36Level = level;
     
     // Apply the changes to game stats
     updateUpgradeBooleans();
@@ -15587,6 +16295,15 @@ function setDevUpgradeLevel(upgradeId, level) {
       else if (upgradeId === 24) players[devToolsPlayerTab].upgrade25 = level;
       else if (upgradeId === 25) players[devToolsPlayerTab].upgrade26 = level;
       else if (upgradeId === 26) players[devToolsPlayerTab].upgrade27 = level;
+      else if (upgradeId === 27) players[devToolsPlayerTab].upgrade28 = level;
+      else if (upgradeId === 28) players[devToolsPlayerTab].upgrade29 = level;
+      else if (upgradeId === 29) players[devToolsPlayerTab].upgrade30 = level;
+      else if (upgradeId === 30) players[devToolsPlayerTab].upgrade31 = level;
+      else if (upgradeId === 31) players[devToolsPlayerTab].upgrade32 = level;
+      else if (upgradeId === 32) players[devToolsPlayerTab].upgrade33 = level;
+      else if (upgradeId === 33) players[devToolsPlayerTab].upgrade34 = level;
+      else if (upgradeId === 34) players[devToolsPlayerTab].upgrade35 = level;
+      else if (upgradeId === 35) players[devToolsPlayerTab].upgrade36 = level;
       
       // Update player's stats based on their new upgrade levels
       updatePlayerStats(devToolsPlayerTab);
