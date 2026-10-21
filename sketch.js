@@ -5864,6 +5864,8 @@ const STREAM_MAX_RANGE = 125;             // Longest a stream can reach (px), at
 const STREAM_PLAYER_RADIUS = 25;          // Beetle hitbox radius for touching a stream (same as beams)
 const STREAM_DAMAGE_MULTIPLIER = 2;       // handleExplosionDamage(size * 2) = bulletSize / 30 per frame, double residue
 const STREAM_BREAK_GAP = 30;              // Neighbouring bits further apart than this (or the width) don't join up
+const STREAM_POINT_SPACING = 6;           // Bits closer together than this are skipped when drawing / hit-testing
+const STREAM_BURST_PUFFS = 8;             // Exploding streams: most smoke puffs spawned along each part of the path
 const STREAM_PREFILL_ARC_STEPS = 60;      // High arc streams: bits used for a full-length stream (explosion bursts)
 const STREAM_GROUND_HEIGHT = 8;           // High arc streams only touch the beetle below this height
 const STREAM_CURVE_BEND = 12;             // Curved streams: radians of bend at full range per unit of curve strength
@@ -5956,6 +5958,7 @@ function createAntStream(i) {
     arcDuration: Math.max(1, bulletArcDuration[i] || HIGH_ARC_MIN_DURATION),
     splitAtApex: isSplitArc(i),
     beam: beam,
+    emitEvery: 1,   // Frames between sprayed bits (high arcs spray less often, see below)
     particlesTotal: (pathType === 2 && !beam) ? Math.max(1, Math.round(STREAM_PARTICLES_PER_SIZE * bulletSize[i])) : 0,
     particleSpread: bulletBurstSpread[i] || PI / 3, // Full cone (radians) particles fan out in, from the burst spread gene
     particlesFired: 0,
@@ -5977,6 +5980,14 @@ function createAntStream(i) {
     livesAtStart: antLives[i]
   };
   aimStream(stream);
+  stream.baseWidth = getStreamBaseWidth(stream);
+  // High arc bits only move ~1.5-2px a frame, so spray one every few frames to start them about
+  // STREAM_POINT_SPACING apart instead of piling up bits that would just be skipped when drawing
+  if (pathType === 1) {
+    const groundSpeed = dist(stream.originX, stream.originY, stream.aimX, stream.aimY) / stream.arcDuration;
+    const maxSpeed = Math.sqrt(groundSpeed * groundSpeed + (Math.PI / 2) * (Math.PI / 2)); // Climb peaks at pi/2 px/frame
+    stream.emitEvery = constrain(Math.floor(STREAM_POINT_SPACING / maxSpeed), 1, 4);
+  }
   return stream;
 }
 
@@ -6033,14 +6044,17 @@ function createStreamNode(stream) {
   };
 }
 
+// Plain math rather than lerp() here and in getStreamNodeWidth: these run for every bit of every stream
+// each frame, and long high arcs have a lot of bits in flight
 function placeArcNode(stream, node) {
   const u = node.age / stream.arcDuration;
   if (node.branch < 0) {
-    node.x = lerp(node.ox, node.landX, u);
-    node.y = lerp(node.oy, node.landY, u);
+    node.x = node.ox + (node.landX - node.ox) * u;
+    node.y = node.oy + (node.landY - node.oy) * u;
   } else {
-    node.x = lerp(node.apexX, node.landX, (u - 0.5) * 2);
-    node.y = lerp(node.apexY, node.landY, (u - 0.5) * 2);
+    const v = (u - 0.5) * 2;
+    node.x = node.apexX + (node.landX - node.apexX) * v;
+    node.y = node.apexY + (node.landY - node.apexY) * v;
   }
   node.h = Math.sin(u * Math.PI) * stream.arcDuration * 0.5; // Same peak as a high arc bullet
 }
@@ -6137,21 +6151,26 @@ function getStreamBaseWidth(stream) {
 
 // Narrow at the base, widening to full width at the end of the stream
 function getStreamNodeWidth(stream, node) {
-  const along = stream.pathType === 1 ? node.age / stream.arcDuration : node.s / stream.range;
-  return lerp(getStreamBaseWidth(stream), stream.width, constrain(along, 0, 1));
+  let along = stream.pathType === 1 ? node.age / stream.arcDuration : node.s / stream.range;
+  if (along > 1) along = 1;
+  else if (along < 0) along = 0;
+  return stream.baseWidth + (stream.width - stream.baseWidth) * along;
 }
 
 // The stream as polylines of points {x, y, h, w} running from the base out to the end, one per split arc
-// branch. A polyline breaks where neighbouring bits have flowed too far apart (the stream was swung hard).
+// branch (the points are the nodes themselves, with w set to their width). A polyline breaks where
+// neighbouring bits have flowed too far apart (the stream was swung hard). Bits closer together than
+// STREAM_POINT_SPACING are skipped, so slow high arcs (a bit or two of a pixel apart) stay cheap to draw
+// and hit-test.
 function getStreamSlices(stream, nodes) {
   const trunk = [];
   const branches = stream.splitAtApex ? [[], [], []] : [];
   // nodes are oldest first, so walk them backwards to run from the base outward
   for (let k = nodes.length - 1; k >= 0; k--) {
     const node = nodes[k];
-    const pt = { x: node.x, y: node.y, h: node.h, w: getStreamNodeWidth(stream, node) };
-    if (node.branch < 0) trunk.push(pt);
-    else branches[node.branch].push(pt);
+    node.w = getStreamNodeWidth(stream, node);
+    if (node.branch < 0) trunk.push(node);
+    else branches[node.branch].push(node);
   }
   // Split arc branches carry on from the top of the climb (the first branch draws the climb itself)
   const lines = stream.splitAtApex
@@ -6159,20 +6178,34 @@ function getStreamSlices(stream, nodes) {
     : [trunk];
 
   const slices = [];
-  const breakGap = Math.max(STREAM_BREAK_GAP, stream.width);
+  const breakGapSq = Math.max(STREAM_BREAK_GAP, stream.width) ** 2;
+  const spacingSq = STREAM_POINT_SPACING * STREAM_POINT_SPACING;
   for (const line of lines) {
     let current = [];
+    let prev = null;
+    let prevKept = true;
     for (const pt of line) {
-      const prev = current[current.length - 1];
-      if (prev && dist(prev.x, prev.y - prev.h, pt.x, pt.y - pt.h) > breakGap) {
+      if (prev && streamPointDistSq(prev, pt) > breakGapSq) {
+        if (!prevKept) current.push(prev);
         slices.push(current);
         current = [];
       }
-      current.push(pt);
+      const last = current[current.length - 1];
+      prevKept = !last || streamPointDistSq(last, pt) >= spacingSq;
+      if (prevKept) current.push(pt);
+      prev = pt;
     }
+    if (prev && !prevKept) current.push(prev); // Always keep the very end
     if (current.length) slices.push(current);
   }
   return slices;
+}
+
+// Squared distance between two stream points as drawn (lifted by their height)
+function streamPointDistSq(a, b) {
+  const dx = b.x - a.x;
+  const dy = (b.y - b.h) - (a.y - a.h);
+  return dx * dx + dy * dy;
 }
 
 // Beam streams: the end of the stream carries on as a beam to the edge of the screen, once the stream
@@ -6246,16 +6279,29 @@ function updateEnemyStream(stream) {
   }
 
   if (stream.phase === 'spray') return updateStreamSpray(stream);
-  // Burst: the stream itself is gone, but its particles may still be flying
+  // Burst: the stream itself is gone, leaving its smoke to fade while any particles are still flying
   updateStreamParticles(stream);
-  return stream.particles.length > 0;
+  if (stream.phaseLife < SMOKE_IMPACT_FRAMES) drawStreamBurstSmoke(stream);
+  return stream.particles.length > 0 || stream.phaseLife < SMOKE_IMPACT_FRAMES;
+}
+
+// Exploding streams: grey smoke where the stream burst, spreading a little as it slowly fades
+function drawStreamBurstSmoke(stream) {
+  if (tigerBeetleActive && tigerBeetleMoving) return;
+  const t = stream.phaseLife / SMOKE_IMPACT_FRAMES;
+  const alpha = 200 * (1 - t);
+  const spread = 1 + 0.6 * (1 - Math.pow(1 - t, 3));
+  for (const slice of stream.burstSlices) {
+    fillStreamRibbon(slice, 1.6 * spread, true, [120, 120, 120], alpha * 0.45);
+    fillStreamRibbon(slice, spread, true, [185, 185, 185], alpha * 0.6);
+  }
 }
 
 function updateStreamSpray(stream) {
   const o = stream.owner;
   stream.nodes = advanceStreamNodes(stream, stream.nodes);
   if (stream.spraying) {
-    stream.nodes.push(createStreamNode(stream));
+    if ((stream.phaseLife - 1) % stream.emitEvery === 0) stream.nodes.push(createStreamNode(stream));
     // Accelerating streams: particles spaced out over the spray, sprayed along with the stream
     if (stream.particlesFired < stream.particlesTotal &&
         stream.phaseLife - 1 >= stream.particlesFired * stream.duration / stream.particlesTotal) {
@@ -6344,14 +6390,16 @@ function burstStream(stream) {
     handlePlayerHit(o, false, contact.x, contact.y, 1, 5, true, stream.size);
   }
 
-  // Grey smoke all along the path, as wide as the stream is there (at most ~40 puffs per slice)
+  // Grey smoke along the path: a fading smoke ribbon (drawn in the burst phase) plus a few puffs
+  // billowing off it (at most STREAM_BURST_PUFFS per slice, to keep long beams cheap)
+  stream.burstSlices = slices;
   for (const slice of slices) {
     let length = 0;
     for (let k = 0; k < slice.length - 1; k++) {
       length += dist(slice[k].x, slice[k].y - slice[k].h, slice[k + 1].x, slice[k + 1].y - slice[k + 1].h);
     }
-    const spacing = Math.max(10, stream.width * 0.6, length / 40);
-    forEachAlongStreamSlice(slice, spacing, (x, y, h, w) => spawnSmokeImpact(x, y, w * 0.7, 3, h));
+    const spacing = Math.max(20, stream.width * 1.2, length / STREAM_BURST_PUFFS);
+    forEachAlongStreamSlice(slice, spacing, (x, y, h, w) => spawnSmokeImpact(x, y, w * 0.8, 2, h));
   }
 
   // Accelerating streams: every particle breaks away from the end at once
@@ -6420,15 +6468,64 @@ function updateStreamParticles(stream) {
   }
 }
 
-// Draw slices segment by segment so the stream can widen from its base to its end
-function drawStreamSlicePass(slice, widthScale, lifted) {
-  const segments = Math.max(1, slice.length - 1);
-  for (let k = 0; k < segments; k++) {
-    const a = slice[k];
-    const b = slice[Math.min(k + 1, slice.length - 1)];
-    strokeWeight((a.w + b.w) / 2 * widthScale);
-    line(a.x, lifted ? a.y - a.h : a.y, b.x, lifted ? b.y - b.h : b.y);
+// Fill a slice as one tapered ribbon (widthScale x each point's width, rounded at the end) in a single canvas
+// path. Streams are drawn this way rather than with a line() per segment: every line() is its own canvas
+// stroke, and a stream has dozens of segments per pass.
+function fillStreamRibbon(slice, widthScale, lifted, color, alpha) {
+  const n = slice.length;
+  if (n === 0 || alpha <= 1) return;
+  const ctx = drawingContext;
+  ctx.fillStyle = `rgba(${color[0]},${color[1]},${color[2]},${constrain(alpha, 0, 255) / 255})`;
+  ctx.beginPath();
+  if (n === 1) {
+    const pt = slice[0];
+    ctx.arc(pt.x, lifted ? pt.y - pt.h : pt.y, Math.max(0.5, pt.w * widthScale / 2), 0, Math.PI * 2);
+    ctx.fill();
+    return;
   }
+
+  // Unit normal at every point (perpendicular to the path through its neighbours)
+  const nx = new Array(n);
+  const ny = new Array(n);
+  let lastNx = 0;
+  let lastNy = 1;
+  for (let k = 0; k < n; k++) {
+    const a = slice[Math.max(0, k - 1)];
+    const b = slice[Math.min(n - 1, k + 1)];
+    const dx = b.x - a.x;
+    const dy = lifted ? (b.y - b.h) - (a.y - a.h) : b.y - a.y;
+    const len = Math.sqrt(dx * dx + dy * dy);
+    if (len > 0) {
+      lastNx = -dy / len;
+      lastNy = dx / len;
+    }
+    nx[k] = lastNx;
+    ny[k] = lastNy;
+  }
+
+  // Out along one side...
+  for (let k = 0; k < n; k++) {
+    const pt = slice[k];
+    const half = pt.w * widthScale / 2;
+    const py = lifted ? pt.y - pt.h : pt.y;
+    if (k === 0) ctx.moveTo(pt.x + nx[k] * half, py + ny[k] * half);
+    else ctx.lineTo(pt.x + nx[k] * half, py + ny[k] * half);
+  }
+  // ...round the end...
+  const end = slice[n - 1];
+  const endHalf = end.w * widthScale / 2;
+  const endY = lifted ? end.y - end.h : end.y;
+  const endAngle = Math.atan2(ny[n - 1], nx[n - 1]);
+  ctx.arc(end.x, endY, endHalf, endAngle, endAngle + Math.PI, true);
+  // ...and back along the other side
+  for (let k = n - 1; k >= 0; k--) {
+    const pt = slice[k];
+    const half = pt.w * widthScale / 2;
+    const py = lifted ? pt.y - pt.h : pt.y;
+    ctx.lineTo(pt.x - nx[k] * half, py - ny[k] * half);
+  }
+  ctx.closePath();
+  ctx.fill();
 }
 
 function drawStreamSlices(stream, slices, beamSlice) {
@@ -6438,31 +6535,23 @@ function drawStreamSlices(stream, slices, beamSlice) {
   const glow = stream.colors.glow;
   const core = stream.colors.core;
 
-  push();
-  strokeCap(ROUND);
   if (stream.pathType === 1) {
     // Shadow along the ground under a lofted stream
-    stroke(0, 0, 0, alpha * 0.2);
-    for (const slice of slices) drawStreamSlicePass(slice, 0.6, false);
+    for (const slice of slices) fillStreamRibbon(slice, 0.6, false, [0, 0, 0], alpha * 0.2);
   }
-  stroke(glow[0], glow[1], glow[2], alpha * 0.35);
-  for (const slice of slices) drawStreamSlicePass(slice, 1.5 * flicker, true);
-  stroke(glow[0], glow[1], glow[2], alpha * 0.85);
-  for (const slice of slices) drawStreamSlicePass(slice, flicker, true);
-  stroke(core[0], core[1], core[2], alpha);
-  for (const slice of slices) drawStreamSlicePass(slice, 0.35 * flicker, true);
+  for (const slice of slices) fillStreamRibbon(slice, 1.5 * flicker, true, glow, alpha * 0.35);
+  for (const slice of slices) fillStreamRibbon(slice, flicker, true, glow, alpha * 0.85);
+  for (const slice of slices) fillStreamRibbon(slice, 0.35 * flicker, true, core, alpha);
 
   if (beamSlice) {
     const beamColors = getBeamColors(stream.knockback, stream.vacuum, false);
-    stroke(beamColors.glow[0], beamColors.glow[1], beamColors.glow[2], alpha * 0.35);
-    drawStreamSlicePass(beamSlice, 1.6 * flicker, false);
-    stroke(beamColors.glow[0], beamColors.glow[1], beamColors.glow[2], alpha * 0.8);
-    drawStreamSlicePass(beamSlice, flicker, false);
-    stroke(beamColors.core[0], beamColors.core[1], beamColors.core[2], alpha);
-    drawStreamSlicePass(beamSlice, 0.35 * flicker, false);
+    fillStreamRibbon(beamSlice, 1.6 * flicker, false, beamColors.glow, alpha * 0.35);
+    fillStreamRibbon(beamSlice, flicker, false, beamColors.glow, alpha * 0.8);
+    fillStreamRibbon(beamSlice, 0.35 * flicker, false, beamColors.core, alpha);
   }
 
   // Droplets spraying off the end of each slice, and a splash where it hits the ground at full width
+  push();
   noStroke();
   for (const slice of slices) {
     const end = slice[slice.length - 1];
