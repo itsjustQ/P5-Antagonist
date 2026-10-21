@@ -915,10 +915,47 @@ function preload(){
 
 }
 
+// The shot/shield icons are static PNGs, painted into their own canvases once at load. If the
+// browser drops its graphics state (a GPU reset under heavy load), those canvases can come back
+// blank while the animated GIFs repaint themselves, so the icons silently vanish. Check them now
+// and then and reload any that were wiped.
+let iconImagesReloading = false;
+
+function isIconImageWiped(img) {
+  let ctx = img.drawingContext;
+  if (!ctx) return false;
+  if (ctx.isContextLost && ctx.isContextLost()) return true;
+  let data = ctx.getImageData(0, 0, img.width, img.height).data;
+  for (let i = 3; i < data.length; i += 4) {
+    if (data[i] > 0) return false;
+  }
+  return true;
+}
+
+function reloadIconImages() {
+  if (iconImagesReloading) return;
+  iconImagesReloading = true;
+  debugLog('Icon images were wiped; reloading them');
+  let remaining = 4;
+  let done = () => { if (--remaining === 0) iconImagesReloading = false; };
+  loadImage('img/shieldfull.png', img => { shieldFull = img; done(); }, done);
+  loadImage('img/shieldempty.png', img => { shieldEmpty = img; done(); }, done);
+  loadImage('img/acidfull.png', img => { acidFull = img; done(); }, done);
+  loadImage('img/acidempty.png', img => { acidEmpty = img; done(); }, done);
+}
+
+function checkIconImages() {
+  if (iconImagesReloading) return;
+  if ([shieldFull, shieldEmpty, acidFull, acidEmpty].some(isIconImageWiped)) {
+    reloadIconImages();
+  }
+}
 
 function setup() {
   
   createCanvas(windowWidth, windowHeight);
+  // A restored canvas means the browser reset its graphics state, which can wipe the icons too
+  drawingContext.canvas.addEventListener('contextrestored', reloadIconImages);
   debugLog('Window Width:', windowWidth);
   debugLog('Window Height:', windowHeight);
   //enemyCount = windowWidth/150 + windowHeight/150;
@@ -1294,6 +1331,11 @@ function getNearbyCells(x, y) {
 function draw() {
   // Poll gamepad each frame
   updateGamepad();
+
+  // Every couple of seconds, make sure the shot/shield icons weren't wiped
+  if (frameCount % 120 === 0) {
+    checkIconImages();
+  }
 
   if (antdexOpenCooldown > 0) {
     antdexOpenCooldown--;
@@ -2605,6 +2647,22 @@ function drawGroundShadow(x, y, w, h, angle, alpha, offsetX = 2, offsetY = 3) {
 let beetleShadowW = null;
 let beetleShadowH = null;
 
+// Shot/shield icon grids sit above the beetle, or below it (under the health/EXP bars) when it's
+// too close to the top edge to fit them. 0 = above, 1 = below; eases so the icons don't snap.
+let playerIconsBelow = false;
+let playerIconsBelowT = 0;
+// Half the visible size of each icon (the PNGs are mostly transparent padding)
+const BULLET_ICON_HALF = 5;
+const SHIELD_ICON_HALF = 9;
+
+// How far to shift icons spanning [left, right] (relative to the beetle) so they stay on screen
+function iconGridShiftX(left, right) {
+  let margin = 2;
+  if (playerX + left < margin) return margin - (playerX + left);
+  if (playerX + right > getGameplayWidth() - margin) return getGameplayWidth() - margin - (playerX + right);
+  return 0;
+}
+
 function drawBeetle(){
   // Upright shadow centered under the beetle: wider when it faces sideways, taller when it
   // faces up/down. Dimensions ease toward their target so sharp turns don't snap it.
@@ -2636,13 +2694,35 @@ function drawBeetle(){
       image(beetle, 0, 0, 130, 130);
     pop()
 
-    // Shot icons on right side - dynamic 4x4 grid (up to 16 bullets)
+    // Shot icons on left side - dynamic 4x4 grid (up to 16 bullets)
     let maxBullets = bulletQuantity > 0 ? bulletQuantity : 0; // No bullets until upgrade
+    let maxShields = shieldQuantity > 0 ? shieldQuantity : 0; // No shields until upgrade
     let bulletIconSize = 50;
     let bulletSpacing = 10;
+    let shieldIconSize = 30;
+    let shieldSpacing = 20;
+
+    // Near the top edge the grids would be drawn off screen, so move them below the beetle
+    // (with a little hysteresis so they don't flip back and forth at the threshold)
+    let iconsAboveY = -50;
+    let roomAbove = playerY + iconsAboveY - SHIELD_ICON_HALF - scoreBarHeight;
+    if (roomAbove < 0) playerIconsBelow = true;
+    else if (roomAbove > 10) playerIconsBelow = false;
+    playerIconsBelowT = lerp(playerIconsBelowT, playerIconsBelow ? 1 : 0, 0.25);
+    let bulletStartY = lerp(iconsAboveY, 62, playerIconsBelowT);
+    let shieldStartY = lerp(iconsAboveY, 64, playerIconsBelowT);
+
+    // Slide both grids together so they stay inside the left/right edges
     let bulletStartX = -55;
-    let bulletStartY = -50;
-    
+    let shieldStartX = 30;
+    let iconsLeft = maxBullets > 0 ? bulletStartX - BULLET_ICON_HALF : shieldStartX - SHIELD_ICON_HALF;
+    let iconsRight = maxShields > 0
+      ? shieldStartX + (Math.min(maxShields, 3) - 1) * shieldSpacing + SHIELD_ICON_HALF
+      : bulletStartX + (Math.min(maxBullets, 4) - 1) * bulletSpacing + BULLET_ICON_HALF;
+    let iconsShiftX = iconGridShiftX(iconsLeft, iconsRight);
+    bulletStartX += iconsShiftX;
+    shieldStartX += iconsShiftX;
+
     for (let i = 0; i < maxBullets; i++) {
       let col = i % 4;  // 4 columns
       let row = Math.floor(i / 4);  // 4 rows max
@@ -2656,13 +2736,7 @@ function drawBeetle(){
       }
     }
 
-    // Shield icons on left side - dynamic 3x3 grid (up to 9 shields)
-    let maxShields = shieldQuantity > 0 ? shieldQuantity : 0; // No shields until upgrade
-    let shieldIconSize = 30;
-    let shieldSpacing = 20;
-    let shieldStartX = 30;
-    let shieldStartY = -50;
-    
+    // Shield icons on right side - dynamic 3x3 grid (up to 9 shields)
     for (let i = 0; i < maxShields; i++) {
       let col = i % 3;  // 3 columns
       let row = Math.floor(i / 3);  // 3 rows max
