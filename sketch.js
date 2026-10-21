@@ -154,10 +154,10 @@ function applyHardModeRandomInitialAbility(antIndex) {
   eval(trait.potential + '[' + antIndex + '] = max(' + trait.potential + '[' + antIndex + '], 0.6)');
   
   // Nudge the selected trait to win its category for expression.
-  // For tiered stats (specialExplosion, pathCurve, pathAccelerate, deathLandmine, deathRefire, fireAlternating, fireBurst, pathHighArc, specialKnockback, specialCamo, specialRecoil), cap at 0.9 to prevent unlocking tier 2 without cap investment
+  // For tiered stats (specialExplosion, pathCurve, pathAccelerate, deathLandmine, deathRefire, fireAlternating, fireBurst, fireRapid, pathHighArc, specialKnockback, specialCamo, specialRecoil), cap at 0.9 to prevent unlocking tier 2 without cap investment
   // For bulletAccelerateDelay (inverse stat), set to 150 (tier 1, better than default 200)
   let initialValue = 0.9;
-  if (trait.target === 'specialExplosion' || trait.target === 'pathCurve' || trait.target === 'pathAccelerate' || trait.target === 'deathLandmine' || trait.target === 'deathRefire' || trait.target === 'fireAlternating' || trait.target === 'fireBurst' || trait.target === 'pathHighArc' || trait.target === 'specialKnockback' || trait.target === 'specialCamo' || trait.target === 'specialRecoil') {
+  if (trait.target === 'specialExplosion' || trait.target === 'pathCurve' || trait.target === 'pathAccelerate' || trait.target === 'deathLandmine' || trait.target === 'deathRefire' || trait.target === 'fireAlternating' || trait.target === 'fireBurst' || trait.target === 'fireRapid' || trait.target === 'pathHighArc' || trait.target === 'specialKnockback' || trait.target === 'specialCamo' || trait.target === 'specialRecoil') {
     initialValue = 0.9; // Start with tier 1 (stays <1 for timed explosions, curved bullets, accelerating bullets, smears, alternating fire, or camouflage)
   } else if (trait.target === 'bulletAccelerateDelay') {
     initialValue = 150; // Start with tier 1 (150 frames, better than default 200)
@@ -483,6 +483,7 @@ let launchDiscovered = false;          // Launch (recoil plus a hop into the air
 let normalFireDiscovered = false;      // Normal fire mode
 let burstFireDiscovered = false;       // Burst fire mode
 let rapidFireDiscovered = false;       // Rapid fire mode
+let streamFireDiscovered = false;      // Stream fire mode (a continuous spray of acid instead of bullets)
 let alternatingFireDiscovered = false; // Alternating cooldown fire mode
 let hitReloadFireDiscovered = false;   // Hit reload fire mode (long cooldown, resets on hit)
 let delayedBurstFireDiscovered = false; // Delayed burst fire mode (one bullet that splits into a burst)
@@ -737,6 +738,11 @@ let deathRefires = []; // Spots where dead bullets fire again (refire / turret d
 let enemyBeams = []; // Beams fired by beam bullets (accelerate tier 2) when they would start accelerating
 let beamHealthFlashFrames = 0; // Frames left of the red damage flash from a beam hit
 let beamShieldFlashFrames = 0; // Frames left of the blue shield flash from a beam hit
+let enemyStreams = []; // Acid streams sprayed by stream fire ants (rapid fire tier 2); never bullets
+let antStream = []; // The stream each ant is currently firing (fusing, charging or spraying), or null
+let antStreamEndFrame = []; // frameCount each ant last stopped spraying (ghost stream ants fade back in from it)
+let antSelfDestructFuse = []; // Proximity explosion stream ants: { life, lives } while their self-destruct fuse burns, or null
+let enemySmokeImpacts = []; // Grey smoke puffs from explosions and exploding streams (visual only)
 let bulletExplodeAfter = [];
 
 let buttons = {};
@@ -1541,6 +1547,8 @@ function draw() {
       drawEnemyExplosions();
       drawEnemyGroundImpacts();
       updateEnemyBeams();
+      updateEnemyStreams();
+      drawEnemySmokeImpacts();
       detectKeyboardInput();
       // Beetle Moves
       beetleShoot();
@@ -2446,7 +2454,12 @@ function drawEnemy(){
         }
       }
     }
-    
+
+    // Ghost stream ants turn invisible before they spray and stay hidden while spraying
+    const ghostAlpha = getAntStreamGhostAlpha(i);
+    if (ghostAlpha <= 0.01) shouldDraw = false;
+    fadeAmount *= ghostAlpha;
+
     if (shouldDraw) {
       // Ground shadow; shrinks and lightens as the ant rises
       let antShadowHeight = constrain(antAirHeight[i], 0, 30);
@@ -2457,8 +2470,8 @@ function drawEnemy(){
       drawGroundShadow(antX[i], antY[i], antShadowScale * 0.6, antShadowScale * 0.26, antShadowAngle, antShadowAlpha);
       
       push();
-        // Apply fade if Tiger Beetle is active
-        if (tigerBeetleActive && tigerBeetleMoving) {
+        // Apply fade if Tiger Beetle is active (or a ghost stream ant is fading)
+        if ((tigerBeetleActive && tigerBeetleMoving) || ghostAlpha < 1) {
           tint(255, fadeAmount);
         }
         angleMode(DEGREES)
@@ -2490,7 +2503,7 @@ function drawEnemy(){
         noStroke();
         let smallFlashSpeed = map(antSize[i], 0.8, 0.3, 3, 12);
         let smallFlashAlpha = 83 + 70 * sin(frameCount * smallFlashSpeed * 0.05);
-        fill(80, 150, 255, smallFlashAlpha);
+        fill(80, 150, 255, smallFlashAlpha * ghostAlpha);
         let smallAuraSize = antImageSize * 0.75;
         ellipse(antX[i], antY[i] - antAirHeight[i], smallAuraSize, smallAuraSize);
         pop();
@@ -3208,7 +3221,7 @@ function enemyInteraction1(){
         antKnockbackTimer[i] = 0;
         antStunned[i] = false;
         antStunTimer[i] = 0;
-        antLastShotFrame[i] = 0;
+        antLastShotFrame[i] = frameCount; // Respawned ants wait out a full cooldown before firing
         antAlternatingCooldownState[i] = 0;
         antRapidFireActive[i] = false;
         antAirHeight[i] = 0;
@@ -3273,6 +3286,7 @@ function enemyInteraction1(){
               addDeathEffect(antX[i], antY[i], scoreGained);
               combo++;
               antHealth[i] = antMaxHealth[i]; // Reset health for respawn
+              antLastShotFrame[i] = frameCount; // Respawned ants wait out a full cooldown before firing
             }
           }
         }
@@ -3347,7 +3361,7 @@ function dashCollision() {
           antKnockbackTimer[i] = 0;
           antStunned[i] = false;
           antStunTimer[i] = 0;
-          antLastShotFrame[i] = 0;
+          antLastShotFrame[i] = frameCount; // Respawned ants wait out a full cooldown before firing
           antAlternatingCooldownState[i] = 0;
           antRapidFireActive[i] = false;
           antAirHeight[i] = 0;
@@ -3441,6 +3455,12 @@ function handleAntKnockback() {
       }
     }
 
+    // Launch stream ants stay airborne (and untouchable) for their whole stream
+    const streamLift = getAntStreamLift(i);
+    if (streamLift > 0) {
+      antAirHeight[i] = Math.max(antAirHeight[i], streamLift);
+    }
+
     // Handle stun timer
     if (antStunned[i] && antStunTimer[i] > 0) {
       antStunTimer[i]--;
@@ -3492,8 +3512,12 @@ function enemyShoot1() {
           currentCooldown = bulletCooldown[i] * HIT_RELOAD_COOLDOWN_MULTIPLIER;
         }
         
+        // Type 4: Stream - sprays a continuous stream instead of firing bullets (see updateEnemyStreams)
+        if (fireType === 4) {
+          tryFireAntStream(i);
+        }
         // Use cooldown tracking instead of modulo for proper reset capability
-        if (frameCount - antLastShotFrame[i] >= currentCooldown) {
+        else if (frameCount - antLastShotFrame[i] >= currentCooldown) {
           antLastShotFrame[i] = frameCount;
           
           // Toggle alternating cooldown state for next shot
@@ -4125,7 +4149,7 @@ function enemyShoot1() {
               antKnockbackTimer[ai] = 0;
               antStunned[ai] = false;
               antStunTimer[ai] = 0;
-              antLastShotFrame[ai] = 0;
+              antLastShotFrame[ai] = frameCount; // Respawned ants wait out a full cooldown before firing
               antAlternatingCooldownState[ai] = 0;
               antAirHeight[ai] = 0;
               antRecoilVelX[ai] = 0;
@@ -4197,7 +4221,7 @@ function enemyShoot1() {
                   antKnockbackTimer[aj] = 0;
                   antStunned[aj] = false;
                   antStunTimer[aj] = 0;
-                  antLastShotFrame[aj] = 0;
+                  antLastShotFrame[aj] = frameCount; // Respawned ants wait out a full cooldown before firing
                   antAlternatingCooldownState[aj] = 0;
                   antAirHeight[aj] = 0;
                   antRecoilVelX[aj] = 0;
@@ -4378,7 +4402,7 @@ function enemyShoot1() {
               antKnockbackTimer[i] = 0;
               antStunned[i] = false;
               antStunTimer[i] = 0;
-              antLastShotFrame[i] = 0;
+              antLastShotFrame[i] = frameCount; // Respawned ants wait out a full cooldown before firing
               antAlternatingCooldownState[i] = 0;
               antRapidFireActive[i] = false;
               antAirHeight[i] = 0;
@@ -4866,6 +4890,7 @@ function beetleShoot() {
             antHealth[j] = antMaxHealth[j];  // Reset health on respawn
             antKnockedBack[j] = false;
             antKnockbackTimer[j] = 0;
+            antLastShotFrame[j] = frameCount; // Respawned ants wait out a full cooldown before firing
           }
           
           // Always remove bullet after hitting ant
@@ -5059,7 +5084,7 @@ function handleWindAttack() {
               antKnockbackTimer[i] = 0;
               antStunned[i] = false;
               antStunTimer[i] = 0;
-              antLastShotFrame[i] = 0;
+              antLastShotFrame[i] = frameCount; // Respawned ants wait out a full cooldown before firing
               antAlternatingCooldownState[i] = 0;
               antRapidFireActive[i] = false;
               antAirHeight[i] = 0;
@@ -5591,7 +5616,8 @@ function getFireType(antIndex) {
   );
   // fireBurst: <1 = Burst (tier 1), >=1 = Delayed Burst (tier 2)
   if (fireBurst[antIndex] === maxVal) return fireBurst[antIndex] >= 1 ? 3 : 1;
-  if (fireRapid[antIndex] === maxVal) return 2; // Rapid
+  // fireRapid: <1 = Rapid (tier 1), >=1 = Stream (tier 2)
+  if (fireRapid[antIndex] === maxVal) return fireRapid[antIndex] >= 1 ? 4 : 2;
   // fireAlternating: <1 = Alternating (tier 1), >=1 = Hit Reload (tier 2)
   if (fireAlternating[antIndex] === maxVal) return fireAlternating[antIndex] >= 1 ? -2 : -1;
   return 0; // Normal (fallback)
@@ -5817,6 +5843,775 @@ function updateEnemyBeams() {
   }
 }
 
+// ========== STREAM FIRE (rapid fire tier 2) ==========
+// Stream ants spray one continuous stream of acid instead of firing bullets. A stream is never a bullet:
+// it's an enemyStreams entity that works like a hose. Every frame the ant sprays a new bit of stream from
+// its base toward the beetle, and each bit keeps flowing out the way it was sprayed at STREAM_GROWTH_SPEED
+// until it reaches the end of the stream's range. So when the beetle moves, the stream has to grow a new
+// end toward it from the base, and once the ant stops spraying the rest of the stream flows away. Streams
+// start narrow at the base and widen to their full width at the end. Width comes from radiusMultiplier
+// (and sets the range), spray duration from residueMultiplier. Death effects and the other fire types
+// never apply to streams. Proximity explosion stream ants also blow themselves up when the beetle stays in
+// range (see updateStreamSelfDestructs).
+const STREAM_MIN_WIDTH = 12;              // Full width (px) at the lowest radius multiplier (same as a beam)
+const STREAM_MAX_WIDTH = 50;              // Full width at the highest radius multiplier
+const STREAM_BASE_WIDTH_FRACTION = 0.2;   // Width at the base, as a fraction of the full width at the end
+const STREAM_MIN_BASE_WIDTH = 3;          // ...but never thinner than this
+const STREAM_MIN_FRAMES = 30;             // Spray duration at the lowest residue multiplier
+const STREAM_MAX_FRAMES = 120;            // Spray duration at the highest residue multiplier
+const STREAM_GROWTH_SPEED = 3;            // px/frame each bit of stream flows out at
+const STREAM_MAX_RANGE = 125;             // Longest a stream can reach (px), at width 20 or less
+const STREAM_PLAYER_RADIUS = 25;          // Beetle hitbox radius for touching a stream (same as beams)
+const STREAM_DAMAGE_MULTIPLIER = 2;       // handleExplosionDamage(size * 2) = bulletSize / 30 per frame, double residue
+const STREAM_BREAK_GAP = 30;              // Neighbouring bits further apart than this (or the width) don't join up
+const STREAM_PREFILL_ARC_STEPS = 60;      // High arc streams: bits used for a full-length stream (explosion bursts)
+const STREAM_GROUND_HEIGHT = 8;           // High arc streams only touch the beetle below this height
+const STREAM_CURVE_BEND = 12;             // Curved streams: radians of bend at full range per unit of curve strength
+const STREAM_HOMING_TURN = 0.03;          // Homing streams: max turn (radians per px flowed) toward the beetle at the end
+const STREAM_PARTICLES_PER_SIZE = 3;      // Accelerating streams: particles per stream = this * bulletSize
+const STREAM_PARTICLE_SIZE_DIVISOR = 6;   // Accelerating streams: a particle hits like a bullet this many times smaller
+const STREAM_PARTICLE_ACCEL = 1.03;       // Accelerating streams: particle speed-up per frame once past the range
+const STREAM_PARTICLE_HIT_SPEED = 5;      // Accelerating streams: particles hit at the REGULAR speed tier (1x damage)
+const STREAM_PUSH_PER_KNOCKBACK = 0.5;    // Knockback streams: push (px/frame) along the flow per knockback multiplier
+const STREAM_RECOIL_PUSH = 0.15;          // Recoil streams: push (px/frame each frame) on the ant while it sprays
+const STREAM_FUSE_FRAMES = 60;            // Proximity explosion stream ants: self-destruct fuse length
+const STREAM_FUSE_LOCK_FRAMES = 20;       // ...the last part of the fuse can't be cancelled
+const STREAM_SELF_DESTRUCT_MULTIPLIER = 2; // ...the blast hits for this many times bulletSize
+const STREAM_SELF_DESTRUCT_RADIUS_SCALE = 1.5; // ...and is this many times the ant's normal explosion size
+const STREAM_GHOST_FADE_START = 40;       // Ghost stream ants start fading out this many frames before spraying
+const STREAM_GHOST_HIDDEN_AT = 10;        // ...are invisible from this many frames before
+const STREAM_GHOST_FADE_IN = 20;          // ...and fade back in over this many frames once the stream stops
+const STREAM_LAUNCH_HEIGHT = 40;          // Launch stream ants: how high they hover (higher than a launch hop, to show they're untouchable)
+const STREAM_LAUNCH_RISE_FRAMES = 8;      // Launch stream ants: frames to rise to STREAM_LAUNCH_HEIGHT
+const STREAM_LAUNCH_DROP_FRAMES = 12;     // Launch stream ants: frames to land once the stream stops
+
+function isStreamFire(antIndex) {
+  return getFireType(antIndex) === 4;
+}
+
+function getStreamWidth(antIndex) {
+  return map(radiusMultiplier[antIndex] || 1, 0.5, 3, STREAM_MIN_WIDTH, STREAM_MAX_WIDTH, true);
+}
+
+// Range falls linearly as the stream gets wider: 125px at width 20 down to 50px at width 80
+function getStreamRange(width) {
+  return Math.min(STREAM_MAX_RANGE, map(width, 20, 80, STREAM_MAX_RANGE, 50));
+}
+
+function getStreamDuration(antIndex) {
+  return Math.round(map(residueMultiplier[antIndex] || 1, 0.5, 3, STREAM_MIN_FRAMES, STREAM_MAX_FRAMES, true));
+}
+
+// Launch stream ants: size of the damaging spot on the ground beneath them
+function getStreamLaunchSpotSize(stream) {
+  return 45 + 15 * stream.size;
+}
+
+// Stream colors by special, matching the bullet auras: white = knockback, purple = vacuum, acid green otherwise
+function getStreamColors(knockback, vacuum) {
+  if (vacuum) return { glow: [190, 90, 255], core: [235, 200, 255] };
+  if (knockback) return { glow: [220, 220, 220], core: [255, 255, 255] };
+  return { glow: [110, 220, 40], core: [215, 255, 150] };
+}
+
+function wrapAngle(a) {
+  return Math.atan2(Math.sin(a), Math.cos(a));
+}
+
+// Called by enemyShoot1 each frame for stream ants that aren't stunned
+function tryFireAntStream(i) {
+  if (antStream[i]) return; // Still firing; the cooldown starts once the stream finishes
+  if (frameCount - antLastShotFrame[i] < bulletCooldown[i]) return;
+
+  const stream = createAntStream(i);
+  enemyStreams.push(stream);
+  antStream[i] = stream;
+  debugLog(`Ant ${i} started a stream - width ${stream.width.toFixed(1)}px, range ${stream.range.toFixed(0)}px, ${stream.duration}f`);
+  beginStreamSpray(stream);
+}
+
+function createAntStream(i) {
+  const width = getStreamWidth(i);
+  const range = getStreamRange(width);
+  const specialType = getSpecialType(i);
+  const beam = isBeamAccelerate(i);
+  const pathType = getPathType(i);
+  const knockback = specialType === -1;
+  const vacuum = isVacuumKnockback(i);
+  // Both explosion tiers burst their streams the same way; proximity ants also self-destruct
+  const explosion = explodeOnTermination[i] || triggerExplodeViaProximity[i];
+  const stream = {
+    owner: i,
+    originX: antX[i], // The base of the stream (follows the ant while it sprays)
+    originY: antY[i],
+    aimAngle: 0,      // Direction the base is spraying
+    aimX: 0,          // Point the base is aimed at (high arc streams land there)
+    aimY: 0,
+    width: width,
+    range: range,
+    size: bulletSize[i],
+    duration: getStreamDuration(i),
+    pathType: pathType,
+    curveStrength: bulletCurveStrength[i] || 0,
+    arcDuration: Math.max(1, bulletArcDuration[i] || HIGH_ARC_MIN_DURATION),
+    splitAtApex: isSplitArc(i),
+    beam: beam,
+    particlesTotal: (pathType === 2 && !beam) ? Math.max(1, Math.round(STREAM_PARTICLES_PER_SIZE * bulletSize[i])) : 0,
+    particleSpread: bulletBurstSpread[i] || PI / 3, // Full cone (radians) particles fan out in, from the burst spread gene
+    particlesFired: 0,
+    particles: [],
+    explosion: explosion,
+    knockback: knockback,
+    vacuum: vacuum,
+    knockbackMultiplier: bulletKnockbackMultiplier[i] || 1,
+    camo: specialType === 2,
+    camoFlashRate: bulletCamoFlashRate[i],
+    recoil: specialType === 3 || specialType === -3,
+    launch: specialType === -3,
+    colors: getStreamColors(knockback, vacuum),
+    phase: 'spray', // 'spray', or 'burst' once an explosion stream has burst (only its particles remain)
+    phaseLife: 0,
+    life: 0,
+    spraying: false,
+    nodes: [],      // Bits of stream in flight, oldest (furthest out) first
+    livesAtStart: antLives[i]
+  };
+  aimStream(stream);
+  return stream;
+}
+
+function beginStreamSpray(stream) {
+  if (stream.explosion) {
+    burstStream(stream);
+    return;
+  }
+  stream.spraying = true;
+  playSpitSound();
+}
+
+// The ant stops spraying: the stream stops following it and flows away, and the cooldown starts
+function stopStreamSpray(stream, died) {
+  const o = stream.owner;
+  stream.spraying = false;
+  if (antStream[o] !== stream) return;
+  antStream[o] = null;
+  antStreamEndFrame[o] = frameCount;
+  if (died) return;
+  antLastShotFrame[o] = frameCount;
+  if (stream.launch) {
+    // Drop back down from the top of a hop
+    antRecoilAirDuration[o] = STREAM_LAUNCH_DROP_FRAMES * 2;
+    antRecoilAirPeak[o] = STREAM_LAUNCH_HEIGHT;
+    antRecoilAirTimer[o] = STREAM_LAUNCH_DROP_FRAMES;
+  }
+}
+
+// The base aims straight at the beetle; the rest of the stream only catches up as new spray flows out
+function aimStream(stream) {
+  stream.aimX = playerX + shotOffsetX[stream.owner];
+  stream.aimY = playerY + shotOffsetY[stream.owner];
+  stream.aimAngle = Math.atan2(stream.aimY - stream.originY, stream.aimX - stream.originX);
+}
+
+// A new bit of stream sprayed from the base toward where it's aiming
+function createStreamNode(stream) {
+  return {
+    ox: stream.originX,      // Where it was sprayed from
+    oy: stream.originY,
+    x: stream.originX,
+    y: stream.originY,
+    h: 0,                    // Height above the ground (high arc streams)
+    startHeading: stream.aimAngle,
+    heading: stream.aimAngle,
+    landX: stream.aimX,      // High arc streams: where it lands
+    landY: stream.aimY,
+    apexX: 0,                // Split arc streams: where it split, and which branch it's on (-1 = before the apex)
+    apexY: 0,
+    branch: -1,
+    s: 0,                    // Distance flowed
+    age: 0
+  };
+}
+
+function placeArcNode(stream, node) {
+  const u = node.age / stream.arcDuration;
+  if (node.branch < 0) {
+    node.x = lerp(node.ox, node.landX, u);
+    node.y = lerp(node.oy, node.landY, u);
+  } else {
+    node.x = lerp(node.apexX, node.landX, (u - 0.5) * 2);
+    node.y = lerp(node.apexY, node.landY, (u - 0.5) * 2);
+  }
+  node.h = Math.sin(u * Math.PI) * stream.arcDuration * 0.5; // Same peak as a high arc bullet
+}
+
+// Move a bit of stream one frame along its path. Returns false once it has reached the end of the stream
+// (its range, or its landing point for high arcs). Split arc bits split into SPLIT_ARC_COUNT at the apex:
+// the new bits go in spawned and the original is dropped.
+function advanceStreamNode(stream, node, spawned) {
+  node.age++;
+
+  if (stream.pathType === 1) {
+    // High arc: lobbed so it lands on its aim point when a high arc bullet would
+    const u = node.age / stream.arcDuration;
+    if (u >= 1) return false;
+    if (stream.splitAtApex && node.branch < 0 && u >= 0.5) {
+      // Split arc: split into bits that land in a row across the target
+      const dx = node.landX - node.ox;
+      const dy = node.landY - node.oy;
+      const d = Math.sqrt(dx * dx + dy * dy);
+      const perpX = d > 0 ? -dy / d : 1;
+      const perpY = d > 0 ? dx / d : 0;
+      for (let b = 0; b < SPLIT_ARC_COUNT; b++) {
+        const offset = (b - (SPLIT_ARC_COUNT - 1) / 2) * SPLIT_ARC_SPACING;
+        const split = {
+          ...node,
+          branch: b,
+          apexX: (node.ox + node.landX) / 2,
+          apexY: (node.oy + node.landY) / 2,
+          landX: node.landX + perpX * offset,
+          landY: node.landY + perpY * offset
+        };
+        placeArcNode(stream, split);
+        spawned.push(split);
+      }
+      return false;
+    }
+    placeArcNode(stream, node);
+    return true;
+  }
+
+  node.s += STREAM_GROWTH_SPEED;
+  if (node.s > stream.range) return false;
+  const along = node.s / stream.range;
+  if (stream.pathType === -1) {
+    // Curved: bends harder further out, the same way round as a curved bullet
+    node.heading = node.startHeading - stream.curveStrength * STREAM_CURVE_BEND * along * along;
+  } else if (stream.pathType === -2) {
+    // Homing: the end of the stream bends toward the beetle, whichever way it was sprayed
+    if (dist(node.x, node.y, playerX, playerY) > stream.width / 2 + STREAM_PLAYER_RADIUS) {
+      const maxTurn = STREAM_HOMING_TURN * STREAM_GROWTH_SPEED * along;
+      node.heading += constrain(wrapAngle(Math.atan2(playerY - node.y, playerX - node.x) - node.heading), -maxTurn, maxTurn);
+    }
+  }
+  node.x += Math.cos(node.heading) * STREAM_GROWTH_SPEED;
+  node.y += Math.sin(node.heading) * STREAM_GROWTH_SPEED;
+  return true;
+}
+
+// Advance every bit of stream a frame, and spray a new one from the base while the ant is spraying
+function advanceStreamNodes(stream, nodes) {
+  const next = [];
+  for (const node of nodes) {
+    const spawned = [];
+    if (advanceStreamNode(stream, node, spawned)) next.push(node);
+    for (const split of spawned) next.push(split);
+  }
+  return next;
+}
+
+// Bits for a stream that has sprayed steadily at its current aim long enough to reach full length (used
+// when an explosion stream bursts). Oldest first, like nodes.
+function prefillStreamNodes(stream) {
+  const nodes = [];
+  if (stream.pathType === 1) {
+    const step = Math.max(1, Math.ceil(stream.arcDuration / STREAM_PREFILL_ARC_STEPS));
+    for (let age = stream.arcDuration - 1; age >= 0; age -= step) {
+      const node = createStreamNode(stream);
+      node.age = age - 1; // Arc positions don't depend on the path so far, so one step places it
+      nodes.push(...advanceStreamNodes(stream, [node]));
+    }
+    return nodes;
+  }
+  for (let age = Math.floor(stream.range / STREAM_GROWTH_SPEED); age >= 0; age--) {
+    let group = [createStreamNode(stream)];
+    for (let f = 0; f < age; f++) group = advanceStreamNodes(stream, group);
+    nodes.push(...group);
+  }
+  return nodes;
+}
+
+function getStreamBaseWidth(stream) {
+  return Math.max(STREAM_MIN_BASE_WIDTH, stream.width * STREAM_BASE_WIDTH_FRACTION);
+}
+
+// Narrow at the base, widening to full width at the end of the stream
+function getStreamNodeWidth(stream, node) {
+  const along = stream.pathType === 1 ? node.age / stream.arcDuration : node.s / stream.range;
+  return lerp(getStreamBaseWidth(stream), stream.width, constrain(along, 0, 1));
+}
+
+// The stream as polylines of points {x, y, h, w} running from the base out to the end, one per split arc
+// branch. A polyline breaks where neighbouring bits have flowed too far apart (the stream was swung hard).
+function getStreamSlices(stream, nodes) {
+  const trunk = [];
+  const branches = stream.splitAtApex ? [[], [], []] : [];
+  // nodes are oldest first, so walk them backwards to run from the base outward
+  for (let k = nodes.length - 1; k >= 0; k--) {
+    const node = nodes[k];
+    const pt = { x: node.x, y: node.y, h: node.h, w: getStreamNodeWidth(stream, node) };
+    if (node.branch < 0) trunk.push(pt);
+    else branches[node.branch].push(pt);
+  }
+  // Split arc branches carry on from the top of the climb (the first branch draws the climb itself)
+  const lines = stream.splitAtApex
+    ? branches.map((branch, b) => (b === 0 ? trunk : trunk.slice(-1)).concat(branch))
+    : [trunk];
+
+  const slices = [];
+  const breakGap = Math.max(STREAM_BREAK_GAP, stream.width);
+  for (const line of lines) {
+    let current = [];
+    for (const pt of line) {
+      const prev = current[current.length - 1];
+      if (prev && dist(prev.x, prev.y - prev.h, pt.x, pt.y - pt.h) > breakGap) {
+        slices.push(current);
+        current = [];
+      }
+      current.push(pt);
+    }
+    if (current.length) slices.push(current);
+  }
+  return slices;
+}
+
+// Beam streams: the end of the stream carries on as a beam to the edge of the screen, once the stream
+// reaches the end of its range (so a re-aimed beam has to wait for the new end to flow out)
+function getStreamBeamSlice(stream, nodes) {
+  const front = nodes[0];
+  if (!front || front.s < stream.range - STREAM_GROWTH_SPEED) return null;
+  const dirX = Math.cos(front.heading);
+  const dirY = Math.sin(front.heading);
+  const reach = getDistanceToPlayAreaEdge(front.x, front.y, dirX, dirY);
+  return [
+    { x: front.x, y: front.y, h: 0, w: stream.width },
+    { x: front.x + dirX * reach, y: front.y + dirY * reach, h: 0, w: stream.width }
+  ];
+}
+
+// Closest point to the beetle on the ground-level parts of these slices, with the flow direction there.
+// touching accounts for the stream's width at that point. Returns null if no part of them is on the ground.
+function getStreamContact(slices) {
+  let best = null;
+  for (const slice of slices) {
+    const segments = Math.max(1, slice.length - 1);
+    for (let k = 0; k < segments; k++) {
+      const a = slice[k];
+      const b = slice[Math.min(k + 1, slice.length - 1)];
+      if (Math.max(a.h, b.h) > STREAM_GROUND_HEIGHT) continue; // Lofted parts pass over the beetle
+      const segX = b.x - a.x;
+      const segY = b.y - a.y;
+      const lenSq = segX * segX + segY * segY;
+      const t = lenSq > 0 ? constrain(((playerX - a.x) * segX + (playerY - a.y) * segY) / lenSq, 0, 1) : 0;
+      const cx = a.x + segX * t;
+      const cy = a.y + segY * t;
+      const d = dist(playerX, playerY, cx, cy);
+      const margin = d - (lerp(a.w, b.w, t) / 2 + STREAM_PLAYER_RADIUS);
+      if (!best || margin < best.margin) {
+        const len = Math.sqrt(lenSq) || 1;
+        best = { x: cx, y: cy, margin: margin, dirX: segX / len, dirY: segY / len };
+      }
+    }
+  }
+  if (best) best.touching = best.margin <= 0;
+  return best;
+}
+
+function updateEnemyStreams() {
+  updateStreamSelfDestructs();
+  for (let s = enemyStreams.length - 1; s >= 0; s--) {
+    if (!updateEnemyStream(enemyStreams[s])) {
+      enemyStreams.splice(s, 1);
+    }
+  }
+}
+
+// Update, hit-test and draw one stream. Returns false once it's finished.
+function updateEnemyStream(stream) {
+  const o = stream.owner;
+  stream.life++;
+  stream.phaseLife++;
+
+  // While the ant is still firing it, the base of the stream follows the ant and aims at the beetle
+  if (antStream[o] === stream) {
+    const died = antLives[o] !== stream.livesAtStart;
+    if (died || antStunned[o]) {
+      // A stream that's already flowing just flows away
+      stopStreamSpray(stream, died);
+    } else {
+      stream.originX = antX[o];
+      stream.originY = antY[o];
+      aimStream(stream);
+    }
+  }
+
+  if (stream.phase === 'spray') return updateStreamSpray(stream);
+  // Burst: the stream itself is gone, but its particles may still be flying
+  updateStreamParticles(stream);
+  return stream.particles.length > 0;
+}
+
+function updateStreamSpray(stream) {
+  const o = stream.owner;
+  stream.nodes = advanceStreamNodes(stream, stream.nodes);
+  if (stream.spraying) {
+    stream.nodes.push(createStreamNode(stream));
+    // Accelerating streams: particles spaced out over the spray, sprayed along with the stream
+    if (stream.particlesFired < stream.particlesTotal &&
+        stream.phaseLife - 1 >= stream.particlesFired * stream.duration / stream.particlesTotal) {
+      stream.particles.push({
+        x: stream.originX, y: stream.originY, s: 0, free: false, speed: STREAM_GROWTH_SPEED,
+        dirX: Math.cos(stream.aimAngle), dirY: Math.sin(stream.aimAngle)
+      });
+      stream.particlesFired++;
+    }
+    if (stream.phaseLife >= stream.duration) stopStreamSpray(stream, false);
+  }
+  if (!stream.spraying && stream.nodes.length === 0 && stream.particles.length === 0) return false; // Flowed away
+
+  const slices = getStreamSlices(stream, stream.nodes);
+  // Beam streams: the beam fires from the end for as long as the stream keeps arriving there, even as it flows away
+  const beamSlice = stream.beam ? getStreamBeamSlice(stream, stream.nodes) : null;
+  const contact = getStreamContact(beamSlice ? slices.concat([beamSlice]) : slices);
+  const touching = contact && contact.touching;
+
+  // Damage every frame the beetle is in the stream (or on a launch ant's ground spot)
+  const onLaunchSpot = stream.launch && stream.spraying &&
+    dist(playerX, playerY, stream.originX, stream.originY) <= getStreamLaunchSpotSize(stream) / 2 + STREAM_PLAYER_RADIUS;
+  if (touching || onLaunchSpot) {
+    handleExplosionDamage(stream.size * STREAM_DAMAGE_MULTIPLIER, o);
+  }
+
+  // Knockback streams carry the beetle along with the flow; vacuum streams also pull it in when near
+  if (touching && stream.knockback && !playerKnockedBack) {
+    const push = STREAM_PUSH_PER_KNOCKBACK * stream.knockbackMultiplier;
+    playerX = constrain(playerX + contact.dirX * push, sideBuffer, getGameplayWidth() - sideBuffer);
+    playerY = constrain(playerY + contact.dirY * push, scoreBarHeight + 25, getGameplayHeight() - expBarHeight - expBarBuffer);
+  }
+  if (contact && stream.vacuum) {
+    applyVacuumPull({ x: contact.x, y: contact.y, knockbackMultiplier: stream.knockbackMultiplier });
+  }
+
+  // Recoil streams keep pushing the ant back for as long as it sprays
+  if (stream.recoil && stream.spraying) {
+    const push = STREAM_RECOIL_PUSH * (1 + stream.size) / 2 / Math.max(0.3, antSize[o]);
+    antRecoilVelX[o] -= Math.cos(stream.aimAngle) * push;
+    antRecoilVelY[o] -= Math.sin(stream.aimAngle) * push;
+  }
+
+  updateStreamParticles(stream);
+
+  if (!(tigerBeetleActive && tigerBeetleMoving)) {
+    if (stream.launch && stream.spraying) drawStreamLaunch(stream);
+    drawStreamSlices(stream, slices, beamSlice);
+  }
+  return true;
+}
+
+// Call fn(x, y, h, w) at points every `spacing` px along a slice (measured as drawn, so up and over arcs)
+function forEachAlongStreamSlice(slice, spacing, fn) {
+  if (slice.length === 1) {
+    fn(slice[0].x, slice[0].y, slice[0].h, slice[0].w);
+    return;
+  }
+  let carried = 0;
+  for (let k = 0; k < slice.length - 1; k++) {
+    const a = slice[k];
+    const b = slice[k + 1];
+    const len = dist(a.x, a.y - a.h, b.x, b.y - b.h);
+    while (carried <= len) {
+      const t = len > 0 ? carried / len : 0;
+      fn(lerp(a.x, b.x, t), lerp(a.y, b.y, t), lerp(a.h, b.h, t), lerp(a.w, b.w, t));
+      carried += spacing;
+    }
+    carried -= len;
+  }
+}
+
+// Explosion streams (timed and proximity alike): the moment the ant fires, the whole stream bursts at once
+// along its path in grey smoke for one instant hit of bulletSize, instead of burning over time.
+function burstStream(stream) {
+  const o = stream.owner;
+  const nodes = prefillStreamNodes(stream);
+  const slices = getStreamSlices(stream, nodes);
+  if (stream.beam) {
+    const beamSlice = getStreamBeamSlice(stream, nodes);
+    if (beamSlice) slices.push(beamSlice);
+  }
+
+  const contact = getStreamContact(slices);
+  if (contact && contact.touching) {
+    handlePlayerHit(o, false, contact.x, contact.y, 1, 5, true, stream.size);
+  }
+
+  // Grey smoke all along the path, as wide as the stream is there (at most ~40 puffs per slice)
+  for (const slice of slices) {
+    let length = 0;
+    for (let k = 0; k < slice.length - 1; k++) {
+      length += dist(slice[k].x, slice[k].y - slice[k].h, slice[k + 1].x, slice[k + 1].y - slice[k + 1].h);
+    }
+    const spacing = Math.max(10, stream.width * 0.6, length / 40);
+    forEachAlongStreamSlice(slice, spacing, (x, y, h, w) => spawnSmokeImpact(x, y, w * 0.7, 3, h));
+  }
+
+  // Accelerating streams: every particle breaks away from the end at once
+  const front = nodes[0];
+  for (let k = 0; k < stream.particlesTotal && front; k++) {
+    const a = front.heading + random(-stream.particleSpread / 2, stream.particleSpread / 2);
+    stream.particles.push({ x: front.x, y: front.y, s: stream.range, free: true, speed: STREAM_GROWTH_SPEED, dirX: Math.cos(a), dirY: Math.sin(a) });
+  }
+  stream.particlesFired = stream.particlesTotal;
+  stream.phase = 'burst';
+  stream.phaseLife = 0;
+
+  if (antStream[o] === stream) {
+    antStream[o] = null;
+    antStreamEndFrame[o] = frameCount;
+    // Explosion streams wait as long between shots as a stream that sprayed its whole duration
+    antLastShotFrame[o] = frameCount + stream.duration;
+  }
+  playSpitSound();
+}
+
+// Accelerating streams: particles flow out with the stream, then break away past its range in a spread and
+// speed up until they leave the screen. They only hit the beetle once they've broken away (the stream itself
+// already burns while it's in it).
+function updateStreamParticles(stream) {
+  const particleSize = stream.size / STREAM_PARTICLE_SIZE_DIVISOR;
+  const drawSize = Math.max(5, 20 * particleSize);
+  for (let k = stream.particles.length - 1; k >= 0; k--) {
+    const part = stream.particles[k];
+    if (part.free) part.speed *= STREAM_PARTICLE_ACCEL;
+    part.x += part.dirX * part.speed;
+    part.y += part.dirY * part.speed;
+    part.s += part.speed;
+    if (!part.free) {
+      if (part.s >= stream.range) {
+        // Break away from the end of the stream, fanning out in a spread
+        const a = Math.atan2(part.dirY, part.dirX) + random(-stream.particleSpread / 2, stream.particleSpread / 2);
+        part.dirX = Math.cos(a);
+        part.dirY = Math.sin(a);
+        part.free = true;
+      }
+    } else {
+      if (part.x < 0 || part.x > getGameplayWidth() || part.y < scoreBarHeight || part.y > getGameplayHeight() - expBarHeight) {
+        stream.particles.splice(k, 1);
+        continue;
+      }
+      if (dist(part.x, part.y, playerX, playerY) < STREAM_PLAYER_RADIUS + drawSize / 2) {
+        stream.particles.splice(k, 1);
+        handlePlayerHit(stream.owner, stream.knockback, part.x, part.y, stream.knockbackMultiplier,
+          STREAM_PARTICLE_HIT_SPEED, false, particleSize);
+        continue;
+      }
+    }
+
+    if (!(tigerBeetleActive && tigerBeetleMoving)) {
+      const glow = stream.colors.glow;
+      const core = stream.colors.core;
+      push();
+      noStroke();
+      fill(glow[0], glow[1], glow[2], 150);
+      ellipse(part.x, part.y, drawSize * 1.6);
+      fill(core[0], core[1], core[2], 255);
+      ellipse(part.x, part.y, drawSize * 0.8);
+      pop();
+    }
+  }
+}
+
+// Draw slices segment by segment so the stream can widen from its base to its end
+function drawStreamSlicePass(slice, widthScale, lifted) {
+  const segments = Math.max(1, slice.length - 1);
+  for (let k = 0; k < segments; k++) {
+    const a = slice[k];
+    const b = slice[Math.min(k + 1, slice.length - 1)];
+    strokeWeight((a.w + b.w) / 2 * widthScale);
+    line(a.x, lifted ? a.y - a.h : a.y, b.x, lifted ? b.y - b.h : b.y);
+  }
+}
+
+function drawStreamSlices(stream, slices, beamSlice) {
+  const alpha = 255 * (stream.camo ? getStealthAlpha(stream, 2, stream.camoFlashRate) : 1);
+  if (alpha <= 2) return;
+  const flicker = 1 + 0.08 * Math.sin(stream.life * 1.3);
+  const glow = stream.colors.glow;
+  const core = stream.colors.core;
+
+  push();
+  strokeCap(ROUND);
+  if (stream.pathType === 1) {
+    // Shadow along the ground under a lofted stream
+    stroke(0, 0, 0, alpha * 0.2);
+    for (const slice of slices) drawStreamSlicePass(slice, 0.6, false);
+  }
+  stroke(glow[0], glow[1], glow[2], alpha * 0.35);
+  for (const slice of slices) drawStreamSlicePass(slice, 1.5 * flicker, true);
+  stroke(glow[0], glow[1], glow[2], alpha * 0.85);
+  for (const slice of slices) drawStreamSlicePass(slice, flicker, true);
+  stroke(core[0], core[1], core[2], alpha);
+  for (const slice of slices) drawStreamSlicePass(slice, 0.35 * flicker, true);
+
+  if (beamSlice) {
+    const beamColors = getBeamColors(stream.knockback, stream.vacuum, false);
+    stroke(beamColors.glow[0], beamColors.glow[1], beamColors.glow[2], alpha * 0.35);
+    drawStreamSlicePass(beamSlice, 1.6 * flicker, false);
+    stroke(beamColors.glow[0], beamColors.glow[1], beamColors.glow[2], alpha * 0.8);
+    drawStreamSlicePass(beamSlice, flicker, false);
+    stroke(beamColors.core[0], beamColors.core[1], beamColors.core[2], alpha);
+    drawStreamSlicePass(beamSlice, 0.35 * flicker, false);
+  }
+
+  // Droplets spraying off the end of each slice, and a splash where it hits the ground at full width
+  noStroke();
+  for (const slice of slices) {
+    const end = slice[slice.length - 1];
+    if (end.h <= STREAM_GROUND_HEIGHT && end.w >= stream.width * 0.95) {
+      fill(glow[0], glow[1], glow[2], alpha * 0.45);
+      ellipse(end.x, end.y, end.w * 1.8 * (1 + 0.15 * Math.sin(stream.life * 0.7)), end.w * 1.1);
+    }
+    fill(core[0], core[1], core[2], alpha * 0.9);
+    const r = end.w * 0.6;
+    for (let d = 0; d < 3; d++) {
+      ellipse(end.x + random(-r, r), end.y - end.h + random(-r, r), random(2, 2 + end.w * 0.15));
+    }
+  }
+  pop();
+}
+
+// Launch stream ants: the stream pours down from the airborne ant onto the spot beneath it, where it
+// splashes (and burns) before bouncing off toward the beetle
+function drawStreamLaunch(stream) {
+  const o = stream.owner;
+  const alpha = 255 * (stream.camo ? getStealthAlpha(stream, 2, stream.camoFlashRate) : 1);
+  const glow = stream.colors.glow;
+  const core = stream.colors.core;
+  const spot = getStreamLaunchSpotSize(stream) * (1 + 0.06 * Math.sin(stream.life * 0.5));
+  const baseWidth = getStreamBaseWidth(stream);
+  push();
+  noStroke();
+  fill(glow[0], glow[1], glow[2], alpha * 0.3);
+  ellipse(stream.originX, stream.originY, spot, spot);
+  fill(glow[0], glow[1], glow[2], alpha * 0.5);
+  ellipse(stream.originX, stream.originY, spot * 0.6, spot * 0.6);
+  strokeCap(ROUND);
+  stroke(glow[0], glow[1], glow[2], alpha * 0.85);
+  strokeWeight(baseWidth);
+  line(stream.originX, stream.originY - antAirHeight[o], stream.originX, stream.originY);
+  stroke(core[0], core[1], core[2], alpha);
+  strokeWeight(baseWidth * 0.35);
+  line(stream.originX, stream.originY - antAirHeight[o], stream.originX, stream.originY);
+  pop();
+}
+
+// Proximity explosion stream ants fire bursting streams like timed explosion ones, but when the beetle comes
+// within their explosion proximity they also light a fuse and blow themselves up: a normal explosion
+// STREAM_SELF_DESTRUCT_RADIUS_SCALE times the usual size, whose smoke impact hits for
+// STREAM_SELF_DESTRUCT_MULTIPLIER x bulletSize before its green acid residue. The beetle leaving the
+// proximity cancels the fuse until its last STREAM_FUSE_LOCK_FRAMES. The ant dies in the blast.
+function updateStreamSelfDestructs() {
+  for (let i = 1; i <= enemyCount; i++) {
+    if (!isStreamFire(i) || !triggerExplodeViaProximity[i]) {
+      antSelfDestructFuse[i] = null;
+      continue;
+    }
+    const inRange = dist(antX[i], antY[i], playerX, playerY) <= explosionProximity[i];
+    let fuse = antSelfDestructFuse[i];
+    if (fuse && fuse.lives !== antLives[i]) fuse = null; // Killed before it could go off
+    if (!fuse) {
+      if (!inRange) {
+        antSelfDestructFuse[i] = null;
+        continue;
+      }
+      fuse = { life: 0, lives: antLives[i] };
+    }
+    fuse.life++;
+    if (!inRange && fuse.life < STREAM_FUSE_FRAMES - STREAM_FUSE_LOCK_FRAMES) {
+      antSelfDestructFuse[i] = null;
+      continue;
+    }
+    if (fuse.life >= STREAM_FUSE_FRAMES) {
+      antSelfDestructFuse[i] = null;
+      selfDestructAnt(i);
+      continue;
+    }
+    antSelfDestructFuse[i] = fuse;
+    drawSelfDestructFuse(i, fuse);
+  }
+}
+
+// Blast radius of a self-destruct: the ant's normal explosion radius (see spawnEnemyExplosion), scaled up
+function getSelfDestructRadius(i) {
+  return (20 + 40 * (bulletSize[i] - 1)) * radiusMultiplier[i] * STREAM_SELF_DESTRUCT_RADIUS_SCALE;
+}
+
+function selfDestructAnt(i) {
+  debugLog(`Ant ${i} self-destructed`);
+  spawnEnemyExplosion(antX[i], antY[i], bulletSize[i], i, STREAM_SELF_DESTRUCT_RADIUS_SCALE, STREAM_SELF_DESTRUCT_MULTIPLIER);
+
+  // The ant dies in its own blast, counting as a death in its score (antPoints / antLives) but giving the
+  // beetle no points, and respawns somewhere else. Its stream, if it was spraying, sees the death and flows away.
+  antLives[i]++;
+  antX[i] = random(0, getGameplayWidth());
+  antY[i] = random(scoreBarHeight + ANT_SPAWN_BUFFER, getGameplayHeight() - expBarHeight - expBarBuffer - ANT_SPAWN_BUFFER);
+  spawnX[i] = antX[i] + cos(angleFromSpawn[i]);
+  spawnY[i] = antY[i] + sin(angleFromSpawn[i]);
+  antHealth[i] = antMaxHealth[i];
+  antKnockedBack[i] = false;
+  antKnockbackTimer[i] = 0;
+  antStunned[i] = false;
+  antStunTimer[i] = 0;
+  antLastShotFrame[i] = frameCount; // Respawned ants wait out a full cooldown before firing
+  antAlternatingCooldownState[i] = 0;
+  antRapidFireActive[i] = false;
+  antAirHeight[i] = 0;
+  antRecoilVelX[i] = 0;
+  antRecoilVelY[i] = 0;
+  antRecoilAirTimer[i] = 0;
+}
+
+// Self-destruct fuse: a faint ring marks the blast radius while a ring closes in on the ant, pulsing faster
+// as the fuse burns down; both turn red once it's locked in
+function drawSelfDestructFuse(i, fuse) {
+  if (tigerBeetleActive && tigerBeetleMoving) return;
+  const radius = getSelfDestructRadius(i);
+  const t = fuse.life / STREAM_FUSE_FRAMES;
+  const locked = fuse.life >= STREAM_FUSE_FRAMES - STREAM_FUSE_LOCK_FRAMES;
+  const c = locked ? [255, 70, 50] : [190, 190, 190];
+  const pulse = 0.5 + 0.5 * Math.sin(fuse.life * (0.3 + 0.9 * t));
+  const y = antY[i] - antAirHeight[i];
+  push();
+  noFill();
+  stroke(c[0], c[1], c[2], 40 + 50 * pulse);
+  strokeWeight(1.5);
+  ellipse(antX[i], antY[i], radius * 2, radius * 2);
+  stroke(c[0], c[1], c[2], 90 + 165 * pulse);
+  strokeWeight(2 + 2 * t);
+  const ring = lerp(radius * 2 + 40, 30, t);
+  ellipse(antX[i], y, ring, ring);
+  noStroke();
+  fill(c[0], c[1], c[2], (locked ? 120 : 60) * pulse);
+  ellipse(antX[i], y, 50 + 15 * antSize[i]);
+  pop();
+}
+
+// Launch stream ants: how high their stream holds them (0 when not spraying)
+function getAntStreamLift(i) {
+  const stream = antStream[i];
+  if (!stream || !stream.launch) return 0;
+  return STREAM_LAUNCH_HEIGHT * Math.min(1, (stream.life + 1) / STREAM_LAUNCH_RISE_FRAMES);
+}
+
+// Ghost stream ants (opacity 0-1): fade out before spraying, stay invisible while spraying, then fade back in
+function getAntStreamGhostAlpha(i) {
+  if (getSpecialType(i) !== -2 || getFireType(i) !== 4) return 1;
+  if (antStream[i]) return 0;
+  const framesToSpray = bulletCooldown[i] - (frameCount - antLastShotFrame[i]);
+  const fadeOut = constrain((framesToSpray - STREAM_GHOST_HIDDEN_AT) / (STREAM_GHOST_FADE_START - STREAM_GHOST_HIDDEN_AT), 0, 1);
+  const fadeIn = antStreamEndFrame[i] === undefined ? 1 : constrain((frameCount - antStreamEndFrame[i]) / STREAM_GHOST_FADE_IN, 0, 1);
+  return Math.min(fadeOut, fadeIn);
+}
+
 // Frame a bullet will split at (delayed burst or split arc), or null if it never splits
 function getBulletSplitFrame(bullet) {
   if (bullet.delayedBurst) return bullet.delayedBurst.at;
@@ -5920,6 +6715,7 @@ bulletKnockbackMultiplier: { caps: [2, 3, 4, 5], inverse: false },
   deathRefire: { caps: [1.0, 2.0], inverse: false },  // <1 = refire, >=1 = turret
   fireAlternating: { caps: [1.0, 2.0], inverse: false },  // <1 = alternating, >=1 = hit reload
   fireBurst: { caps: [1.0, 2.0], inverse: false },  // <1 = burst, >=1 = delayed burst
+  fireRapid: { caps: [1.0, 2.0], inverse: false },  // <1 = rapid, >=1 = stream
   pathHighArc: { caps: [1.0, 2.0], inverse: false },  // <1 = high arc, >=1 = split arc
   specialKnockback: { caps: [1.0, 2.0], inverse: false },  // <1 = knockback, >=1 = vacuum
   pathAccelerate: { caps: [1.0, 2.0], inverse: false },  // <1 = accelerate, >=1 = beam
@@ -5936,7 +6732,7 @@ bulletKnockbackMultiplier: { caps: [2, 3, 4, 5], inverse: false },
 };
 
 // Stats whose caps mark level 1 / level 2 ability thresholds rather than plain range limits
-const THRESHOLD_GATED_STATS = ['specialExplosion', 'pathCurve', 'deathLandmine', 'deathRefire', 'fireAlternating', 'fireBurst', 'pathHighArc', 'pathAccelerate', 'specialKnockback', 'specialCamo', 'specialRecoil'];
+const THRESHOLD_GATED_STATS = ['specialExplosion', 'pathCurve', 'deathLandmine', 'deathRefire', 'fireAlternating', 'fireBurst', 'fireRapid', 'pathHighArc', 'pathAccelerate', 'specialKnockback', 'specialCamo', 'specialRecoil'];
 
 // Dev tools custom ants: give a custom ant the cap tokens its threshold-gated stats need to stay at the
 // tier the user set (e.g. specialKnockback 1.5 needs a tier 0 cap token, or mutation clamps it below 1).
@@ -6238,6 +7034,7 @@ bulletKnockbackMultiplier: { caps: [2, 3, 4, 5], inverse: false },
     // Fire category mutation stats (can be capped)
     fireAlternating: { caps: [1.0, 2.0], inverse: false },  // <1 = alternating, >=1 = hit reload
     fireBurst: { caps: [1.0, 2.0], inverse: false },  // <1 = burst, >=1 = delayed burst
+    fireRapid: { caps: [1.0, 2.0], inverse: false },  // <1 = rapid, >=1 = stream
     pathHighArc: { caps: [1.0, 2.0], inverse: false },  // <1 = high arc, >=1 = split arc
     pathAccelerate: { caps: [1.0, 2.0], inverse: false },  // <1 = accelerate, >=1 = beam
     specialKnockback: { caps: [1.0, 2.0], inverse: false },  // <1 = knockback, >=1 = vacuum
@@ -6273,16 +7070,18 @@ bulletKnockbackMultiplier: { caps: [2, 3, 4, 5], inverse: false },
     if (statName === 'specialRecoil' && (specialType === 3 || specialType === -3)) return true; // Recoil or Launch (mutation stat)
     if (statName === 'bulletCamoFlashRate' && specialType === 2) return true; // Camouflage
     if (statName === 'explosionProximity' && specialType === 1) return true; // Explosion
-    if (statName === 'radiusMultiplier' && (specialType === 1 || pathType === 1 || deathType === -1 || isBeamAccelerate(antIndex))) return true; // Explosion, High Arc, Smear, or Beam
-    if (statName === 'residueMultiplier' && (specialType === 1 || pathType === 1 || deathType === 1 || deathType === -1 || isBeamAccelerate(antIndex))) return true; // Explosion, High Arc, Landmine, Smear, or Beam
+    if (statName === 'radiusMultiplier' && (specialType === 1 || pathType === 1 || deathType === -1 || isBeamAccelerate(antIndex) || fireType === 4)) return true; // Explosion, High Arc, Smear, Beam, or Stream (width / range)
+    if (statName === 'residueMultiplier' && (specialType === 1 || pathType === 1 || deathType === 1 || deathType === -1 || isBeamAccelerate(antIndex) || fireType === 4)) return true; // Explosion, High Arc, Landmine, Smear, Beam, or Stream (duration)
     if (statName === 'bulletExplodeAfter' && specialType === 1) return true; // Explosion
     
     // Fire category stats
     if (statName === 'bulletBurstCount' && (fireType === 1 || fireType === 3)) return true; // Burst or Delayed Burst
     if (statName === 'bulletBurstSpread' && (fireType === 1 || fireType === 3)) return true; // Burst or Delayed Burst
+    if (statName === 'bulletBurstSpread' && fireType === 4 && pathType === 2 && !isBeamAccelerate(antIndex)) return true; // Accelerating stream particle spread
     if (statName === 'fireBurst' && (fireType === 1 || fireType === 3)) return true; // Burst or Delayed Burst (mutation stat)
     if (statName === 'bulletCooldownMultiplier' && fireType === -1) return true; // Alternating
     if (statName === 'fireAlternating' && (fireType === -1 || fireType === -2)) return true; // Alternating or Hit Reload (mutation stat)
+    if (statName === 'fireRapid' && (fireType === 2 || fireType === 4)) return true; // Rapid or Stream (mutation stat)
     
     // Path category stats
     if (statName === 'bulletArcDuration' && pathType === 1) return true; // High Arc
@@ -6614,6 +7413,7 @@ bulletKnockbackMultiplier: { caps: [2, 3, 4, 5], inverse: false },
     // Fire category mutation stats (can be capped)
     fireAlternating: { caps: [1.0, 2.0], inverse: false },  // <1 = alternating, >=1 = hit reload
     fireBurst: { caps: [1.0, 2.0], inverse: false },  // <1 = burst, >=1 = delayed burst
+    fireRapid: { caps: [1.0, 2.0], inverse: false },  // <1 = rapid, >=1 = stream
     pathHighArc: { caps: [1.0, 2.0], inverse: false },  // <1 = high arc, >=1 = split arc
     pathAccelerate: { caps: [1.0, 2.0], inverse: false },  // <1 = accelerate, >=1 = beam
     specialKnockback: { caps: [1.0, 2.0], inverse: false },  // <1 = knockback, >=1 = vacuum
@@ -6758,7 +7558,8 @@ function fuseLandMines() {
   } // End of while loop
 }
 
-function spawnEnemyExplosion(x, y, size, ownerId, radiusScale = 1) {
+// hitMultiplier scales the smoke impact's instant hit (self-destructing stream ants hit for double)
+function spawnEnemyExplosion(x, y, size, ownerId, radiusScale = 1, hitMultiplier = 1) {
   const BASE_RADIUS     = 20;  // radius for size 1
   const RADIUS_PER_SIZE = 40;
 
@@ -6768,15 +7569,70 @@ function spawnEnemyExplosion(x, y, size, ownerId, radiusScale = 1) {
   let radius  = (BASE_RADIUS + RADIUS_PER_SIZE * (size - 1)) * radiusMultiplier[ownerId] * radiusScale;
   let maxLife = (BASE_LIFE   + LIFE_PER_SIZE   * (size - 1)) * residueMultiplier[ownerId];
 
+  // Smoke impact first: a grey puff that slowly fades and one instant hit of bulletSize damage...
+  spawnSmokeImpact(x, y, radius);
+  if (dist(playerX, playerY, x, y) < radius) {
+    handlePlayerHit(ownerId, false, x, y, 1, 5, true, size * hitMultiplier);
+  }
+
+  // ...followed by the green acidic residue
   enemyExplosions.push({
     x: x,
     y: y,
     radius: radius,
     maxLife: maxLife,
     life: 0,
+    delay: SMOKE_IMPACT_LEAD_FRAMES, // Frames before the residue appears under the smoke
     size: size,       // bulletSize that created it
     ownerId: ownerId  // which ant owns this explosion
   });
+}
+
+const SMOKE_IMPACT_FRAMES = 50;      // Smoke impacts fade out slowly over this many frames
+const SMOKE_IMPACT_LEAD_FRAMES = 6;  // Explosions: the green residue appears this many frames after the smoke
+
+// Grey smoke puff (visual only). lift raises it off the ground, for streams bursting in mid-air.
+function spawnSmokeImpact(x, y, radius, puffCount = 5, lift = 0) {
+  const puffs = [];
+  for (let k = 0; k < puffCount; k++) {
+    const a = Math.random() * Math.PI * 2;
+    const d = random(0, 0.45) * radius;
+    puffs.push({
+      dx: Math.cos(a) * d,
+      dy: Math.sin(a) * d,
+      r: random(0.5, 0.8) * radius,
+      rise: random(0.1, 0.35) // px/frame the puff drifts upward
+    });
+  }
+  enemySmokeImpacts.push({ x: x, y: y - lift, radius: radius, life: 0, maxLife: SMOKE_IMPACT_FRAMES, puffs: puffs });
+}
+
+function drawEnemySmokeImpacts() {
+  for (let i = enemySmokeImpacts.length - 1; i >= 0; i--) {
+    const smoke = enemySmokeImpacts[i];
+    smoke.life++;
+    if (smoke.life >= smoke.maxLife) {
+      enemySmokeImpacts.splice(i, 1);
+      continue;
+    }
+    if (tigerBeetleActive && tigerBeetleMoving) continue;
+
+    const t = smoke.life / smoke.maxLife;
+    // Puffs billow out fast, then hang and thin out
+    const grow = 0.6 + 0.6 * (1 - Math.pow(1 - t, 3));
+    const alpha = 200 * (1 - t);
+    push();
+    noStroke();
+    for (const puff of smoke.puffs) {
+      const px = smoke.x + puff.dx * grow;
+      const py = smoke.y + puff.dy * grow - puff.rise * smoke.life;
+      fill(120, 120, 120, alpha * 0.55);
+      ellipse(px, py, puff.r * 2 * grow);
+      fill(185, 185, 185, alpha * 0.6);
+      ellipse(px, py, puff.r * 1.2 * grow);
+    }
+    pop();
+  }
 }
 
 function spawnEnemyArcExplosionLink(x, airY, groundY, bulletSize, radiusScale = 1) {
@@ -6960,6 +7816,12 @@ function drawEnemyExplosions() {
   for (let i = enemyExplosions.length - 1; i >= 0; i--) {
     let e = enemyExplosions[i];
 
+    // Residue waits for its smoke impact to play first
+    if (e.delay > 0) {
+      e.delay--;
+      continue;
+    }
+
     e.life++;
 
     let t = e.life / e.maxLife;
@@ -7008,6 +7870,7 @@ function handleExplosionDamage(size, ownerId) {
       }
     }
   } else {
+    playerLastDamageFrame = frameCount; // Counts as taking damage, like a bullet hit (stops health regen outhealing it)
     health -= damage;
     antPoints[ownerId] = antPoints[ownerId] + damage;
     if(!sHit1.isPlaying() || !sHit2.isPlaying()) {
@@ -8810,6 +9673,11 @@ function clearRoundEffects() {
   enemySmears = [];
   deathRefires = [];
   enemyBeams = [];
+  enemyStreams = [];
+  antStream = [];
+  antStreamEndFrame = [];
+  antSelfDestructFuse = [];
+  enemySmokeImpacts = [];
   deathAnimations = [];
   floatingTexts = [];
   flashingEntities = [];
@@ -8998,12 +9866,13 @@ function nextRound(){
         const sUsesLandmine = s.deathPotential > 0.5 && s.deathLandmine > 0 && s.deathLandmine >= (s.deathRefire || 0);
         const sUsesSmear = sUsesLandmine && s.deathLandmine < 1;
         const sUsesBeam = s.pathPotential > 0.5 && s.pathAccelerate >= 1 && s.pathAccelerate >= s.pathHighArc && s.pathAccelerate >= s.pathCurve;
-        if (sUsesExplosion || sUsesHighArc || sUsesSmear || sUsesBeam) {
+        const sUsesStream = s.firePotential > 0.5 && s.fireRapid >= 1 && s.fireRapid > s.fireBurst && s.fireRapid >= s.fireAlternating;
+        if (sUsesExplosion || sUsesHighArc || sUsesSmear || sUsesBeam || sUsesStream) {
           radiusMultiplier[i] = constrain(s.radiusMultiplier + random(-0.2, 0.2), 0.5, 3);
         } else {
           radiusMultiplier[i] = s.radiusMultiplier;
         }
-        if (sUsesExplosion || sUsesHighArc || sUsesLandmine || sUsesBeam) {
+        if (sUsesExplosion || sUsesHighArc || sUsesLandmine || sUsesBeam || sUsesStream) {
           residueMultiplier[i] = constrain(s.residueMultiplier + random(-0.2, 0.2), 0.5, 3);
         } else {
           residueMultiplier[i] = s.residueMultiplier;
@@ -9022,7 +9891,7 @@ function nextRound(){
         }
         // Fire category (mutation-based)
         fireBurst[i]    = constrain(s.fireBurst    + random(-movementMutationRate, movementMutationRate), 0, getMaxAllowedValue('fireBurst', i, s.geneTokenInvestments || []));
-        fireRapid[i]    = constrain(s.fireRapid    + random(-movementMutationRate, movementMutationRate), 0, 1);
+        fireRapid[i]    = constrain(s.fireRapid    + random(-movementMutationRate, movementMutationRate), 0, getMaxAllowedValue('fireRapid', i, s.geneTokenInvestments || []));
         fireAlternating[i]    = constrain(s.fireAlternating    + random(-movementMutationRate, movementMutationRate), 0, getMaxAllowedValue('fireAlternating', i, s.geneTokenInvestments || []));
         firePotential[i]    = constrain(s.firePotential    + random(-movementMutationRate, movementMutationRate), 0, 1);
         // Only mutate burst/rapid stats if parent uses burst or rapid fire
@@ -9153,12 +10022,13 @@ function nextRound(){
         const parentUsesLandmine = deathPotential[parent.id] > 0.5 && deathLandmine[parent.id] > 0 && deathLandmine[parent.id] >= deathRefire[parent.id];
         const parentUsesSmear = parentUsesLandmine && deathLandmine[parent.id] < 1;
         const parentUsesBeam = isBeamAccelerate(parent.id);
-        if (parentUsesExplosion || parentUsesHighArc || parentUsesSmear || parentUsesBeam) {
+        const parentUsesStream = isStreamFire(parent.id);
+        if (parentUsesExplosion || parentUsesHighArc || parentUsesSmear || parentUsesBeam || parentUsesStream) {
           radiusMultiplier[i] = constrain(radiusMultiplier[parent.id] + random(-0.2, 0.2), 0.5, 3);
         } else {
           radiusMultiplier[i] = radiusMultiplier[parent.id];
         }
-        if (parentUsesExplosion || parentUsesHighArc || parentUsesLandmine || parentUsesBeam) {
+        if (parentUsesExplosion || parentUsesHighArc || parentUsesLandmine || parentUsesBeam || parentUsesStream) {
           residueMultiplier[i] = constrain(residueMultiplier[parent.id] + random(-0.2, 0.2), 0.5, 3);
         } else {
           residueMultiplier[i] = residueMultiplier[parent.id];
@@ -9177,7 +10047,7 @@ function nextRound(){
         }
         // Fire category (mutation-based)
         fireBurst[i]    = constrain(fireBurst[parent.id]    + random(-movementMutationRate, movementMutationRate), 0, getMaxAllowedValue('fireBurst', parent.id));
-        fireRapid[i]    = constrain(fireRapid[parent.id]    + random(-movementMutationRate, movementMutationRate), 0, 1);
+        fireRapid[i]    = constrain(fireRapid[parent.id]    + random(-movementMutationRate, movementMutationRate), 0, getMaxAllowedValue('fireRapid', parent.id));
         fireAlternating[i]    = constrain(fireAlternating[parent.id]    + random(-movementMutationRate, movementMutationRate), 0, getMaxAllowedValue('fireAlternating', parent.id));
         firePotential[i]    = constrain(firePotential[parent.id]    + random(-movementMutationRate, movementMutationRate), 0, 1);
         // Only mutate burst/rapid stats if parent uses burst or rapid fire
@@ -9422,7 +10292,7 @@ function nextRound(){
         : random(0, 1);
       
       fireRapid[i] = winner
-        ? constrain(fireRapid[winner.id] + random(-movementMutationRate, movementMutationRate), 0, 1)
+        ? constrain(fireRapid[winner.id] + random(-movementMutationRate, movementMutationRate), 0, getMaxAllowedValue('fireRapid', winner.id))
         : random(0, 1);
       
       fireAlternating[i] = winner
@@ -9548,7 +10418,8 @@ function nextRound(){
       const winnerUsesLandmine = winner && deathPotential[winner.id] > 0.5 && deathLandmine[winner.id] > 0 && deathLandmine[winner.id] >= deathRefire[winner.id];
       const winnerUsesSmear = winnerUsesLandmine && deathLandmine[winner.id] < 1;
       const winnerUsesBeam = winner && isBeamAccelerate(winner.id);
-      if (winnerUsesExplosion || winnerUsesHighArc || winnerUsesSmear || winnerUsesBeam) {
+      const winnerUsesStream = winner && isStreamFire(winner.id);
+      if (winnerUsesExplosion || winnerUsesHighArc || winnerUsesSmear || winnerUsesBeam || winnerUsesStream) {
         radiusMultiplier[i] = constrain(radiusMultiplier[winner.id] + random(-0.2, 0.2), 0.5, 3);
       } else if (winner) {
         radiusMultiplier[i] = radiusMultiplier[winner.id];
@@ -9557,7 +10428,7 @@ function nextRound(){
       }
 
       // Residue stat - only mutate if winner uses explosions, high arc, landmines, or beams
-      if (winnerUsesExplosion || winnerUsesHighArc || winnerUsesLandmine || winnerUsesBeam) {
+      if (winnerUsesExplosion || winnerUsesHighArc || winnerUsesLandmine || winnerUsesBeam || winnerUsesStream) {
         residueMultiplier[i] = constrain(residueMultiplier[winner.id] + random(-0.2, 0.2), 0.5, 3);
       } else if (winner) {
         residueMultiplier[i] = residueMultiplier[winner.id];
@@ -11055,6 +11926,8 @@ function updateAntDexEntries() {
   
   if (rapidFireDiscovered === true) storeItem('rapidFirePreviouslyDiscovered', rapidFireDiscovered);
   if (getItem('rapidFirePreviouslyDiscovered') === true) rapidFireDiscovered = getItem('rapidFirePreviouslyDiscovered');
+  if (streamFireDiscovered === true) storeItem('streamFirePreviouslyDiscovered', streamFireDiscovered);
+  if (getItem('streamFirePreviouslyDiscovered') === true) streamFireDiscovered = getItem('streamFirePreviouslyDiscovered');
 
   // Explosion Fuse (47-51)
   if (fuseMinDiscovered === true) storeItem('fuseMinPreviouslyDiscovered', fuseMinDiscovered);
@@ -11488,6 +12361,10 @@ function updateAntDexEntries() {
       }
       if (!rapidFireDiscovered && fireType === 2) {
         rapidFireDiscovered = true;
+        triggerDiscoveryPopup();
+      }
+      if (!streamFireDiscovered && fireType === 4) {
+        streamFireDiscovered = true;
         triggerDiscoveryPopup();
       }
 
@@ -12281,6 +13158,12 @@ function updateAntDexEntries() {
       desc: "Vary their firing rate with unpredictable timing. Affected by cooldown multiplier.",
       stats: "Fire Type: Rapid",
       discovered: rapidFireDiscovered
+    },
+    {
+      name: "Stream Fire Ants",
+      desc: "Spray a continuous stream of acid instead of bullets, burning the beetle every frame it stands in it. The stream starts thin at the ant and widens as it flows out to its range; when the beetle moves, the ant re-aims from the base and the new end has to flow out to reach it. Wider streams reach less far. High arc streams lob and split arcs split into 3 at the apex, curved streams bend, homing streams bend their end toward the beetle, accelerating streams throw off particles that fan out (by burst spread) to the edge of the screen, and beam streams fire a beam straight on from wherever the stream ends. Explosive streams burst all at once in grey smoke, and proximity ants also blow themselves up in a bigger explosion for double damage if the beetle stays within their explosion proximity. Launch ants hover high over a burning spot while they spray.",
+      stats: "Fire Type: Stream • Width / Range: Radius Multiplier • Duration: Residue Multiplier",
+      discovered: streamFireDiscovered
     },
 
     // 73-77: Bullet Burst Count
@@ -13216,8 +14099,8 @@ function drawAntsTab(fadeAlpha) {
     { name: '── FIRE CATEGORY ──', key: null, min: 0, max: 0, step: 0 }, // Header
     { name: 'Fire: Burst', key: 'fireBurst', min: 0, max: 2, step: 0.01,
       help: 'Mutation stat for burst fire (0-2, <1=burst, >=1=delayed burst)' },
-    { name: 'Fire: Rapid', key: 'fireRapid', min: 0, max: 1, step: 0.01,
-      help: 'Mutation stat for rapid fire (0-1)' },
+    { name: 'Fire: Rapid', key: 'fireRapid', min: 0, max: 2, step: 0.01,
+      help: 'Mutation stat for rapid fire (0-2, <1=rapid, >=1=stream)' },
     { name: 'Fire: Alternating', key: 'fireAlternating', min: 0, max: 2, step: 0.01,
       help: 'Mutation stat for fire cooldown (0-2, <1=alternating, >=1=hit reload)' },
     { name: 'Fire Potential', key: 'firePotential', min: 0, max: 1, step: 0.01,
@@ -13456,6 +14339,7 @@ bulletKnockbackMultiplier: { caps: [2, 3, 4, 5], inverse: false },
       deathRefire: { caps: [1.0, 2.0], inverse: false },  // <1 = refire, >=1 = turret
       fireAlternating: { caps: [1.0, 2.0], inverse: false },
       fireBurst: { caps: [1.0, 2.0], inverse: false },  // <1 = burst, >=1 = delayed burst
+      fireRapid: { caps: [1.0, 2.0], inverse: false },  // <1 = rapid, >=1 = stream
       pathHighArc: { caps: [1.0, 2.0], inverse: false },  // <1 = high arc, >=1 = split arc
       pathAccelerate: { caps: [1.0, 2.0], inverse: false },  // <1 = accelerate, >=1 = beam
       specialKnockback: { caps: [1.0, 2.0], inverse: false },  // <1 = knockback, >=1 = vacuum
