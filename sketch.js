@@ -614,7 +614,6 @@ const SPECIAL_SHOT_AMMO_COST = 2;           // A special shot uses 2 regular amm
 const SHOT_MODE_HOLD_RESET_FRAMES = 20;
 const SHOT_MODE_MENU_LINGER_FRAMES = 30;    // Mode menu stays up this long after the button stops being used
 const TIMED_BOMB_FUSE_FRAMES = 60;
-const PROXIMITY_BOMB_RANGE = 100;
 const PLAYER_BOMB_BLAST_FRAMES = 24;
 const PLAYER_SPRAY_FRAMES = 18;
 let shotMode = SHOT_MODE_DEFAULT;
@@ -5074,9 +5073,9 @@ function beetleShoot() {
       drawPlayerBullet(b, mode);
     }
 
-    // Timed bombs go off when their fuse runs out, proximity bombs when an ant gets close
+    // Timed bombs go off when their fuse runs out, proximity bombs when an ant gets within half the blast radius
     if ((mode === SHOT_MODE_TIMED && b.life >= TIMED_BOMB_FUSE_FRAMES) ||
-        (mode === SHOT_MODE_PROXIMITY && isAntWithin(b.x, b.y, PROXIMITY_BOMB_RANGE))) {
+        (mode === SHOT_MODE_PROXIMITY && isAntWithin(b.x, b.y, getBombRadius() / 2))) {
       explodePlayerBomb(b.x, b.y, mode);
       playerBullets.splice(i, 1);
       continue;
@@ -9542,7 +9541,7 @@ function drawUpgradeScreen() {
     },
     {
       title: 'Proximity Bomb',
-      description: 'Unlock the proximity bomb shot mode: explodes when an ant comes within 100 pixels. Requires Timed Bomb.',
+      description: 'Unlock the proximity bomb shot mode: explodes when an ant comes within half the blast radius. Requires Timed Bomb.',
       level: upgrade35Level,
       maxLevel: 1
     },
@@ -9713,7 +9712,7 @@ function drawUpgradeScreen() {
         return 'Unlock timed bombs. Explodes 1 second after firing, for 2 ammo.';
       }
       case 34: { // Proximity Bomb
-        return 'Unlock proximity bombs. Explodes when an ant comes within 100px, for 2 ammo.';
+        return `Unlock proximity bombs. Explodes when an ant comes within ${getBombRadius() / 2}px (half the blast radius), for 2 ammo.`;
       }
       case 35: { // Blast Radius
         const cur = getBombRadius(level);
@@ -9945,31 +9944,39 @@ function drawUpgradeScreen() {
   endMenuScaling();
 }
 
-// Rarity of each upgrade: weight is its relative chance to be offered
+// Core base stats (Walking Speed through Bullet Speed): the only upgrades offered in rounds 1-5
+function isCoreUpgrade(upgradeId) {
+  return upgradeId <= 7;
+}
+
+// Rarity of each upgrade: weight is its relative chance to be offered.
+// Medium rare and uncommon are hidden from the player (no label).
 function getUpgradeRarity(upgradeId) {
   if (upgradeId === 20) return { label: 'ULTRA RARE', weight: 0.1, color: [255, 180, 0] };
   if (upgradeId >= 24 && upgradeId <= 26) return { label: 'VERY RARE', weight: 0.2, color: [200, 90, 255] };
+  // Medium rare: Health Regeneration, economy (Metabolism, EXP Boost, Combo Surge), and all special shot upgrades
+  if (upgradeId === 19 || (upgradeId >= 21 && upgradeId <= 23) || (upgradeId >= 27 && upgradeId <= 35)) {
+    return { label: '', weight: 0.5, color: null };
+  }
+  if (!isCoreUpgrade(upgradeId)) return { label: '', weight: 0.9, color: null };  // Uncommon
   return { label: '', weight: 1, color: null };
 }
 
 // Whether an upgrade's prerequisites are met
 function isUpgradeUnlocked(i) {
+  if (!isCoreUpgrade(i) && level <= 5) return false;  // Only core base stats in rounds 1-5
   if (i === 5 && upgrade4Level === 0) return false;  // Shield Regeneration requires Add Shield
   if (i === 6 && upgrade5Level === 0) return false;  // Bullet Reload requires Add Bullets
   if (i === 7 && upgrade5Level === 0) return false;  // Bullet Speed requires Add Bullets
   if (i === 8 && (upgrade5Level === 0 || upgrade7Level === 0 || upgrade8Level === 0)) return false;  // Free-Angle Aiming requires Add Bullets, Bullet Reload, and Bullet Speed
   if (i === 9 && upgrade3Level < 5) return false;  // Tiger Beetle requires Dash Cooldown maxed
   if (i === 10 && upgrade7Level < 3) return false;  // Oogpister Beetle requires Bullet Reload level 3+
-  if (i === 11 && level <= 5) return false;  // Horns unlocks after round 5
   if (i === 12 && upgrade5Level === 0) return false;  // Potent Acid requires Add Bullets
-  if (i === 12 && level <= 5) return false;  // Potent Acid unlocks after round 5
-  if (i === 13 && level <= 5) return false;  // Shockwave unlocks after round 5
   if (i === 14 && upgrade14Level === 0) return false;  // Shockwave Radius requires Shockwave Unlock
   if (i === 15 && upgrade14Level === 0) return false;  // Shockwave Damage requires Shockwave Unlock
   if (i === 16 && upgrade14Level === 0) return false;  // Shockwave Cooldown requires Shockwave Unlock
   if (i === 17) return false;  // Shockwave Knockback removed (now constant)
   if (i === 18 && upgrade14Level === 0) return false;  // Bullet Deflection requires Shockwave Unlock
-  if (i === 19 && level <= 5) return false;  // Health Regeneration unlocks after round 5
   if (i === 25 && upgrade14Level === 0) return false;  // Shockwave Harvest requires Shockwave Unlock
   if (i === 26 && upgrade5Level === 0) return false;  // Bullet Harvest requires Add Bullets
   if (i === 27 && upgrade5Level === 0) return false;  // Spray Acid requires Add Bullets
