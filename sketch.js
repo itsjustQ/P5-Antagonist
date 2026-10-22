@@ -138,11 +138,15 @@ function applyHardModeRandomInitialAbility(antIndex) {
     { target: 'fireBurst', category: 'fire', potential: 'firePotential' },
     { target: 'fireRapid', category: 'fire', potential: 'firePotential' },
     { target: 'fireAlternating', category: 'fire', potential: 'firePotential' },
+    { target: 'fireAlarm', category: 'fire', potential: 'firePotential' },
     { target: 'deathLandmine', category: 'death', potential: 'deathPotential' },
     { target: 'deathRefire', category: 'death', potential: 'deathPotential' },
+    { target: 'deathTerritory', category: 'death', potential: 'deathPotential' },
+    { target: 'deathMound', category: 'death', potential: 'deathPotential' },
     { target: 'pathHighArc', category: 'path', potential: 'pathPotential' },
     { target: 'pathCurve', category: 'path', potential: 'pathPotential' },
-    { target: 'pathAccelerate', category: 'path', potential: 'pathPotential' }
+    { target: 'pathAccelerate', category: 'path', potential: 'pathPotential' },
+    { target: 'pathBlink', category: 'path', potential: 'pathPotential' }
   ];
 
   const trait = random(randomTraits);
@@ -154,10 +158,10 @@ function applyHardModeRandomInitialAbility(antIndex) {
   eval(trait.potential + '[' + antIndex + '] = max(' + trait.potential + '[' + antIndex + '], 0.6)');
   
   // Nudge the selected trait to win its category for expression.
-  // For tiered stats (specialExplosion, pathCurve, pathAccelerate, deathLandmine, deathRefire, fireAlternating, fireBurst, fireRapid, pathHighArc, specialKnockback, specialCamo, specialRecoil), cap at 0.9 to prevent unlocking tier 2 without cap investment
+  // For tiered (threshold-gated) stats, cap at 0.9 to prevent unlocking tier 2 without cap investment
   // For bulletAccelerateDelay (inverse stat), set to 150 (tier 1, better than default 200)
   let initialValue = 0.9;
-  if (trait.target === 'specialExplosion' || trait.target === 'pathCurve' || trait.target === 'pathAccelerate' || trait.target === 'deathLandmine' || trait.target === 'deathRefire' || trait.target === 'fireAlternating' || trait.target === 'fireBurst' || trait.target === 'fireRapid' || trait.target === 'pathHighArc' || trait.target === 'specialKnockback' || trait.target === 'specialCamo' || trait.target === 'specialRecoil') {
+  if (THRESHOLD_GATED_STATS.includes(trait.target)) {
     initialValue = 0.9; // Start with tier 1 (stays <1 for timed explosions, curved bullets, accelerating bullets, smears, alternating fire, or camouflage)
   } else if (trait.target === 'bulletAccelerateDelay') {
     initialValue = 150; // Start with tier 1 (150 frames, better than default 200)
@@ -224,6 +228,8 @@ specialPotential: 0.3,
     fireBurst: 0.1,
     fireRapid: 0.1,
     fireAlternating: 0.1,
+    fireAlarm: 0.1,
+    alarmInnerRadius: 75,
     firePotential: 0.3,
     bulletBurstCount: 2,
     bulletBurstSpread: 1.5,
@@ -232,11 +238,16 @@ specialPotential: 0.3,
     // Death category (mutation-based)
     deathLandmine: 0.3,
     deathRefire: 0.2,
+    deathTerritory: 0.2,
+    deathMound: 0.2,
+    bunkerRange: 35,
     deathPotential: 0.3,
     // Path category (mutation-based)
     pathHighArc: 0.1,
     pathCurve: 0.1,
     pathAccelerate: 0.1,
+    pathBlink: 0.1,
+    blinkDelay: 60,
     bulletAccelerateDelay: 200,
     pathPotential: 0.3,
     bulletArcDuration: 200,
@@ -279,6 +290,8 @@ specialPotential: 0.3,
     fireBurst: 0.1,
     fireRapid: 0.1,
     fireAlternating: 0.1,
+    fireAlarm: 0.1,
+    alarmInnerRadius: 75,
     firePotential: 0.3,
     bulletBurstCount: 2,
     bulletBurstSpread: 1.5,
@@ -287,11 +300,16 @@ specialPotential: 0.3,
     // Death category (mutation-based)
     deathLandmine: 0.3,
     deathRefire: 0.2,
+    deathTerritory: 0.2,
+    deathMound: 0.2,
+    bunkerRange: 35,
     deathPotential: 0.3,
     // Path category (mutation-based)
     pathHighArc: 0.1,
     pathCurve: 0.1,
     pathAccelerate: 0.1,
+    pathBlink: 0.1,
+    blinkDelay: 60,
     bulletAccelerateDelay: 200,
     pathPotential: 0.3,
     bulletArcDuration: 200,
@@ -334,6 +352,8 @@ specialPotential: 0.3,
     fireBurst: 0.1,
     fireRapid: 0.1,
     fireAlternating: 0.1,
+    fireAlarm: 0.1,
+    alarmInnerRadius: 75,
     firePotential: 0.3,
     bulletBurstCount: 2,
     bulletBurstSpread: 1.5,
@@ -342,11 +362,16 @@ specialPotential: 0.3,
     // Death category (mutation-based)
     deathLandmine: 0.3,
     deathRefire: 0.2,
+    deathTerritory: 0.2,
+    deathMound: 0.2,
+    bunkerRange: 35,
     deathPotential: 0.3,
     // Path category (mutation-based)
     pathHighArc: 0.1,
     pathCurve: 0.1,
     pathAccelerate: 0.1,
+    pathBlink: 0.1,
+    blinkDelay: 60,
     bulletAccelerateDelay: 200,
     pathPotential: 0.3,
     bulletArcDuration: 200,
@@ -487,6 +512,8 @@ let streamFireDiscovered = false;      // Stream fire mode (a continuous spray o
 let alternatingFireDiscovered = false; // Alternating cooldown fire mode
 let hitReloadFireDiscovered = false;   // Hit reload fire mode (long cooldown, resets on hit)
 let delayedBurstFireDiscovered = false; // Delayed burst fire mode (one bullet that splits into a burst)
+let alarmFireDiscovered = false;       // Alarm fire mode (fires faster while the beetle is close)
+let avengeFireDiscovered = false;      // Avenge fire mode (fires again when a nearby ant dies)
 
 // Explosion Fuse discoveries (40-800, Time Explosion only)
 let fuseMinDiscovered = false;         // 40-250
@@ -542,6 +569,10 @@ let landmineConversionDiscovered = false;  // Bullets convert to landmines (deat
 let smearDeathDiscovered = false;          // Bullets leave a damaging smear when they fade (deathType === -1)
 let refireDeathDiscovered = false;         // Bullets fire again from where they die (deathType === 2)
 let turretDeathDiscovered = false;         // Bullets become a turret that fires 3 times (deathType === 3)
+let territoryDeathDiscovered = false;      // Bullets leave an area that speeds up ant cooldowns (deathType === 4)
+let nestDeathDiscovered = false;           // Bullets leave an area that also grows ant shields (deathType === 5)
+let moundDeathDiscovered = false;          // Bullets leave a short-lived wall (deathType === 6)
+let bunkerDeathDiscovered = false;         // Bullets leave a hole ants can hide in (deathType === 7)
 
 // Bullet Path Type discoveries
 let clockwiseCurveDiscovered = false;      // Bullets curve clockwise (pathType === -1)
@@ -549,6 +580,8 @@ let homingCurveDiscovered = false;         // Bullets curve toward player (pathT
 let highArcDiscovered = false;             // Bullets arc high and land (pathType === 1)
 let splitArcDiscovered = false;            // High arc bullets split into 3 at their peak
 let beamDiscovered = false;                // Accelerating bullets fire a beam instead of speeding up
+let blinkDiscovered = false;               // Bullets jump ahead once (pathType === 3)
+let portalDiscovered = false;              // Bullets jump ahead once and turn toward the target (pathType === 3, portal)
 
 // Burst Spread discoveries (PI/3 to PI = 60° to 180°, Burst Fire only)
 let burstSpreadMinDiscovered = false;     // 60-84°
@@ -687,6 +720,7 @@ let bulletCamoFlashRate = []; // Camouflage bullets: opacity flashes per second 
 let fireBurst = [];
 let fireRapid = [];
 let fireAlternating = [];
+let fireAlarm = [];  // <1 = alarm (fires faster while the beetle is close), >=1 = avenge (fires again when a nearby ant dies)
 let firePotential = [];
 let bulletBurstCount = [];
 let bulletBurstSpread = [];
@@ -697,16 +731,27 @@ let antHitReloadFlashFrame = []; // For hit reload fire type: frame the reload f
 let antRapidFireActive = []; // Tracks if ant is currently in rapid fire sequence
 let antRapidFireCount = []; // How many bullets left to fire in rapid fire sequence
 let antRapidFireNextFrame = []; // Frame when next rapid fire bullet should spawn
+let alarmInnerRadius = []; // Alarm fire type: inner radius (25-100px) where the ant fires 2x faster; the outer radius follows it
+let antAvengeQueue = [];   // Avenge fire type: witnessed deaths still waiting for their reload + shot
+let antAvengeArmed = [];   // Avenge fire type: a reload is under way and its shot hasn't gone yet
+let antCooldownBoost = []; // How much faster each ant's cooldown is running this frame (alarm / territory, max 3x)
 
 // Death category (mutation-based)
 let deathLandmine = [];
 let deathRefire = [];  // <1 = refire (dead bullets fire again once), >=1 = turret (dead bullets become a turret that fires 3 times)
+let deathTerritory = [];  // <1 = territory (dead bullets leave an area that speeds up ant cooldowns), >=1 = nest (the area also grows ant shields)
+let deathMound = [];  // <1 = mound (dead bullets leave a short-lived wall), >=1 = bunker (dead bullets leave a hole ants can hide in)
+let bunkerRange = []; // How close (1-70px) to a bunker's edge an ant has to be to get in
+let antShield = [];   // Nest: shield (0-1) an ant has built up; absorbs damage and stops it being run over
+let antInBunker = []; // The bunker each ant is hiding in, or null
 let deathPotential = [];
 
 // Path category (mutation-based)
 let pathHighArc = [];
 let pathCurve = [];  // <1 = curved, >=1 = homing (heat-seeking)
 let pathAccelerate = [];  // Whether to use accelerating bullets (0-1, competes with pathHighArc/pathCurve)
+let pathBlink = [];  // <1 = blink (bullets jump ahead once), >=1 = portal (the jump also re-aims them at the target)
+let blinkDelay = []; // Blink / portal: frames after firing (10-120) before a bullet jumps
 let bulletAccelerateDelay = [];  // Frames before acceleration starts (200 = slow, 30 = fast, inverse stat)
 let pathPotential = [];
 let bulletArcDuration = [];
@@ -774,6 +819,9 @@ let antStream = []; // The stream each ant is currently firing (fusing, charging
 let antStreamEndFrame = []; // frameCount each ant last stopped spraying (ghost stream ants fade back in from it)
 let antSelfDestructFuse = []; // Proximity explosion stream ants: { life, lives } while their self-destruct fuse burns, or null
 let enemySmokeImpacts = []; // Grey smoke puffs from explosions and exploding streams (visual only)
+let enemyTerritories = []; // Territory / nest areas left by dead bullets
+let enemyWalls = []; // Mounds and bunkers left by dead bullets
+let blinkFlashes = []; // Flashes where blink / portal bullets (and streams) reappear
 let bulletExplodeAfter = [];
 
 let buttons = {};
@@ -1122,6 +1170,8 @@ function setup() {
     fireBurst[i] = 0.1;
     fireRapid[i] = 0.1;
     fireAlternating[i] = 0.1;
+    fireAlarm[i] = 0.1;
+    alarmInnerRadius[i] = ALARM_DEFAULT_INNER_RADIUS;
     firePotential[i] = 0.3;
     bulletBurstCount[i] = 2;
     bulletBurstSpread[i] = 1.5; // Below first cap (2.0)
@@ -1130,11 +1180,16 @@ function setup() {
     // Death category (mutation-based)
     deathLandmine[i] = 0.3;
     deathRefire[i] = 0.2;
+    deathTerritory[i] = 0.2;
+    deathMound[i] = 0.2;
+    bunkerRange[i] = BUNKER_DEFAULT_RANGE;
     deathPotential[i] = 0.3;
     // Path category (mutation-based)
     pathHighArc[i] = 0.1;
     pathCurve[i] = 0.1;
     pathAccelerate[i] = 0.1;
+    pathBlink[i] = 0.1;
+    blinkDelay[i] = BLINK_DEFAULT_DELAY;
     bulletAccelerateDelay[i] = 200;
     pathPotential[i] = 0.3;
     bulletArcDuration[i] = 200;
@@ -1618,11 +1673,14 @@ function draw() {
       // Begin gameplay scaling based on level
       beginGameplayScaling();
       autonomousAntMovement();
+      updateEnemyTerritories();
+      updateEnemyWalls();
       drawEnemy();
       drawBeetle();
       drawStrikes();
       calculateBonus();
       enemyInteraction1(); // Beetle Eats Enemy
+      updateAntCooldownBoosts();
       enemyShoot1();
       drawEnemyArcExplosionLinks();
       drawEnemySmears();
@@ -1631,6 +1689,7 @@ function draw() {
       drawEnemyGroundImpacts();
       updateEnemyBeams();
       updateEnemyStreams();
+      drawBlinkFlashes();
       drawEnemySmokeImpacts();
       detectKeyboardInput();
       // Beetle Moves
@@ -1639,6 +1698,8 @@ function draw() {
       handleWindAttack(); // Handle shockwave attack
       dashCollision(); // Check for dash collisions with ants
       handleAntKnockback(); // Handle knocked back ants
+      holdBunkeredAnts();
+      resolvePlayerWallCollisions();
       drawDeathEffects();
       drawSpeedRings();
       updateComboSparks();
@@ -1970,6 +2031,8 @@ function applyCustomAntsToInitialPopulation() {
     fireBurst[i] = s.fireBurst;
     fireRapid[i] = s.fireRapid;
     fireAlternating[i] = s.fireAlternating;
+    fireAlarm[i] = s.fireAlarm || 0;
+    alarmInnerRadius[i] = s.alarmInnerRadius ?? ALARM_DEFAULT_INNER_RADIUS;
     firePotential[i] = s.firePotential;
     bulletBurstCount[i] = s.bulletBurstCount;
     bulletBurstSpread[i] = s.bulletBurstSpread;
@@ -1978,11 +2041,16 @@ function applyCustomAntsToInitialPopulation() {
     // Death category (mutation-based)
     deathLandmine[i] = s.deathLandmine;
     deathRefire[i] = s.deathRefire || 0;
+    deathTerritory[i] = s.deathTerritory || 0;
+    deathMound[i] = s.deathMound || 0;
+    bunkerRange[i] = s.bunkerRange ?? BUNKER_DEFAULT_RANGE;
     deathPotential[i] = s.deathPotential;
     // Path category (mutation-based)
     pathHighArc[i] = s.pathHighArc;
     pathCurve[i] = s.pathCurve;
     pathAccelerate[i] = s.pathAccelerate;
+    pathBlink[i] = s.pathBlink || 0;
+    blinkDelay[i] = s.blinkDelay ?? BLINK_DEFAULT_DELAY;
     bulletAccelerateDelay[i] = s.bulletAccelerateDelay;
     pathPotential[i] = s.pathPotential;
     bulletArcDuration[i] = Math.max(s.bulletArcDuration ?? 200, HIGH_ARC_MIN_DURATION);
@@ -2165,13 +2233,20 @@ function applyDifficultyToInitialPopulation() {
     if (fireBurst[i] === undefined) fireBurst[i] = 0.1;
     if (fireRapid[i] === undefined) fireRapid[i] = 0.1;
     if (fireAlternating[i] === undefined) fireAlternating[i] = 0.1;
+    if (fireAlarm[i] === undefined) fireAlarm[i] = 0.1;
+    if (alarmInnerRadius[i] === undefined) alarmInnerRadius[i] = ALARM_DEFAULT_INNER_RADIUS;
     if (firePotential[i] === undefined) firePotential[i] = 0.3;
     if (deathLandmine[i] === undefined) deathLandmine[i] = 0.3;
     if (deathRefire[i] === undefined) deathRefire[i] = 0.2;
+    if (deathTerritory[i] === undefined) deathTerritory[i] = 0.2;
+    if (deathMound[i] === undefined) deathMound[i] = 0.2;
+    if (bunkerRange[i] === undefined) bunkerRange[i] = BUNKER_DEFAULT_RANGE;
     if (deathPotential[i] === undefined) deathPotential[i] = 0.3;
     if (pathHighArc[i] === undefined) pathHighArc[i] = 0.1;
     if (pathCurve[i] === undefined) pathCurve[i] = 0.1;
     if (pathAccelerate[i] === undefined) pathAccelerate[i] = 0.1;
+    if (pathBlink[i] === undefined) pathBlink[i] = 0.1;
+    if (blinkDelay[i] === undefined) blinkDelay[i] = BLINK_DEFAULT_DELAY;
     if (pathPotential[i] === undefined) pathPotential[i] = 0.3;
     if (bulletKnockbackMultiplier[i] === undefined) bulletKnockbackMultiplier[i] = 2;
     if (bulletCamoFlashRate[i] === undefined) bulletCamoFlashRate[i] = 2.5;
@@ -2279,6 +2354,8 @@ function syncActualWinnersToCustomStats(topAnts) {
         fireBurst: fireBurst[antId],
         fireRapid: fireRapid[antId],
         fireAlternating: fireAlternating[antId],
+        fireAlarm: fireAlarm[antId],
+        alarmInnerRadius: alarmInnerRadius[antId],
         firePotential: firePotential[antId],
         bulletBurstCount: bulletBurstCount[antId],
         bulletBurstSpread: bulletBurstSpread[antId],
@@ -2287,11 +2364,16 @@ function syncActualWinnersToCustomStats(topAnts) {
         // Death category (mutation-based)
         deathLandmine: deathLandmine[antId],
         deathRefire: deathRefire[antId],
+        deathTerritory: deathTerritory[antId],
+        deathMound: deathMound[antId],
+        bunkerRange: bunkerRange[antId],
         deathPotential: deathPotential[antId],
         // Path category (mutation-based)
         pathHighArc: pathHighArc[antId],
         pathCurve: pathCurve[antId],
         pathAccelerate: pathAccelerate[antId],
+        pathBlink: pathBlink[antId],
+        blinkDelay: blinkDelay[antId],
         bulletAccelerateDelay: bulletAccelerateDelay[antId],
         pathPotential: pathPotential[antId],
         bulletArcDuration: bulletArcDuration[antId],
@@ -2552,6 +2634,9 @@ function drawEnemy(){
     if (ghostAlpha <= 0.01) shouldDraw = false;
     fadeAmount *= ghostAlpha;
 
+    // Ants hiding in a bunker can't be seen at all (bunkers are blind holes)
+    if (antInBunker[i]) shouldDraw = false;
+
     if (shouldDraw) {
       // Ground shadow; shrinks and lightens as the ant rises
       let antShadowHeight = constrain(antAirHeight[i], 0, 30);
@@ -2560,7 +2645,7 @@ function drawEnemy(){
       angleMode(DEGREES);
       let antShadowAngle = atan2(playerY - antY[i], playerX - antX[i]);
       drawGroundShadow(antX[i], antY[i], antShadowScale * 0.6, antShadowScale * 0.26, antShadowAngle, antShadowAlpha);
-      
+
       push();
         // Apply fade if Tiger Beetle is active (or a ghost stream ant is fading)
         if ((tigerBeetleActive && tigerBeetleMoving) || ghostAlpha < 1) {
@@ -2575,6 +2660,30 @@ function drawEnemy(){
         let antImageSize = 45 + (15 * antSize[i]);
         image(ant, 0, 0, antImageSize, antImageSize);
       pop();
+
+      // Nest shield: a light blue bubble that fills in as the shield grows
+      if (hasAntShield(i)) {
+        push();
+        const shieldAmount = antShield[i];
+        fill(120, 200, 255, 40 * shieldAmount * (fadeAmount / 255));
+        stroke(150, 215, 255, (90 + 140 * shieldAmount) * (fadeAmount / 255));
+        strokeWeight(1 + 1.5 * shieldAmount);
+        ellipse(antX[i], antY[i] - antAirHeight[i], antImageSize * 0.95);
+        pop();
+      }
+
+      // Alarm ant with the beetle in range: a pulsing ring, orange in the outer radius and red in the inner one
+      const alarmBoost = getAlarmBoost(i);
+      if (alarmBoost > 1) {
+        push();
+        noFill();
+        const alarmPulse = 0.5 + 0.5 * Math.sin(frameCount * (alarmBoost >= ALARM_INNER_BOOST ? 0.6 : 0.3));
+        if (alarmBoost >= ALARM_INNER_BOOST) stroke(255, 60, 40, (120 + 120 * alarmPulse) * (fadeAmount / 255));
+        else stroke(255, 170, 40, (90 + 110 * alarmPulse) * (fadeAmount / 255));
+        strokeWeight(2);
+        ellipse(antX[i], antY[i] - antAirHeight[i], antImageSize * (0.75 + 0.1 * alarmPulse));
+        pop();
+      }
 
       // Hit reload ant: white flash after its bullet hits; the ant refires as the flash ends
       if (antHitReloadFlashFrame[i] !== undefined) {
@@ -2602,54 +2711,7 @@ function drawEnemy(){
       }
 
       // Health bar (appears for 1 second after getting hit)
-      if (antLastHitTime[i] > 0) {
-        let timeSinceHit = millis() - antLastHitTime[i];
-        let fadeTime = 1000; // 1 second
-        
-        if (timeSinceHit < fadeTime) {
-          push();
-          let fadeFactor = map(timeSinceHit, 0, fadeTime, 1, 0);
-          
-          // Health bar dimensions (match dash/shockwave style)
-          let barWidth = 30;
-          let barHeight = 5;
-          let barY = antY[i] - antAirHeight[i] + antImageSize * 0.35; // Below ant, closer
-          
-          // Health percentage
-          let healthPercent = antHealth[i] / antMaxHealth[i];
-          
-          // Background (dark grey - match dash/shockwave)
-          fill(50, 50, 50, 220 * fadeFactor);
-          stroke(0, 255 * fadeFactor);
-          strokeWeight(1);
-          rect(antX[i] - barWidth / 2, barY, barWidth, barHeight, 2);
-          
-          // Color based on health: red (<=1, can be run over), yellow (1-1.5), yellow->green (1.5-2), green->blue (2-3)
-          let barColor;
-          if (antHealth[i] <= 1) {
-            barColor = color(255, 50, 50); // Red
-          } else if (antHealth[i] < 1.5) {
-            // Yellow
-            barColor = color(255, 220, 50);
-          } else if (antHealth[i] < 2) {
-            // Yellow to green gradient (1.5 to 2)
-            let greenAmount = map(antHealth[i], 1.5, 2, 0, 1, true);
-            barColor = lerpColor(color(255, 220, 50), color(50, 255, 50), greenAmount);
-          } else {
-            // Green to blue gradient (2 to 3)
-            let blueAmount = map(antHealth[i], 2, 3, 0, 1, true);
-            barColor = lerpColor(color(50, 255, 50), color(50, 150, 255), blueAmount);
-          }
-          
-          // Fill (match dash/shockwave style with rounded corners)
-          fill(red(barColor), green(barColor), blue(barColor), 240 * fadeFactor);
-          stroke(0, 255 * fadeFactor);
-          strokeWeight(1);
-          rect(antX[i] - barWidth / 2, barY, barWidth * healthPercent, barHeight, 2);
-          
-          pop();
-        }
-      }
+      drawHitHealthBar(antX[i], antY[i] - antAirHeight[i] + antImageSize * 0.35, antHealth[i], antMaxHealth[i], antLastHitTime[i]);
 
       // Draw yellow circles if ant is stunned
       if (antStunned[i]) {
@@ -2678,6 +2740,53 @@ function drawEnemy(){
 
   }
   //debugLog(enemyIndex);
+}
+
+// Health bar shown for 1 second after something gets hit (ants, mounds and bunkers), centered on x with its top
+// at barY. Color by health left: red (<=1, an ant can be run over), yellow (1-1.5), yellow->green (1.5-2),
+// green->blue (2-3).
+function drawHitHealthBar(x, barY, health, maxHealth, lastHitTime) {
+  if (!(lastHitTime > 0)) return;
+  let timeSinceHit = millis() - lastHitTime;
+  let fadeTime = 1000; // 1 second
+  if (timeSinceHit >= fadeTime) return;
+
+  push();
+  let fadeFactor = map(timeSinceHit, 0, fadeTime, 1, 0);
+
+  // Health bar dimensions (match dash/shockwave style)
+  let barWidth = 30;
+  let barHeight = 5;
+  let healthPercent = constrain(health / maxHealth, 0, 1);
+
+  // Background (dark grey - match dash/shockwave)
+  fill(50, 50, 50, 220 * fadeFactor);
+  stroke(0, 255 * fadeFactor);
+  strokeWeight(1);
+  rect(x - barWidth / 2, barY, barWidth, barHeight, 2);
+
+  let barColor;
+  if (health <= 1) {
+    barColor = color(255, 50, 50); // Red
+  } else if (health < 1.5) {
+    // Yellow
+    barColor = color(255, 220, 50);
+  } else if (health < 2) {
+    // Yellow to green gradient (1.5 to 2)
+    let greenAmount = map(health, 1.5, 2, 0, 1, true);
+    barColor = lerpColor(color(255, 220, 50), color(50, 255, 50), greenAmount);
+  } else {
+    // Green to blue gradient (2 to 3)
+    let blueAmount = map(health, 2, 3, 0, 1, true);
+    barColor = lerpColor(color(50, 255, 50), color(50, 150, 255), blueAmount);
+  }
+
+  // Fill (match dash/shockwave style with rounded corners)
+  fill(red(barColor), green(barColor), blue(barColor), 240 * fadeFactor);
+  stroke(0, 255 * fadeFactor);
+  strokeWeight(1);
+  rect(x - barWidth / 2, barY, barWidth * healthPercent, barHeight, 2);
+  pop();
 }
 
 // Soft oval under a sprite, matching the bullet shadow style. Sized to the bug's body
@@ -3398,13 +3507,13 @@ function enemyInteraction1(){
 
   //enemy one interaction
   for (let i = 1; i < enemyCount + 1; i++) {
-    // Skip if ant is airborne (in the air, not just knocked back)
-    if (antAirHeight[i] > 0) continue;
+    // Skip if ant is airborne (in the air, not just knocked back) or hiding in a bunker
+    if (isAntSheltered(i)) continue;
     
     let antHitboxSize = 20.25 + (6.75 * antSize[i]);
     if(playerX > (antX[i] - antHitboxSize) && playerY > (antY[i] - antHitboxSize) && playerX < (antX[i] + antHitboxSize) && playerY < (antY[i] + antHitboxSize)) {
-      // Only run over ants with health <= 1, and only if round is active and player is alive
-      if (end == false && health > 0 && antHealth[i] <= 1){
+      // Only run over ants with health <= 1 (and no nest shield), and only if round is active and player is alive
+      if (end == false && health > 0 && antHealth[i] <= 1 && !hasAntShield(i)){
         comboTime = 60;
         combo = combo + 1;
         calculateBonus();
@@ -3428,6 +3537,7 @@ function enemyInteraction1(){
           }
         }
         
+        onAntDied(i);
         addDeathEffect(antX[i], antY[i], scoreGained);
         antX[i] = random(0, getGameplayWidth());
         antY[i] = random(scoreBarHeight + ANT_SPAWN_BUFFER, getGameplayHeight() - expBarHeight - expBarBuffer - ANT_SPAWN_BUFFER);
@@ -3458,8 +3568,8 @@ function enemyInteraction1(){
         }
 
       }
-      // Push ants with health >= 1 out of the way when walking (not dashing)
-      else if (end == false && antHealth[i] >= 1 && !dash) {
+      // Push ants with health >= 1 (or a nest shield) out of the way when walking (not dashing)
+      else if (end == false && (antHealth[i] >= 1 || hasAntShield(i)) && !dash) {
         // Calculate gentle push direction (away from player)
         let dx = antX[i] - playerX;
         let dy = antY[i] - playerY;
@@ -3476,7 +3586,7 @@ function enemyInteraction1(){
             antKnockbackTimer[i] = max(antKnockbackTimer[i], 10); // Extend timer if needed
           } else {
             // Start new knockback and deal damage
-            antHealth[i] -= 0.2;
+            damageAnt(i, 0.2);
             antLastHitTime[i] = millis();
             
             // Stun if damaged but not killed
@@ -3495,6 +3605,7 @@ function enemyInteraction1(){
             // If health depleted, kill the ant
             if (antHealth[i] <= 0) {
               antLives[i]++;
+              onAntDied(i);
               comboTime = 60;
               if (combo < 1) {
                 combo = 1;
@@ -3522,7 +3633,7 @@ function dashCollision() {
   for (let cell of nearbyCells) {
     for (let i of cell.ants) {
       // Skip if ant is already knocked back (can only be hit once per dash) or airborne
-      if (antKnockedBack[i] || antAirHeight[i] > 0) continue;
+      if (antKnockedBack[i] || isAntSheltered(i)) continue;
       
       let antHitboxSize = 20.25 + (6.75 * antSize[i]);
       if(playerX > (antX[i] - antHitboxSize) && playerY > (antY[i] - antHitboxSize) && 
@@ -3530,7 +3641,7 @@ function dashCollision() {
         
         // Deal damage based on Horns upgrade (1 + 0.2 per level)
         let dashDamage = 1 + (upgrade12Level * 0.2);
-        antHealth[i] -= dashDamage;
+        damageAnt(i, dashDamage);
         antLastHitTime[i] = millis();
         
         // Stun if damaged but not killed
@@ -3562,6 +3673,7 @@ function dashCollision() {
         // If health depleted, kill the ant
         if (antHealth[i] <= 0) {
           antLives[i]++;
+          onAntDied(i);
           comboTime = 60;
           combo++;
           calculateBonus();
@@ -3763,11 +3875,12 @@ function enemyShoot1() {
             const volley = fireAntVolley(i, antX[i], antY[i]);
             // One recoil kick per volley, even for bursts
             applyFiringRecoil(i, volley[volley.length - 1]);
+            if (fireType === 6) onAvengeAntFired(i);
 
             // Log bullet firing
             const volleySpeed = volley[0].trueSpeed;
             let speedTier = getBulletSpeedTier(volleySpeed);
-            let fireTypeName = { '-2': 'Hit Reload', '-1': 'Alt', 0: 'Single', 1: 'Burst', 2: 'Rapid', 3: 'Delayed Burst' }[fireType] || 'Unknown';
+            let fireTypeName = { '-2': 'Hit Reload', '-1': 'Alt', 0: 'Single', 1: 'Burst', 2: 'Rapid', 3: 'Delayed Burst', 5: 'Alarm', 6: 'Avenge' }[fireType] || 'Unknown';
             if (fireType === 3) {
               debugLog(`Ant ${i} fired a ${fireTypeName} bullet (splits into ${Math.round(bulletBurstCount[i])} after ${Math.round(bulletBurstDelay[i])}f) - Speed: ${volleySpeed.toFixed(3)} px/f`);
             } else if (fireType === 1) {
@@ -3868,6 +3981,11 @@ function enemyShoot1() {
           }
         }
         
+        // Blink / portal (3): jump ahead once the blink delay has passed
+        if (bullet.blinkAt != null && !bullet.hasBlinked && bullet.life >= bullet.blinkAt) {
+          blinkBullet(bullet);
+        }
+
         // Store previous air height for velocity calculation
         let previousAirHeight = bullet.airHeight || 0;
         
@@ -3987,6 +4105,9 @@ function enemyShoot1() {
           } else if (deathType === 2 || deathType === 3) {
             // Type 2 / 3: Fire the bullet again from where it faded (refire / turret)
             spawnDeathRefire(bullet, i);
+          } else if (deathType >= 4 && deathType <= 7) {
+            // Type 4-7: Leave a territory / nest area or a mound / bunker where it faded
+            spawnGroundDeathEffect(bullet, i, deathType);
           }
           // Type 0: Just fade and remove (default behavior)
           enemyBullets[i].splice(b, 1);
@@ -4092,6 +4213,19 @@ function enemyShoot1() {
             pop();
           }
 
+          // Blink / portal bullets: a flickering cyan (blink) or pink (portal) aura that quickens until the jump
+          if (bullet.blinkAt != null && !bullet.hasBlinked) {
+            push();
+            noStroke();
+            const blinkCharge = constrain(bullet.life / bullet.blinkAt, 0, 1);
+            const blinkFlicker = 0.5 + 0.5 * Math.sin(bullet.life * (0.3 + 0.9 * blinkCharge));
+            if (bullet.portal) fill(255, 120, 255, (40 + 90 * blinkCharge) * blinkFlicker * bulletStealth);
+            else fill(110, 235, 255, (40 + 90 * blinkCharge) * blinkFlicker * bulletStealth);
+            const blinkAuraSize = (24 + 6 * blinkCharge) * bullet.size;
+            ellipse(bullet.x, bullet.y - bullet.airHeight, blinkAuraSize, blinkAuraSize);
+            pop();
+          }
+
           // Splitting bullets (delayed burst / split arc): orange aura that swells and pulses faster as the split nears
           const splitFrame = getBulletSplitFrame(bullet);
           if (splitFrame !== null) {
@@ -4166,6 +4300,20 @@ function enemyShoot1() {
               stroke(ringColor[0], ringColor[1], ringColor[2], (60 + 170 * charge) * p * bulletStealth);
               ellipse(bullet.x, bullet.y - bullet.airHeight, ringSize, ringSize);
             }
+            pop();
+          }
+
+          // Nest bullets: pulsing blue center marker; bunker bullets (size 1+ only): dark brown center marker
+          const groundDeathType = bullet.noDeathEffect ? 0 : getDeathType(i);
+          if (groundDeathType === 5 || (groundDeathType === 7 && bullet.size >= 1)) {
+            push();
+            noStroke();
+            const markerValue = groundDeathType === 5 ? deathTerritory[i] : deathMound[i];
+            const markerFlashSpeed = map(markerValue, 1.0, 2.0, 2, 8, true);
+            if (groundDeathType === 5) fill(90, 170, 255, 220 * bulletStealth);
+            else fill(70, 45, 20, 230 * bulletStealth);
+            const markerSize = (6 * bullet.size) + 2.5 * sin(bullet.life * markerFlashSpeed * 0.2);
+            ellipse(bullet.x, bullet.y - bullet.airHeight, markerSize, markerSize);
             pop();
           }
 
@@ -4244,6 +4392,10 @@ function enemyShoot1() {
             // Refire / turret death: fire the bullet again from where it landed (on top of its normal impact)
             if (deathType === 2 || deathType === 3) {
               spawnDeathRefire(bullet, bullet.owner);
+            }
+            // Territory / nest area or mound / bunker where it landed (on top of its normal impact)
+            if (deathType >= 4 && deathType <= 7) {
+              spawnGroundDeathEffect(bullet, bullet.owner, deathType);
             }
 
             let hasExplosionSpecial = explodeOnTermination[bullet.owner] || triggerExplodeViaProximity[bullet.owner];
@@ -4331,10 +4483,10 @@ function enemyShoot1() {
         const RADIUS_PER_SIZE = 40;
         let radius = (BASE_RADIUS + RADIUS_PER_SIZE * (mine.size - 1));
         for (let ai = 1; ai <= enemyCount; ai++) {
-          if (antAirHeight[ai] > 0) continue; // Airborne ants are above ground-level blasts
+          if (isAntSheltered(ai)) continue; // Airborne ants are above ground-level blasts
           let d = dist(mine.x, mine.y, antX[ai], antY[ai]);
           if (d <= radius) {
-            antHealth[ai] -= mine.size;
+            damageAnt(ai, mine.size);
             antLastHitTime[ai] = millis();
             // apply simple knockback
             let dx = antX[ai] - mine.x;
@@ -4350,6 +4502,7 @@ function enemyShoot1() {
 
             if (antHealth[ai] <= 0) {
               antLives[ai]++;
+              onAntDied(ai);
               comboTime = 60;
               combo++;
               calculateBonus();
@@ -4395,7 +4548,7 @@ function enemyShoot1() {
       } else {
         // Player-owned mine: check ants for proximity
         for (let ai = 1; ai <= enemyCount; ai++) {
-          if (antAirHeight[ai] > 0) continue; // Airborne ants don't trip ground mines
+          if (isAntSheltered(ai)) continue; // Airborne ants don't trip ground mines
           let d = dist(antX[ai], antY[ai], mine.x, mine.y);
           if (d <= (mine.explosionProximity || 0)) {
             // Apply explosion damage to nearby ants (same as time-based)
@@ -4403,10 +4556,10 @@ function enemyShoot1() {
             const RADIUS_PER_SIZE = 40;
             let radius = (BASE_RADIUS + RADIUS_PER_SIZE * (mine.size - 1));
             for (let aj = 1; aj <= enemyCount; aj++) {
-              if (antAirHeight[aj] > 0) continue; // Airborne ants are above ground-level blasts
+              if (isAntSheltered(aj)) continue; // Airborne ants are above ground-level blasts
               let dj = dist(mine.x, mine.y, antX[aj], antY[aj]);
               if (dj <= radius) {
-                antHealth[aj] -= mine.size;
+                damageAnt(aj, mine.size);
                 antLastHitTime[aj] = millis();
                 // simple knockback
                 let dx = antX[aj] - mine.x;
@@ -4422,6 +4575,7 @@ function enemyShoot1() {
 
                 if (antHealth[aj] <= 0) {
                   antLives[aj]++;
+                  onAntDied(aj);
                   comboTime = 60;
                   combo++;
                   calculateBonus();
@@ -4578,13 +4732,13 @@ function enemyShoot1() {
       
       for (let cell of nearbyCells) {
         for (let i of cell.ants) {
-          if (antAirHeight[i] > 0) continue; // Airborne ants pass over mines
+          if (isAntSheltered(i)) continue; // Airborne ants pass over mines
           let antHitboxSize = 20.25 + (6.75 * antSize[i]);
           let mineHitboxSize = (mineSize / 2);
           if (dist(antX[i], antY[i], mine.x, mine.y) < antHitboxSize + mineHitboxSize) {
             // Mine hits ant
             let damage = mine.size;
-            antHealth[i] -= damage;
+            damageAnt(i, damage);
             
             // Apply knockback if it's a knockback mine
             if (mine.knockbackBullet) {
@@ -4603,6 +4757,7 @@ function enemyShoot1() {
             // Check if ant dies
             if (antHealth[i] <= 0) {
               antLives[i]++;
+              onAntDied(i);
               comboTime = 60;
               combo++;
               calculateBonus();
@@ -5070,6 +5225,24 @@ function beetleShoot() {
       continue;
     }
 
+    // Mounds and bunkers stop the beetle's bullets (timed bombs wait against them for their fuse)
+    if (!b.stopped) {
+      let wall = getEnemyWallAt(b.x, b.y, 4);
+      if (wall) {
+        if (mode === SHOT_MODE_TIMED) {
+          b.stopped = true;
+        } else {
+          if (mode === SHOT_MODE_IMPACT || mode === SHOT_MODE_PROXIMITY) {
+            explodePlayerBomb(b.x, b.y, mode);
+          } else {
+            damageEnemyWall(wall, getPlayerBulletDamage());
+          }
+          playerBullets.splice(i, 1);
+          continue;
+        }
+      }
+    }
+
     // bullet collisions - use spatial grid for optimization
     let nearbyCells = getNearbyCells(b.x, b.y);
     let bulletHit = false;
@@ -5078,8 +5251,8 @@ function beetleShoot() {
       if (bulletHit) break;
 
       for (let j of cell.ants) {
-        // Skip if ant is airborne (in the air, not just knocked back)
-        if (antAirHeight[j] > 0) continue;
+        // Skip if ant is airborne (in the air, not just knocked back) or hiding in a bunker
+        if (isAntSheltered(j)) continue;
 
         if (
           b.x < antX[j] + 25 &&
@@ -5247,7 +5420,7 @@ function tryPlayerShoot() {
 
 // Player acid hits ant j for one bullet's damage. Kills from every shot type count as bullet kills.
 function damageAntWithPlayerAcid(j) {
-  antHealth[j] -= getPlayerBulletDamage();
+  damageAnt(j, getPlayerBulletDamage());
   antLastHitTime[j] = millis();
 
   // Stun if damaged but not killed
@@ -5260,6 +5433,7 @@ function damageAntWithPlayerAcid(j) {
   }
 
   antLives[j]++;
+  onAntDied(j);
   comboTime = 60;
   combo++;
   calculateBonus();
@@ -5282,7 +5456,7 @@ function damageAntWithPlayerAcid(j) {
 
 function isAntWithin(x, y, range) {
   for (let j = 1; j <= enemyCount; j++) {
-    if (antAirHeight[j] > 0) continue;
+    if (isAntSheltered(j)) continue;
     if (dist(x, y, antX[j], antY[j]) < range) return true;
   }
   return false;
@@ -5330,10 +5504,13 @@ function drawPlayerBullet(b, mode) {
 function explodePlayerBomb(x, y, mode) {
   let radius = getBombRadius();
   for (let j = 1; j <= enemyCount; j++) {
-    if (antAirHeight[j] > 0) continue;
+    if (isAntSheltered(j)) continue;
     if (dist(x, y, antX[j], antY[j]) <= radius) {
       damageAntWithPlayerAcid(j);
     }
+  }
+  for (let wall of enemyWalls) {
+    if (dist(x, y, wall.x, wall.y) <= radius + wall.radius) damageEnemyWall(wall, getPlayerBulletDamage());
   }
   playerBombBlasts.push({ x: x, y: y, radius: radius, mode: mode, life: 0 });
   if (!sSpit2.isPlaying()) sSpit2.play();
@@ -5384,7 +5561,7 @@ function firePlayerSpray(beetleX, beetleY, angle) {
   let x = beetleX + dirX * edgeDist;
   let y = beetleY + dirY * edgeDist;
   for (let j = 1; j <= enemyCount; j++) {
-    if (antAirHeight[j] > 0) continue;
+    if (isAntSheltered(j)) continue;
     let dx = antX[j] - x;
     let dy = antY[j] - y;
     let along = dx * dirX + dy * dirY;
@@ -5394,6 +5571,15 @@ function firePlayerSpray(beetleX, beetleY, angle) {
     if (across <= halfWidth + antRadius) {
       damageAntWithPlayerAcid(j);
     }
+  }
+  for (let wall of enemyWalls) {
+    let dx = wall.x - x;
+    let dy = wall.y - y;
+    let along = dx * dirX + dy * dirY;
+    if (along < -wall.radius || along > len + wall.radius) continue;
+    let across = Math.abs(-dx * dirY + dy * dirX);
+    let halfWidth = lerp(baseWidth, tipWidth, constrain(along, 0, len) / len) / 2;
+    if (across <= halfWidth + wall.radius) damageEnemyWall(wall, getPlayerBulletDamage());
   }
   playerSprays.push({ x: x, y: y, angle: angle, len: len, baseWidth: baseWidth, tipWidth: tipWidth, life: 0 });
   // Smoke puffs along the cone, like an ant's bursting stream
@@ -5558,13 +5744,13 @@ function handleWindAttack() {
       
       for (let cell of nearbyCells) {
         for (let i of cell.ants) {
-          // Skip if ant is airborne (in the air, not just knocked back)
-          if (antAirHeight[i] > 0) continue;
+          // Skip if ant is airborne (in the air, not just knocked back) or hiding in a bunker
+          if (isAntSheltered(i)) continue;
           
           let distance = dist(playerX, playerY, antX[i], antY[i]);
           if (distance <= maxRadius) {
             // Deal damage
-            antHealth[i] -= windDamage;
+            damageAnt(i, windDamage);
             antLastHitTime[i] = millis();
             
             // Stun if damaged but not killed
@@ -5586,6 +5772,7 @@ function handleWindAttack() {
             // Check if ant dies
             if (antHealth[i] <= 0) {
               antLives[i]++;
+              onAntDied(i);
               comboTime = 60;
               combo++;
               calculateBonus();
@@ -5614,6 +5801,11 @@ function handleWindAttack() {
         }
       }
       
+      // Mounds and bunkers in the shockwave take its damage too
+      for (let wall of enemyWalls) {
+        if (dist(playerX, playerY, wall.x, wall.y) <= maxRadius + wall.radius) damageEnemyWall(wall, windDamage);
+      }
+
       // Shockwave attack is done, start fade
       windAttackActive = false;
     }
@@ -5895,6 +6087,9 @@ function createAntBullet(i, originX, originY, size, spreadDegrees = 0) {
     curveStrength: bulletCurveStrength[i],
     accelerateDelay: bulletAccelerateDelay[i],
     hasAccelerated: false,
+    blinkAt: pathType === 3 ? Math.round(constrain(blinkDelay[i] ?? BLINK_DEFAULT_DELAY, BLINK_MIN_DELAY, BLINK_MAX_DELAY)) : null,
+    portal: pathType === 3 && pathBlink[i] >= 1,
+    hasBlinked: false,
     targetX: targetX,
     targetY: targetY,
     noDeathEffect: false, // Refired bullets skip their ant's death type
@@ -6130,7 +6325,8 @@ function getFireType(antIndex) {
   let maxVal = Math.max(
     fireBurst[antIndex],
     fireRapid[antIndex],
-    fireAlternating[antIndex]
+    fireAlternating[antIndex],
+    fireAlarm[antIndex] || 0
   );
   // fireBurst: <1 = Burst (tier 1), >=1 = Delayed Burst (tier 2)
   if (fireBurst[antIndex] === maxVal) return fireBurst[antIndex] >= 1 ? 3 : 1;
@@ -6138,6 +6334,8 @@ function getFireType(antIndex) {
   if (fireRapid[antIndex] === maxVal) return fireRapid[antIndex] >= 1 ? 4 : 2;
   // fireAlternating: <1 = Alternating (tier 1), >=1 = Hit Reload (tier 2)
   if (fireAlternating[antIndex] === maxVal) return fireAlternating[antIndex] >= 1 ? -2 : -1;
+  // fireAlarm: <1 = Alarm (tier 1), >=1 = Avenge (tier 2)
+  if (fireAlarm[antIndex] === maxVal) return fireAlarm[antIndex] >= 1 ? 6 : 5;
   return 0; // Normal (fallback)
 }
 
@@ -6153,15 +6351,22 @@ function getDeathType(antIndex) {
   if (!hasInvestment) {
     return 0; // Fading (no token invested)
   }
-  // Highest death trait wins; ties go to landmine
-  if (deathLandmine[antIndex] >= (deathRefire[antIndex] || 0)) {
+  // Highest death trait wins; ties go to the earlier one (landmine, refire, territory, mound)
+  const refire = deathRefire[antIndex] || 0;
+  const territory = deathTerritory[antIndex] || 0;
+  const mound = deathMound[antIndex] || 0;
+  if (deathLandmine[antIndex] >= Math.max(refire, territory, mound)) {
     // deathLandmine: <1 = Smear (tier 1), >=1 = Landmine (tier 2)
     if (deathLandmine[antIndex] >= 1) return 1; // Landmine (tier 2)
     if (deathLandmine[antIndex] > 0) return -1; // Smear (tier 1, base)
     return 0; // Fading (fallback)
   }
   // deathRefire: <1 = Refire (tier 1), >=1 = Turret (tier 2)
-  return deathRefire[antIndex] >= 1 ? 3 : 2;
+  if (refire >= Math.max(territory, mound)) return refire >= 1 ? 3 : 2;
+  // deathTerritory: <1 = Territory (tier 1), >=1 = Nest (tier 2)
+  if (territory >= mound) return territory >= 1 ? 5 : 4;
+  // deathMound: <1 = Mound (tier 1), >=1 = Bunker (tier 2)
+  return mound >= 1 ? 7 : 6;
 }
 
 // Split arc (high arc tier 2): lofted bullets split into SPLIT_ARC_COUNT at the top of their arc.
@@ -6476,6 +6681,10 @@ function createAntStream(i) {
     arcDuration: Math.max(1, bulletArcDuration[i] || HIGH_ARC_MIN_DURATION),
     splitAtApex: isSplitArc(i),
     beam: beam,
+    blink: pathType === 3,                       // Blink / portal streams jump ahead partway along (see blinkStreamNode)
+    portal: pathType === 3 && pathBlink[i] >= 1,
+    blinkDistance: getStreamBlinkDistance(i, range),
+    lastBlinkFlash: -BLINK_STREAM_FLASH_EVERY,
     emitEvery: 1,   // Frames between sprayed bits (high arcs spray less often, see below)
     particlesTotal: (pathType === 2 && !beam) ? Math.max(1, Math.round(STREAM_PARTICLES_PER_SIZE * bulletSize[i])) : 0,
     particleSpread: bulletBurstSpread[i] || PI / 3, // Full cone (radians) particles fan out in, from the burst spread gene
@@ -6558,7 +6767,8 @@ function createStreamNode(stream) {
     apexY: 0,
     branch: -1,
     s: 0,                    // Distance flowed
-    age: 0
+    age: 0,
+    blinked: false           // Blink streams: has jumped ahead already
   };
 }
 
@@ -6628,6 +6838,7 @@ function advanceStreamNode(stream, node, spawned) {
   }
   node.x += Math.cos(node.heading) * STREAM_GROWTH_SPEED;
   node.y += Math.sin(node.heading) * STREAM_GROWTH_SPEED;
+  if (stream.blink && !node.blinked && node.s >= stream.blinkDistance) blinkStreamNode(stream, node);
   return true;
 }
 
@@ -7159,6 +7370,7 @@ function selfDestructAnt(i) {
   // The ant dies in its own blast, counting as a death in its score (antPoints / antLives) but giving the
   // beetle no points, and respawns somewhere else. Its stream, if it was spraying, sees the death and flows away.
   antLives[i]++;
+  onAntDied(i);
   antX[i] = random(0, getGameplayWidth());
   antY[i] = random(scoreBarHeight + ANT_SPAWN_BUFFER, getGameplayHeight() - expBarHeight - expBarBuffer - ANT_SPAWN_BUFFER);
   spawnX[i] = antX[i] + cos(angleFromSpawn[i]);
@@ -7239,7 +7451,7 @@ function getPathType(antIndex) {
     return 0; // Straight (no token invested)
   }
   // Find the highest value among the non-default options
-  let maxVal = Math.max(pathHighArc[antIndex], pathCurve[antIndex], pathAccelerate[antIndex]);
+  let maxVal = Math.max(pathHighArc[antIndex], pathCurve[antIndex], pathAccelerate[antIndex], pathBlink[antIndex] || 0);
   
   if (pathHighArc[antIndex] === maxVal) return 1; // High Arc
   
@@ -7249,6 +7461,10 @@ function getPathType(antIndex) {
   }
   
   // For curve types, use pathCurve value to determine tier
+  // pathBlink: <1 = Blink, >=1 = Portal. Both are pathType 3; bullets carry a portal flag instead.
+  // Ties go to curve.
+  if (pathBlink[antIndex] === maxVal && pathCurve[antIndex] !== maxVal) return 3;
+
   if (pathCurve[antIndex] === maxVal) {
     // pathCurve: <1 = Curved, >=1 = Homing (heat-seeking)
     if (pathCurve[antIndex] >= 1) {
@@ -7259,6 +7475,479 @@ function getPathType(antIndex) {
   }
   
   return 0; // Straight (fallback)
+}
+
+// ========== ALARM / AVENGE, BLINK / PORTAL, TERRITORY / NEST, MOUND / BUNKER ==========
+// Alarm (fire tier 1, fireType 5): the ant's cooldown runs faster while the beetle is close, 1.5x inside the
+// outer radius and 2x inside the inner one. Avenge (fire tier 2, fireType 6): whenever another ant within
+// AVENGE_RADIUS dies, the ant reloads like a hit reload ant (same flash) and fires again; every witnessed
+// death is one more reload + shot, queued up with no cap.
+// Blink (path tier 1) / Portal (path tier 2), both pathType 3: blinkDelay frames after firing, a bullet jumps to
+// where it would have been BLINK_SKIP_FRAMES later (Portal also re-aims it at the target at the same speed).
+// The skipped frames don't count toward its lifetime or fuse, and it can't hit anything on the way.
+// Territory (death tier 1, deathType 4) / Nest (death tier 2, deathType 5): where a bullet hits the ground it
+// leaves an area that runs the cooldown of any ant standing in it 1.5x faster; Nest areas also grow the ants'
+// shields. Mound (death tier 1, deathType 6): a short-lived round wall that blocks the beetle and its bullets.
+// Bunker (death tier 2, deathType 7): a raised, covered hole ants can hide in, unseen; it blocks the beetle like a
+// mound, and the beetle can only hit the bunker. None of the four ever overlap: one that would is not spawned.
+const ALARM_MIN_INNER_RADIUS = 25;
+const ALARM_MAX_INNER_RADIUS = 100;
+const ALARM_DEFAULT_INNER_RADIUS = 75;
+const ALARM_OUTER_RADIUS_AT_MIN = 300;     // Outer radius when the inner radius is 25...
+const ALARM_OUTER_RADIUS_AT_MAX = 100;     // ...falling in a straight line to this when it's 100
+const ALARM_OUTER_BOOST = 1.5;
+const ALARM_INNER_BOOST = 2;
+const MAX_COOLDOWN_BOOST = 3;              // Alarm and territory boosts multiply, up to this
+const AVENGE_RADIUS = 180;               // Avenge: deaths within this distance make the ant fire again
+const BLINK_MIN_DELAY = 10;                // Blink / portal: frames after firing before the jump (genetic stat)
+const BLINK_MAX_DELAY = 120;
+const BLINK_DEFAULT_DELAY = 60;
+const BLINK_SKIP_FRAMES = 30;              // A blinking bullet reappears where it would be this many frames later
+const BLINK_STREAM_JUMP = 90;              // Blink streams jump this far (px) along the way they were sprayed
+const BLINK_STREAM_FLASH_EVERY = 6;        // Blink streams: frames between reappearance flashes
+const BLINK_FLASH_FRAMES = 14;
+const TERRITORY_BOOST = 1.5;               // Cooldown speed-up for ants standing in a territory / nest (doesn't stack)
+const TERRITORY_MIN_RADIUS = 10;           // Explosion-sized radius, kept above 0 for small burst bullets...
+const TERRITORY_MAX_RADIUS = 150;          // ...and capped here
+const TERRITORY_BASE_FRAMES = 150;         // x residueMultiplier
+const NEST_SHIELD_RATE_DIVISOR = 3000;     // Nest: shield grows by (area life left %) / this per frame, up to 1
+const MOUND_RADIUS = 20;                   // Mounds and bunkers
+const MOUND_BASE_FRAMES = 100;             // x residueMultiplier
+const MOUND_RISE_FRAMES = 8;
+const MOUND_FADE_FRAMES = 20;
+const WALL_HIT_FLASH_FRAMES = 8;
+const BUNKER_MIN_RANGE = 1;                // How close to a bunker's edge an ant has to get to hide in it (genetic stat)
+const BUNKER_MAX_RANGE = 70;
+const BUNKER_DEFAULT_RANGE = 35;
+const BUNKER_SPILL_SPEED = 3;              // Ants spilling out of a destroyed / faded bunker slide out this fast
+const PLAYER_WALL_RADIUS = 20;             // The beetle's body for bumping into mounds
+
+// --- Alarm / Avenge ---
+
+function getAlarmOuterRadius(innerRadius) {
+  return map(innerRadius, ALARM_MIN_INNER_RADIUS, ALARM_MAX_INNER_RADIUS, ALARM_OUTER_RADIUS_AT_MIN, ALARM_OUTER_RADIUS_AT_MAX, true);
+}
+
+// Alarm ants: how much faster their cooldown runs right now (1 = not alarmed)
+function getAlarmBoost(i) {
+  if (getFireType(i) !== 5) return 1;
+  const inner = alarmInnerRadius[i] ?? ALARM_DEFAULT_INNER_RADIUS;
+  const d = dist(antX[i], antY[i], playerX, playerY);
+  if (d <= inner) return ALARM_INNER_BOOST;
+  if (d <= getAlarmOuterRadius(inner)) return ALARM_OUTER_BOOST;
+  return 1;
+}
+
+function isReloadFlashActive(i) {
+  return antHitReloadFlashFrame[i] !== undefined && frameCount - antHitReloadFlashFrame[i] < HIT_RELOAD_FLASH_FRAMES;
+}
+
+// Speed up ant cooldowns (Alarm, and standing in a territory / nest) and grow nest shields. A faster cooldown
+// moves antLastShotFrame back, so every cooldown check and reset elsewhere keeps working unchanged.
+function updateAntCooldownBoosts() {
+  for (let i = 1; i <= enemyCount; i++) {
+    let territoryBoost = 1;
+    let shieldGain = 0;
+    for (const area of enemyTerritories) {
+      const dx = antX[i] - area.x;
+      const dy = antY[i] - area.y;
+      if (dx * dx + dy * dy > area.radius * area.radius) continue;
+      territoryBoost = TERRITORY_BOOST; // Overlapping areas give the same flat boost
+      if (area.nest) shieldGain = Math.max(shieldGain, getAreaLifeTimePercentage(area) / NEST_SHIELD_RATE_DIVISOR);
+    }
+    if (shieldGain > 0) antShield[i] = Math.min(1, (antShield[i] || 0) + shieldGain);
+
+    const boost = Math.min(MAX_COOLDOWN_BOOST, getAlarmBoost(i) * territoryBoost);
+    antCooldownBoost[i] = boost;
+    // Hold off during a hit reload / avenge flash so the shot still goes as the flash ends
+    if (boost > 1 && !isReloadFlashActive(i)) {
+      antLastShotFrame[i] -= boost - 1;
+    }
+  }
+}
+
+// Avenge: one more reload + shot for a death this ant saw
+function queueAvengeShot(i) {
+  antAvengeQueue[i] = (antAvengeQueue[i] || 0) + 1;
+  if (!antAvengeArmed[i]) startAvengeReload(i);
+}
+
+// Reload exactly like a hit reload ant: white flash, then fire the moment it ends
+function startAvengeReload(i) {
+  if (!(antAvengeQueue[i] > 0)) return;
+  antAvengeQueue[i]--;
+  antAvengeArmed[i] = true;
+  antHitReloadFlashFrame[i] = frameCount;
+  antLastShotFrame[i] = frameCount + HIT_RELOAD_FLASH_FRAMES - bulletCooldown[i];
+}
+
+// Called whenever an avenge ant fires: start the next queued reload, if any
+function onAvengeAntFired(i) {
+  antAvengeArmed[i] = false;
+  startAvengeReload(i);
+}
+
+// Every ant death goes through here (before the ant respawns somewhere else)
+function onAntDied(i) {
+  const x = antX[i];
+  const y = antY[i];
+  antShield[i] = 0;
+  antAvengeQueue[i] = 0;
+  antAvengeArmed[i] = false;
+  antHitReloadFlashFrame[i] = undefined;
+  releaseAntFromBunker(i, false);
+  for (let k = 1; k <= enemyCount; k++) {
+    if (k === i || getFireType(k) !== 6) continue;
+    if (dist(antX[k], antY[k], x, y) <= AVENGE_RADIUS) queueAvengeShot(k);
+  }
+}
+
+// --- Nest shields ---
+
+function hasAntShield(i) {
+  return (antShield[i] || 0) > 0.001;
+}
+
+// Damage an ant from the beetle; its nest shield soaks up what it can first
+function damageAnt(i, amount) {
+  const shieldLeft = antShield[i] || 0;
+  if (shieldLeft > 0) {
+    const absorbed = Math.min(shieldLeft, amount);
+    antShield[i] = shieldLeft - absorbed;
+    amount -= absorbed;
+  }
+  antHealth[i] -= amount;
+}
+
+// --- Blink / Portal ---
+
+function spawnBlinkFlash(x, y, size, portal) {
+  blinkFlashes.push({ x: x, y: y, size: Math.max(14, size), portal: portal, life: 0 });
+}
+
+// Jump a bullet to where it would be BLINK_SKIP_FRAMES from now (life and fuse don't move on); portal bullets
+// then turn toward the target at the same speed
+function blinkBullet(bullet) {
+  bullet.x += bullet.speedX * BLINK_SKIP_FRAMES;
+  bullet.y += bullet.speedY * BLINK_SKIP_FRAMES;
+  bullet.hasBlinked = true;
+  if (bullet.portal) {
+    const o = bullet.owner;
+    const aimX = playerX + (shotOffsetX[o] || 0);
+    const aimY = playerY + (shotOffsetY[o] || 0);
+    const speed = Math.sqrt(bullet.speedX * bullet.speedX + bullet.speedY * bullet.speedY);
+    const a = Math.atan2(aimY - bullet.y, aimX - bullet.x);
+    bullet.speedX = Math.cos(a) * speed;
+    bullet.speedY = Math.sin(a) * speed;
+    bullet.angle = a * 180 / Math.PI;
+    bullet.targetX = aimX;
+    bullet.targetY = aimY;
+  }
+  // Always flashes, even for ghost / camouflaged bullets
+  spawnBlinkFlash(bullet.x, bullet.y - (bullet.airHeight || 0), 20 * bullet.size, bullet.portal);
+}
+
+// Blink streams: a bit of stream jumps BLINK_STREAM_JUMP ahead the way it was sprayed (portal streams turn
+// toward the target as they come out). Its distance flowed doesn't move on, so the stream reaches further.
+function blinkStreamNode(stream, node) {
+  node.x += Math.cos(node.heading) * BLINK_STREAM_JUMP;
+  node.y += Math.sin(node.heading) * BLINK_STREAM_JUMP;
+  node.blinked = true;
+  if (stream.portal) {
+    const aimX = playerX + (shotOffsetX[stream.owner] || 0);
+    const aimY = playerY + (shotOffsetY[stream.owner] || 0);
+    node.heading = Math.atan2(aimY - node.y, aimX - node.x);
+    node.startHeading = node.heading;
+  }
+  if (stream.life - stream.lastBlinkFlash >= BLINK_STREAM_FLASH_EVERY) {
+    stream.lastBlinkFlash = stream.life;
+    spawnBlinkFlash(node.x, node.y, stream.width, stream.portal);
+  }
+}
+
+// Blink streams: how far along the stream (px flowed) bits jump. The blink delay picks the point the same way
+// it picks the moment for bullets, spread over the stream's length.
+function getStreamBlinkDistance(antIndex, range) {
+  return range * map(blinkDelay[antIndex] ?? BLINK_DEFAULT_DELAY, BLINK_MIN_DELAY, BLINK_MAX_DELAY, 0.1, 0.9, true);
+}
+
+// Bright ring where a blink bullet reappears: cyan for blink, pink for portal
+function drawBlinkFlashes() {
+  for (let i = blinkFlashes.length - 1; i >= 0; i--) {
+    const f = blinkFlashes[i];
+    f.life++;
+    if (f.life >= BLINK_FLASH_FRAMES) {
+      blinkFlashes.splice(i, 1);
+      continue;
+    }
+    const t = f.life / BLINK_FLASH_FRAMES;
+    const c = f.portal ? [255, 120, 255] : [110, 235, 255];
+    push();
+    noFill();
+    stroke(c[0], c[1], c[2], 255 * (1 - t));
+    strokeWeight(3 * (1 - t) + 1);
+    ellipse(f.x, f.y, f.size * (1 + 2 * t));
+    noStroke();
+    fill(c[0], c[1], c[2], 120 * (1 - t));
+    ellipse(f.x, f.y, f.size * (1.6 - 0.6 * t));
+    fill(255, 255, 255, 230 * (1 - t) * (1 - t));
+    ellipse(f.x, f.y, f.size * (1 - 0.5 * t));
+    pop();
+  }
+}
+
+// --- Territory / Nest ---
+
+// Area life left, out of 100 (counts down from 100 as the area fades)
+function getAreaLifeTimePercentage(area) {
+  return 100 * Math.max(0, 1 - area.life / area.maxLife);
+}
+
+// Same radius as an explosion from this bullet (see spawnEnemyExplosion), capped
+function spawnEnemyTerritory(bullet, ownerId, nest) {
+  const radius = constrain((20 + 40 * (bullet.size - 1)) * (radiusMultiplier[ownerId] || 1), TERRITORY_MIN_RADIUS, TERRITORY_MAX_RADIUS);
+  if (!isGroundEffectSpotFree(bullet.x, bullet.y, radius)) return;
+  enemyTerritories.push({
+    x: bullet.x,
+    y: bullet.y,
+    radius: radius,
+    nest: nest,
+    life: 0,
+    maxLife: TERRITORY_BASE_FRAMES * (residueMultiplier[ownerId] || 1)
+  });
+}
+
+// Territory: amber area with a slowly turning ring of dashes. Nest: the same, plus a blue shield ring.
+function updateEnemyTerritories() {
+  for (let i = enemyTerritories.length - 1; i >= 0; i--) {
+    const area = enemyTerritories[i];
+    area.life++;
+    if (area.life >= area.maxLife) {
+      enemyTerritories.splice(i, 1);
+      continue;
+    }
+    if (tigerBeetleActive && tigerBeetleMoving) continue;
+
+    const left = getAreaLifeTimePercentage(area) / 100;
+    const grow = Math.min(1, area.life / 10);
+    const r = area.radius * grow;
+    const alpha = 40 + 200 * left;
+    push();
+    noStroke();
+    fill(255, 185, 60, alpha * 0.18);
+    ellipse(area.x, area.y, r * 2);
+    noFill();
+    stroke(255, 200, 80, alpha * 0.8);
+    strokeWeight(2);
+    // arc() takes degrees: angleMode is DEGREES during gameplay
+    angleMode(DEGREES);
+    const dashes = Math.max(6, Math.round(r / 6));
+    const turn = area.life * 0.6;
+    for (let d = 0; d < dashes; d++) {
+      const a = turn + (d / dashes) * 360;
+      arc(area.x, area.y, r * 2, r * 2, a, a + 180 / dashes, OPEN);
+    }
+    if (area.nest) {
+      stroke(110, 190, 255, alpha * (0.5 + 0.3 * Math.sin(area.life * 0.12)));
+      strokeWeight(2.5);
+      ellipse(area.x, area.y, r * 1.4);
+    }
+    pop();
+  }
+}
+
+// Territories, nests, mounds and bunkers never overlap: true if a circle here wouldn't touch any of them
+function isGroundEffectSpotFree(x, y, radius) {
+  for (const area of enemyTerritories) {
+    if (dist(x, y, area.x, area.y) < radius + area.radius) return false;
+  }
+  for (const wall of enemyWalls) {
+    if (wall.health > 0 && dist(x, y, wall.x, wall.y) < radius + wall.radius) return false;
+  }
+  return true;
+}
+
+// --- Mound / Bunker ---
+
+function spawnEnemyWall(bullet, ownerId, bunker) {
+  if (bunker && bullet.size < 1) return; // Only bullets of size 1 and above can dig a bunker
+  if (!isGroundEffectSpotFree(bullet.x, bullet.y, MOUND_RADIUS)) return;
+  enemyWalls.push({
+    x: bullet.x,
+    y: bullet.y,
+    radius: MOUND_RADIUS,
+    bunker: bunker,
+    health: bullet.size,
+    maxHealth: bullet.size,
+    life: 0,
+    maxLife: MOUND_BASE_FRAMES * (residueMultiplier[ownerId] || 1),
+    hitFlash: 0,
+    dashHit: false, // Hit by the current dash already
+    occupants: 0    // Bunkers: ants that have gone in (for spacing them out)
+  });
+}
+
+// What a bullet leaves where it hits the ground, for the territory / nest and mound / bunker death types
+function spawnGroundDeathEffect(bullet, ownerId, deathType) {
+  if (deathType === 4 || deathType === 5) {
+    spawnEnemyTerritory(bullet, ownerId, deathType === 5);
+  } else if (deathType === 6 || deathType === 7) {
+    spawnEnemyWall(bullet, ownerId, deathType === 7);
+  }
+}
+
+// Any damage the beetle does to a mound or bunker
+function damageEnemyWall(wall, amount) {
+  if (wall.health <= 0) return;
+  wall.health -= amount;
+  wall.hitFlash = WALL_HIT_FLASH_FRAMES;
+  wall.lastHitTime = millis();
+}
+
+// The live mound or bunker a point is touching (within extra px of its edge), or null
+function getEnemyWallAt(x, y, extra) {
+  for (const wall of enemyWalls) {
+    if (wall.health <= 0) continue;
+    const reach = wall.radius + extra;
+    const dx = x - wall.x;
+    const dy = y - wall.y;
+    if (dx * dx + dy * dy < reach * reach) return wall;
+  }
+  return null;
+}
+
+function isAntSheltered(i) {
+  return antAirHeight[i] > 0 || !!antInBunker[i];
+}
+
+function enterBunker(i, wall) {
+  // Spread the ants out around the middle of the hole
+  const a = wall.occupants * 2.4;
+  const r = wall.occupants === 0 ? 0 : wall.radius * 0.4;
+  wall.occupants++;
+  antInBunker[i] = { wall: wall, dx: Math.cos(a) * r, dy: Math.sin(a) * r };
+  antKnockedBack[i] = false;
+  antKnockbackTimer[i] = 0;
+  antRecoilVelX[i] = 0;
+  antRecoilVelY[i] = 0;
+  antX[i] = wall.x + antInBunker[i].dx;
+  antY[i] = wall.y + antInBunker[i].dy;
+}
+
+function releaseAntFromBunker(i, spill) {
+  const spot = antInBunker[i];
+  if (!spot) return;
+  antInBunker[i] = null;
+  if (!spill) return;
+  // Slide out away from the middle of the hole
+  const a = (spot.dx === 0 && spot.dy === 0) ? Math.random() * Math.PI * 2 : Math.atan2(spot.dy, spot.dx);
+  antRecoilVelX[i] = Math.cos(a) * BUNKER_SPILL_SPEED;
+  antRecoilVelY[i] = Math.sin(a) * BUNKER_SPILL_SPEED;
+}
+
+// Update and draw mounds and bunkers, and let ants close enough to a bunker get in
+function updateEnemyWalls() {
+  for (let w = enemyWalls.length - 1; w >= 0; w--) {
+    const wall = enemyWalls[w];
+    wall.life++;
+    if (wall.hitFlash > 0) wall.hitFlash--;
+    if (!dash) wall.dashHit = false;
+    if (wall.health <= 0 || wall.life >= wall.maxLife) {
+      if (wall.bunker) {
+        // Everyone inside spills out
+        for (let i = 1; i <= enemyCount; i++) {
+          if (antInBunker[i] && antInBunker[i].wall === wall) releaseAntFromBunker(i, true);
+        }
+      }
+      if (wall.health <= 0) spawnSmokeImpact(wall.x, wall.y, wall.radius * 1.5, 4);
+      enemyWalls.splice(w, 1);
+      continue;
+    }
+    drawEnemyWall(wall);
+  }
+
+  for (let i = 1; i <= enemyCount; i++) {
+    if (antInBunker[i] || antAirHeight[i] > 0 || antKnockedBack[i]) continue;
+    const range = bunkerRange[i] ?? BUNKER_DEFAULT_RANGE;
+    for (const wall of enemyWalls) {
+      if (!wall.bunker || wall.health <= 0) continue;
+      if (dist(antX[i], antY[i], wall.x, wall.y) - wall.radius <= range) {
+        enterBunker(i, wall);
+        break;
+      }
+    }
+  }
+}
+
+// Ants in a bunker stay put in it (movement elsewhere this frame is undone here)
+function holdBunkeredAnts() {
+  for (let i = 1; i <= enemyCount; i++) {
+    const spot = antInBunker[i];
+    if (!spot) continue;
+    antX[i] = spot.wall.x + spot.dx;
+    antY[i] = spot.wall.y + spot.dy;
+    antKnockedBack[i] = false;
+    antRecoilVelX[i] = 0;
+    antRecoilVelY[i] = 0;
+  }
+}
+
+// Mounds: a raised round wall of dirt. Bunkers: a dark hole in a dirt rim, with a shadow to show it sticks out of
+// the ground (the ants inside can't be seen). Both flash white and show a health bar when hit, and sink away over their last frames.
+function drawEnemyWall(wall) {
+  const rise = Math.min(1, wall.life / MOUND_RISE_FRAMES);
+  const fade = constrain((wall.maxLife - wall.life) / MOUND_FADE_FRAMES, 0, 1);
+  const r = wall.radius * rise * (0.6 + 0.4 * fade);
+  const alpha = 255 * fade;
+  push();
+  noStroke();
+  if (wall.bunker) {
+    // Shadow shows the rim sticking up out of the ground
+    fill(0, 0, 0, alpha * 0.3);
+    ellipse(wall.x + 3, wall.y + 4, r * 2.4, r * 2.2);
+    fill(115, 85, 50, alpha);
+    ellipse(wall.x, wall.y, r * 2.3, r * 2.1);
+    fill(25, 18, 10, alpha);
+    ellipse(wall.x, wall.y, r * 1.8, r * 1.6);
+  } else {
+    fill(0, 0, 0, alpha * 0.3);
+    ellipse(wall.x + 3, wall.y + 4, r * 2.1, r * 1.9);
+    fill(135, 100, 60, alpha);
+    stroke(80, 55, 30, alpha);
+    strokeWeight(2);
+    ellipse(wall.x, wall.y, r * 2, r * 2);
+    noStroke();
+    fill(175, 140, 95, alpha * 0.8);
+    ellipse(wall.x - r * 0.25, wall.y - r * 0.3, r * 1.1, r * 0.9);
+  }
+  if (wall.hitFlash > 0) {
+    noStroke();
+    fill(255, 255, 255, 200 * wall.hitFlash / WALL_HIT_FLASH_FRAMES * fade);
+    ellipse(wall.x, wall.y, r * 2.1);
+  }
+  pop();
+  // Health bar under it for a second after each hit, like an ant's
+  drawHitHealthBar(wall.x, wall.y + wall.radius + 4, Math.max(0, wall.health), wall.maxHealth, wall.lastHitTime);
+}
+
+// The beetle can't walk (or be knocked) into a mound or bunker; dashing into one damages it once
+function resolvePlayerWallCollisions() {
+  for (const wall of enemyWalls) {
+    if (wall.health <= 0) continue;
+    const dx = playerX - wall.x;
+    const dy = playerY - wall.y;
+    const d = Math.sqrt(dx * dx + dy * dy);
+    const reach = wall.radius + PLAYER_WALL_RADIUS;
+    if (d >= reach) continue;
+    if (dash && !wall.dashHit) {
+      wall.dashHit = true;
+      damageEnemyWall(wall, 1 + (upgrade12Level * 0.2)); // Same damage as a dash hit on an ant (Horns)
+    }
+    const nx = d > 0 ? dx / d : 1;
+    const ny = d > 0 ? dy / d : 0;
+    playerX = constrain(wall.x + nx * reach, sideBuffer, getGameplayWidth() - sideBuffer);
+    playerY = constrain(wall.y + ny * reach, scoreBarHeight + 25, getGameplayHeight() - expBarHeight - expBarBuffer);
+  }
 }
 
 // ========== GENE TOKEN SYSTEM ==========
@@ -7326,6 +8015,10 @@ bulletKnockbackMultiplier: { caps: [2, 3, 4, 5], inverse: false },
   pathHighArc: { caps: [1.0, 2.0], inverse: false },  // <1 = high arc, >=1 = split arc
   specialKnockback: { caps: [1.0, 2.0], inverse: false },  // <1 = knockback, >=1 = vacuum
   pathAccelerate: { caps: [1.0, 2.0], inverse: false },  // <1 = accelerate, >=1 = beam
+  fireAlarm: { caps: [1.0, 2.0], inverse: false },  // <1 = alarm, >=1 = avenge
+  pathBlink: { caps: [1.0, 2.0], inverse: false },  // <1 = blink, >=1 = portal
+  deathTerritory: { caps: [1.0, 2.0], inverse: false },  // <1 = territory, >=1 = nest
+  deathMound: { caps: [1.0, 2.0], inverse: false },  // <1 = mound, >=1 = bunker
   bulletAccelerateDelay: { caps: [150, 100, 60, 30], inverse: true, start: 200 },  // Frames before acceleration (inverse: lower=better)
   
   // Explosion stats
@@ -7339,7 +8032,7 @@ bulletKnockbackMultiplier: { caps: [2, 3, 4, 5], inverse: false },
 };
 
 // Stats whose caps mark level 1 / level 2 ability thresholds rather than plain range limits
-const THRESHOLD_GATED_STATS = ['specialExplosion', 'pathCurve', 'deathLandmine', 'deathRefire', 'fireAlternating', 'fireBurst', 'fireRapid', 'pathHighArc', 'pathAccelerate', 'specialKnockback', 'specialCamo', 'specialRecoil'];
+const THRESHOLD_GATED_STATS = ['specialExplosion', 'pathCurve', 'deathLandmine', 'deathRefire', 'deathTerritory', 'deathMound', 'fireAlternating', 'fireBurst', 'fireRapid', 'fireAlarm', 'pathHighArc', 'pathAccelerate', 'pathBlink', 'specialKnockback', 'specialCamo', 'specialRecoil'];
 
 // Dev tools custom ants: give a custom ant the cap tokens its threshold-gated stats need to stay at the
 // tier the user set (e.g. specialKnockback 1.5 needs a tier 0 cap token, or mutation clamps it below 1).
@@ -7534,18 +8227,18 @@ function syncCustomAntCapInvestmentsForStat(customAnt, statName) {
 function getTraitCategoryFromStatKey(statKey) {
   if (!statKey) return null;
   if (['specialExplosion', 'specialKnockback', 'specialCamo', 'specialRecoil', 'specialPotential', 'bulletKnockbackMultiplier', 'bulletCamoFlashRate'].includes(statKey)) return 'special';
-  if (['fireBurst', 'fireRapid', 'fireAlternating', 'firePotential', 'bulletBurstCount', 'bulletBurstSpread', 'bulletBurstDelay', 'bulletCooldownMultiplier'].includes(statKey)) return 'fire';
-  if (['deathLandmine', 'deathRefire', 'deathPotential'].includes(statKey)) return 'death';
-  if (['pathHighArc', 'pathCurve', 'pathAccelerate', 'pathPotential', 'bulletArcDuration', 'bulletCurveStrength'].includes(statKey)) return 'path';
+  if (['fireBurst', 'fireRapid', 'fireAlternating', 'fireAlarm', 'firePotential', 'bulletBurstCount', 'bulletBurstSpread', 'bulletBurstDelay', 'bulletCooldownMultiplier', 'alarmInnerRadius'].includes(statKey)) return 'fire';
+  if (['deathLandmine', 'deathRefire', 'deathTerritory', 'deathMound', 'deathPotential', 'bunkerRange'].includes(statKey)) return 'death';
+  if (['pathHighArc', 'pathCurve', 'pathAccelerate', 'pathBlink', 'pathPotential', 'bulletArcDuration', 'bulletCurveStrength', 'blinkDelay'].includes(statKey)) return 'path';
   return null;
 }
 
 function getDominantTraitKeyForCategory(customAnt, category) {
   const traitKeysByCategory = {
     special: ['specialExplosion', 'specialKnockback', 'specialCamo', 'specialRecoil'],
-    fire: ['fireBurst', 'fireRapid', 'fireAlternating'],
-    death: ['deathLandmine', 'deathRefire'],
-    path: ['pathHighArc', 'pathCurve', 'pathAccelerate']
+    fire: ['fireBurst', 'fireRapid', 'fireAlternating', 'fireAlarm'],
+    death: ['deathLandmine', 'deathRefire', 'deathTerritory', 'deathMound'],
+    path: ['pathHighArc', 'pathCurve', 'pathAccelerate', 'pathBlink']
   };
 
   const traitKeys = traitKeysByCategory[category] || [];
@@ -7645,6 +8338,10 @@ bulletKnockbackMultiplier: { caps: [2, 3, 4, 5], inverse: false },
     pathHighArc: { caps: [1.0, 2.0], inverse: false },  // <1 = high arc, >=1 = split arc
     pathAccelerate: { caps: [1.0, 2.0], inverse: false },  // <1 = accelerate, >=1 = beam
     specialKnockback: { caps: [1.0, 2.0], inverse: false },  // <1 = knockback, >=1 = vacuum
+    fireAlarm: { caps: [1.0, 2.0], inverse: false },  // <1 = alarm, >=1 = avenge
+    pathBlink: { caps: [1.0, 2.0], inverse: false },  // <1 = blink, >=1 = portal
+    deathTerritory: { caps: [1.0, 2.0], inverse: false },  // <1 = territory, >=1 = nest
+    deathMound: { caps: [1.0, 2.0], inverse: false },  // <1 = mound, >=1 = bunker
     
     // Explosion stats
     explosionProximity: { caps: [400, 600, 800, 1000], inverse: false },
@@ -7677,8 +8374,8 @@ bulletKnockbackMultiplier: { caps: [2, 3, 4, 5], inverse: false },
     if (statName === 'specialRecoil' && (specialType === 3 || specialType === -3)) return true; // Recoil or Launch (mutation stat)
     if (statName === 'bulletCamoFlashRate' && specialType === 2) return true; // Camouflage
     if (statName === 'explosionProximity' && specialType === 1) return true; // Explosion
-    if (statName === 'radiusMultiplier' && (specialType === 1 || pathType === 1 || deathType === -1 || isBeamAccelerate(antIndex) || fireType === 4)) return true; // Explosion, High Arc, Smear, Beam, or Stream (width / range)
-    if (statName === 'residueMultiplier' && (specialType === 1 || pathType === 1 || deathType === 1 || deathType === -1 || isBeamAccelerate(antIndex) || fireType === 4)) return true; // Explosion, High Arc, Landmine, Smear, Beam, or Stream (duration)
+    if (statName === 'radiusMultiplier' && (specialType === 1 || pathType === 1 || deathType === -1 || isBeamAccelerate(antIndex) || fireType === 4 || deathType === 4 || deathType === 5)) return true; // Explosion, High Arc, Smear, Beam, Stream (width / range), or Territory / Nest (area size)
+    if (statName === 'residueMultiplier' && (specialType === 1 || pathType === 1 || deathType === 1 || deathType === -1 || isBeamAccelerate(antIndex) || fireType === 4 || (deathType >= 4 && deathType <= 7))) return true; // Explosion, High Arc, Landmine, Smear, Beam, Stream, Territory / Nest, or Mound / Bunker (duration)
     if (statName === 'bulletExplodeAfter' && specialType === 1) return true; // Explosion
     
     // Fire category stats
@@ -7689,6 +8386,7 @@ bulletKnockbackMultiplier: { caps: [2, 3, 4, 5], inverse: false },
     if (statName === 'bulletCooldownMultiplier' && fireType === -1) return true; // Alternating
     if (statName === 'fireAlternating' && (fireType === -1 || fireType === -2)) return true; // Alternating or Hit Reload (mutation stat)
     if (statName === 'fireRapid' && (fireType === 2 || fireType === 4)) return true; // Rapid or Stream (mutation stat)
+    if (statName === 'fireAlarm' && (fireType === 5 || fireType === 6)) return true; // Alarm or Avenge (mutation stat)
     
     // Path category stats
     if (statName === 'bulletArcDuration' && pathType === 1) return true; // High Arc
@@ -7696,10 +8394,13 @@ bulletKnockbackMultiplier: { caps: [2, 3, 4, 5], inverse: false },
     if (statName === 'bulletCurveStrength' && (pathType === -1 || pathType === -2)) return true; // Clockwise or Homing
     if (statName === 'pathCurve' && (pathType === -1 || pathType === -2)) return true; // Curve (mutation stat)
     if (statName === 'pathAccelerate' && pathType === 2) return true; // Accelerate or Beam (mutation stat)
+    if (statName === 'pathBlink' && pathType === 3) return true; // Blink or Portal (mutation stat)
 
     // Death category stats
     if (statName === 'deathLandmine' && (deathType === -1 || deathType === 1)) return true; // Smear or Landmine (mutation stat)
     if (statName === 'deathRefire' && (deathType === 2 || deathType === 3)) return true; // Refire or Turret (mutation stat)
+    if (statName === 'deathTerritory' && (deathType === 4 || deathType === 5)) return true; // Territory or Nest (mutation stat)
+    if (statName === 'deathMound' && (deathType === 6 || deathType === 7)) return true; // Mound or Bunker (mutation stat)
     
     // Ant size unlock varies by difficulty (matches size mutation start rounds)
     if (statName === 'antSize') {
@@ -7844,9 +8545,22 @@ bulletKnockbackMultiplier: { caps: [2, 3, 4, 5], inverse: false },
           bestMutationValue = fireAlternating[antIndex];
           bestMutation = 'fireAlternating';
         }
+        if (fireAlarm[antIndex] > bestMutationValue) {
+          bestMutationValue = fireAlarm[antIndex];
+          bestMutation = 'fireAlarm';
+        }
       } else if (category === 'death') {
-        // Ties go to landmine, matching getDeathType
-        bestMutation = deathRefire[antIndex] > deathLandmine[antIndex] ? 'deathRefire' : 'deathLandmine';
+        // Ties go to the earlier trait (landmine first), matching getDeathType
+        const deathValues = {
+          deathLandmine: deathLandmine[antIndex],
+          deathRefire: deathRefire[antIndex] || 0,
+          deathTerritory: deathTerritory[antIndex] || 0,
+          deathMound: deathMound[antIndex] || 0
+        };
+        bestMutation = 'deathLandmine';
+        for (const key in deathValues) {
+          if (deathValues[key] > deathValues[bestMutation]) bestMutation = key;
+        }
       } else if (category === 'path') {
         if (pathHighArc[antIndex] > bestMutationValue) {
           bestMutationValue = pathHighArc[antIndex];
@@ -7859,6 +8573,10 @@ bulletKnockbackMultiplier: { caps: [2, 3, 4, 5], inverse: false },
         if (pathAccelerate[antIndex] > bestMutationValue) {
           bestMutationValue = pathAccelerate[antIndex];
           bestMutation = 'pathAccelerate';
+        }
+        if (pathBlink[antIndex] > bestMutationValue) {
+          bestMutationValue = pathBlink[antIndex];
+          bestMutation = 'pathBlink';
         }
       }
       
@@ -7936,18 +8654,22 @@ function updateTokenInvestments(antIndex, currentRound) {
           maxOtherValue = Math.max(
             investment.target !== 'fireBurst' ? fireBurst[antIndex] : 0,
             investment.target !== 'fireRapid' ? fireRapid[antIndex] : 0,
-            investment.target !== 'fireAlternating' ? fireAlternating[antIndex] : 0
+            investment.target !== 'fireAlternating' ? fireAlternating[antIndex] : 0,
+            investment.target !== 'fireAlarm' ? fireAlarm[antIndex] : 0
           );
         } else if (investment.category === 'death') {
           maxOtherValue = Math.max(
             investment.target !== 'deathLandmine' ? deathLandmine[antIndex] : 0,
-            investment.target !== 'deathRefire' ? deathRefire[antIndex] : 0
+            investment.target !== 'deathRefire' ? deathRefire[antIndex] : 0,
+            investment.target !== 'deathTerritory' ? deathTerritory[antIndex] : 0,
+            investment.target !== 'deathMound' ? deathMound[antIndex] : 0
           );
         } else if (investment.category === 'path') {
           maxOtherValue = Math.max(
             investment.target !== 'pathHighArc' ? pathHighArc[antIndex] : 0,
             investment.target !== 'pathCurve' ? pathCurve[antIndex] : 0,
-            investment.target !== 'pathAccelerate' ? pathAccelerate[antIndex] : 0
+            investment.target !== 'pathAccelerate' ? pathAccelerate[antIndex] : 0,
+            investment.target !== 'pathBlink' ? pathBlink[antIndex] : 0
           );
         }
         
@@ -8024,6 +8746,10 @@ bulletKnockbackMultiplier: { caps: [2, 3, 4, 5], inverse: false },
     pathHighArc: { caps: [1.0, 2.0], inverse: false },  // <1 = high arc, >=1 = split arc
     pathAccelerate: { caps: [1.0, 2.0], inverse: false },  // <1 = accelerate, >=1 = beam
     specialKnockback: { caps: [1.0, 2.0], inverse: false },  // <1 = knockback, >=1 = vacuum
+    fireAlarm: { caps: [1.0, 2.0], inverse: false },  // <1 = alarm, >=1 = avenge
+    pathBlink: { caps: [1.0, 2.0], inverse: false },  // <1 = blink, >=1 = portal
+    deathTerritory: { caps: [1.0, 2.0], inverse: false },  // <1 = territory, >=1 = nest
+    deathMound: { caps: [1.0, 2.0], inverse: false },  // <1 = mound, >=1 = bunker
     
     // Explosion stats
     explosionProximity: { caps: [400, 600, 800, 1000], inverse: false },
@@ -8493,8 +9219,8 @@ function handleExplosionDamage(size, ownerId) {
 
 function autonomousAntMovement(){
   for (let i = 1; i <= enemyCount; i++) {
-    // Skip knocked back ants - they use knockback movement instead
-    if (antKnockedBack[i]) continue;
+    // Skip knocked back ants - they use knockback movement instead (and ants hiding in a bunker)
+    if (antKnockedBack[i] || antInBunker[i]) continue;
     
     if (findLocation[i] === true){
       if (followTarget[i] === true){
@@ -8515,8 +9241,8 @@ function autonomousAntMovement(){
     }
   }
   for (let i = 1; i <= enemyCount; i++) {
-    // Skip knocked back ants
-    if (antKnockedBack[i]) continue;
+    // Skip knocked back ants and ants hiding in a bunker
+    if (antKnockedBack[i] || antInBunker[i]) continue;
     
     if (!keepDistance[i]) continue; // only handle autonomous keep-distance ants
 
@@ -10418,6 +11144,14 @@ function clearRoundEffects() {
   antStreamEndFrame = [];
   antSelfDestructFuse = [];
   enemySmokeImpacts = [];
+  enemyTerritories = [];
+  enemyWalls = [];
+  blinkFlashes = [];
+  antShield = [];
+  antInBunker = [];
+  antAvengeQueue = [];
+  antAvengeArmed = [];
+  antCooldownBoost = [];
   deathAnimations = [];
   floatingTexts = [];
   flashingEntities = [];
@@ -10602,17 +11336,20 @@ function nextRound(){
         }
         // Only mutate radius if parent uses explosion or high arc; residue also if parent uses landmines
         const sUsesExplosion = s.specialPotential > 0.5 && s.specialExplosion >= Math.max(s.specialKnockback, s.specialCamo || 0, s.specialRecoil || 0);
-        const sUsesHighArc = s.pathPotential > 0.5 && s.pathHighArc >= s.pathCurve && s.pathHighArc >= s.pathAccelerate;
-        const sUsesLandmine = s.deathPotential > 0.5 && s.deathLandmine > 0 && s.deathLandmine >= (s.deathRefire || 0);
+        const sUsesHighArc = s.pathPotential > 0.5 && s.pathHighArc >= s.pathCurve && s.pathHighArc >= s.pathAccelerate && s.pathHighArc >= (s.pathBlink || 0);
+        const sUsesLandmine = s.deathPotential > 0.5 && s.deathLandmine > 0 && s.deathLandmine >= Math.max(s.deathRefire || 0, s.deathTerritory || 0, s.deathMound || 0);
         const sUsesSmear = sUsesLandmine && s.deathLandmine < 1;
-        const sUsesBeam = s.pathPotential > 0.5 && s.pathAccelerate >= 1 && s.pathAccelerate >= s.pathHighArc && s.pathAccelerate >= s.pathCurve;
-        const sUsesStream = s.firePotential > 0.5 && s.fireRapid >= 1 && s.fireRapid > s.fireBurst && s.fireRapid >= s.fireAlternating;
-        if (sUsesExplosion || sUsesHighArc || sUsesSmear || sUsesBeam || sUsesStream) {
+        const sUsesBeam = s.pathPotential > 0.5 && s.pathAccelerate >= 1 && s.pathAccelerate >= s.pathHighArc && s.pathAccelerate >= s.pathCurve && s.pathAccelerate >= (s.pathBlink || 0);
+        const sUsesStream = s.firePotential > 0.5 && s.fireRapid >= 1 && s.fireRapid > s.fireBurst && s.fireRapid >= s.fireAlternating && s.fireRapid >= (s.fireAlarm || 0);
+        const sDeathTrait = s.deathPotential > 0.5 ? getDominantTraitKeyForCategory(s, 'death') : null;
+        const sUsesTerritory = sDeathTrait === 'deathTerritory';
+        const sUsesMound = sDeathTrait === 'deathMound';
+        if (sUsesExplosion || sUsesHighArc || sUsesSmear || sUsesBeam || sUsesStream || sUsesTerritory) {
           radiusMultiplier[i] = constrain(s.radiusMultiplier + random(-0.2, 0.2), 0.5, 3);
         } else {
           radiusMultiplier[i] = s.radiusMultiplier;
         }
-        if (sUsesExplosion || sUsesHighArc || sUsesLandmine || sUsesBeam || sUsesStream) {
+        if (sUsesExplosion || sUsesHighArc || sUsesLandmine || sUsesBeam || sUsesStream || sUsesTerritory || sUsesMound) {
           residueMultiplier[i] = constrain(s.residueMultiplier + random(-0.2, 0.2), 0.5, 3);
         } else {
           residueMultiplier[i] = s.residueMultiplier;
@@ -10633,9 +11370,16 @@ function nextRound(){
         fireBurst[i]    = constrain(s.fireBurst    + random(-movementMutationRate, movementMutationRate), 0, getMaxAllowedValue('fireBurst', i, s.geneTokenInvestments || []));
         fireRapid[i]    = constrain(s.fireRapid    + random(-movementMutationRate, movementMutationRate), 0, getMaxAllowedValue('fireRapid', i, s.geneTokenInvestments || []));
         fireAlternating[i]    = constrain(s.fireAlternating    + random(-movementMutationRate, movementMutationRate), 0, getMaxAllowedValue('fireAlternating', i, s.geneTokenInvestments || []));
+        fireAlarm[i]    = constrain((s.fireAlarm || 0)    + random(-movementMutationRate, movementMutationRate), 0, getMaxAllowedValue('fireAlarm', i, s.geneTokenInvestments || []));
+        // Only mutate the alarm radius if parent uses alarm fire
+        if (s.firePotential > 0.5 && getDominantTraitKeyForCategory(s, 'fire') === 'fireAlarm' && s.fireAlarm < 1) {
+          alarmInnerRadius[i] = constrain((s.alarmInnerRadius ?? ALARM_DEFAULT_INNER_RADIUS) + random(-10, 10), ALARM_MIN_INNER_RADIUS, ALARM_MAX_INNER_RADIUS);
+        } else {
+          alarmInnerRadius[i] = s.alarmInnerRadius ?? ALARM_DEFAULT_INNER_RADIUS;
+        }
         firePotential[i]    = constrain(s.firePotential    + random(-movementMutationRate, movementMutationRate), 0, 1);
         // Only mutate burst/rapid stats if parent uses burst or rapid fire
-        if (s.firePotential > 0.5 && (s.fireBurst >= Math.max(s.fireRapid, s.fireAlternating) || s.fireRapid >= Math.max(s.fireBurst, s.fireAlternating))) {
+        if (s.firePotential > 0.5 && (s.fireBurst >= Math.max(s.fireRapid, s.fireAlternating, s.fireAlarm || 0) || s.fireRapid >= Math.max(s.fireBurst, s.fireAlternating, s.fireAlarm || 0))) {
           bulletBurstCount[i] = constrain(s.bulletBurstCount + random(-movementMutationRate, movementMutationRate), 1.5, getMaxAllowedValue('bulletBurstCount', i, s.geneTokenInvestments || []));
           bulletBurstSpread[i] = constrain(s.bulletBurstSpread + random(-movementMutationRate, movementMutationRate), PI/3, getMaxAllowedValue('bulletBurstSpread', i, s.geneTokenInvestments || []));
         } else {
@@ -10643,13 +11387,13 @@ function nextRound(){
           bulletBurstSpread[i] = s.bulletBurstSpread;
         }
         // Only mutate burst delay if parent uses delayed burst fire
-        if (s.firePotential > 0.5 && s.fireBurst >= 1 && s.fireBurst >= Math.max(s.fireRapid, s.fireAlternating)) {
+        if (s.firePotential > 0.5 && s.fireBurst >= 1 && s.fireBurst >= Math.max(s.fireRapid, s.fireAlternating, s.fireAlarm || 0)) {
           bulletBurstDelay[i] = constrain((s.bulletBurstDelay ?? 40) + random(-5, 5), DELAYED_BURST_MIN_DELAY, DELAYED_BURST_MAX_DELAY);
         } else {
           bulletBurstDelay[i] = s.bulletBurstDelay ?? 40;
         }
         // Only mutate cooldown multiplier if parent uses alternating fire
-        if (s.firePotential > 0.5 && s.fireAlternating >= Math.max(s.fireBurst, s.fireRapid)) {
+        if (s.firePotential > 0.5 && s.fireAlternating >= Math.max(s.fireBurst, s.fireRapid, s.fireAlarm || 0)) {
           bulletCooldownMultiplier[i] = constrain(s.bulletCooldownMultiplier + random(-movementMutationRate, movementMutationRate), 0.5, getMaxAllowedValue('bulletCooldownMultiplier', i, s.geneTokenInvestments || []));
         } else {
           bulletCooldownMultiplier[i] = s.bulletCooldownMultiplier;
@@ -10657,31 +11401,43 @@ function nextRound(){
         // Death category (mutation-based)
         deathLandmine[i]    = constrain(s.deathLandmine    + random(-(movementMutationRate/2), (movementMutationRate/2)), 0, getMaxAllowedValue('deathLandmine', i, s.geneTokenInvestments || []));
         deathRefire[i]    = constrain((s.deathRefire || 0)    + random(-(movementMutationRate/2), (movementMutationRate/2)), 0, getMaxAllowedValue('deathRefire', i, s.geneTokenInvestments || []));
+        deathTerritory[i]    = constrain((s.deathTerritory || 0)    + random(-(movementMutationRate/2), (movementMutationRate/2)), 0, getMaxAllowedValue('deathTerritory', i, s.geneTokenInvestments || []));
+        deathMound[i]    = constrain((s.deathMound || 0)    + random(-(movementMutationRate/2), (movementMutationRate/2)), 0, getMaxAllowedValue('deathMound', i, s.geneTokenInvestments || []));
+        // Every ant can hide in any bunker, so bunker range always mutates
+        bunkerRange[i] = constrain((s.bunkerRange ?? BUNKER_DEFAULT_RANGE) + random(-5, 5), BUNKER_MIN_RANGE, BUNKER_MAX_RANGE);
         deathPotential[i]    = constrain(s.deathPotential    + random(-(movementMutationRate/2), (movementMutationRate/2)), 0, 1);
         // Path category (mutation-based)
         pathHighArc[i]    = constrain(s.pathHighArc    + random(-movementMutationRate, movementMutationRate), 0, getMaxAllowedValue('pathHighArc', i, s.geneTokenInvestments || []));
         pathCurve[i]    = constrain(s.pathCurve    + random(-movementMutationRate, movementMutationRate), 0, getMaxAllowedValue('pathCurve', i, s.geneTokenInvestments || []));
         pathAccelerate[i]    = constrain(s.pathAccelerate    + random(-movementMutationRate, movementMutationRate), 0, getMaxAllowedValue('pathAccelerate', i, s.geneTokenInvestments || []));
+        pathBlink[i]    = constrain((s.pathBlink || 0)    + random(-movementMutationRate, movementMutationRate), 0, getMaxAllowedValue('pathBlink', i, s.geneTokenInvestments || []));
+        // Only mutate the blink delay if parent uses blink / portal
+        if (s.pathPotential > 0.5 && getDominantTraitKeyForCategory(s, 'path') === 'pathBlink') {
+          blinkDelay[i] = constrain((s.blinkDelay ?? BLINK_DEFAULT_DELAY) + random(-10, 10), BLINK_MIN_DELAY, BLINK_MAX_DELAY);
+        } else {
+          blinkDelay[i] = s.blinkDelay ?? BLINK_DEFAULT_DELAY;
+        }
         pathPotential[i]    = constrain(s.pathPotential    + random(-movementMutationRate, movementMutationRate), 0, 1);
         // Determine dominant path trait
         let pathHighArcVal = s.pathHighArc;
         let pathCurveVal = s.pathCurve;
         let pathAccelerateVal = s.pathAccelerate;
+        let pathBlinkVal = s.pathBlink || 0;
         // Only mutate arc duration if parent uses high arc
-        if (s.pathPotential > 0.5 && pathHighArcVal >= pathCurveVal && pathHighArcVal >= pathAccelerateVal) {
+        if (s.pathPotential > 0.5 && pathHighArcVal >= pathCurveVal && pathHighArcVal >= pathAccelerateVal && pathHighArcVal >= pathBlinkVal) {
           bulletArcDuration[i] = constrain(s.bulletArcDuration + random(-50, 50), HIGH_ARC_MIN_DURATION, getMaxAllowedValue('bulletArcDuration', i, s.geneTokenInvestments || []));
         } else {
           bulletArcDuration[i] = s.bulletArcDuration;
         }
         // Only mutate curve strength if parent uses curve/homing path
-        if (s.pathPotential > 0.5 && pathCurveVal >= pathHighArcVal && pathCurveVal >= pathAccelerateVal) {
+        if (s.pathPotential > 0.5 && pathCurveVal >= pathHighArcVal && pathCurveVal >= pathAccelerateVal && pathCurveVal >= pathBlinkVal) {
           const maxCurve = getMaxAllowedValue('bulletCurveStrength', i, s.geneTokenInvestments || []);
           bulletCurveStrength[i] = constrain(s.bulletCurveStrength + random(-0.005, 0.005), -maxCurve, maxCurve);
         } else {
           bulletCurveStrength[i] = s.bulletCurveStrength;
         }
         // Only mutate accelerate delay if parent uses accelerating bullets
-        if (s.pathPotential > 0.5 && pathAccelerateVal >= pathHighArcVal && pathAccelerateVal >= pathCurveVal) {
+        if (s.pathPotential > 0.5 && pathAccelerateVal >= pathHighArcVal && pathAccelerateVal >= pathCurveVal && pathAccelerateVal >= pathBlinkVal) {
           bulletAccelerateDelay[i] = constrain(s.bulletAccelerateDelay + random(-20, 20), getMinAllowedValue('bulletAccelerateDelay', i, s.geneTokenInvestments || []), 200);
         } else {
           bulletAccelerateDelay[i] = s.bulletAccelerateDelay;
@@ -10758,17 +11514,20 @@ function nextRound(){
         }
         // Only mutate radius if parent uses explosion or high arc; residue also if parent uses landmines
         const parentUsesExplosion = specialPotential[parent.id] > 0.5 && specialExplosion[parent.id] >= Math.max(specialKnockback[parent.id], specialCamo[parent.id], specialRecoil[parent.id]);
-        const parentUsesHighArc = pathPotential[parent.id] > 0.5 && pathHighArc[parent.id] >= pathCurve[parent.id] && pathHighArc[parent.id] >= pathAccelerate[parent.id];
-        const parentUsesLandmine = deathPotential[parent.id] > 0.5 && deathLandmine[parent.id] > 0 && deathLandmine[parent.id] >= deathRefire[parent.id];
+        const parentUsesHighArc = pathPotential[parent.id] > 0.5 && pathHighArc[parent.id] >= pathCurve[parent.id] && pathHighArc[parent.id] >= pathAccelerate[parent.id] && pathHighArc[parent.id] >= pathBlink[parent.id];
+        const parentUsesLandmine = deathPotential[parent.id] > 0.5 && deathLandmine[parent.id] > 0 && deathLandmine[parent.id] >= Math.max(deathRefire[parent.id], deathTerritory[parent.id], deathMound[parent.id]);
         const parentUsesSmear = parentUsesLandmine && deathLandmine[parent.id] < 1;
         const parentUsesBeam = isBeamAccelerate(parent.id);
         const parentUsesStream = isStreamFire(parent.id);
-        if (parentUsesExplosion || parentUsesHighArc || parentUsesSmear || parentUsesBeam || parentUsesStream) {
+        const parentDeathType = getDeathType(parent.id);
+        const parentUsesTerritory = parentDeathType === 4 || parentDeathType === 5;
+        const parentUsesMound = parentDeathType === 6 || parentDeathType === 7;
+        if (parentUsesExplosion || parentUsesHighArc || parentUsesSmear || parentUsesBeam || parentUsesStream || parentUsesTerritory) {
           radiusMultiplier[i] = constrain(radiusMultiplier[parent.id] + random(-0.2, 0.2), 0.5, 3);
         } else {
           radiusMultiplier[i] = radiusMultiplier[parent.id];
         }
-        if (parentUsesExplosion || parentUsesHighArc || parentUsesLandmine || parentUsesBeam || parentUsesStream) {
+        if (parentUsesExplosion || parentUsesHighArc || parentUsesLandmine || parentUsesBeam || parentUsesStream || parentUsesTerritory || parentUsesMound) {
           residueMultiplier[i] = constrain(residueMultiplier[parent.id] + random(-0.2, 0.2), 0.5, 3);
         } else {
           residueMultiplier[i] = residueMultiplier[parent.id];
@@ -10789,9 +11548,16 @@ function nextRound(){
         fireBurst[i]    = constrain(fireBurst[parent.id]    + random(-movementMutationRate, movementMutationRate), 0, getMaxAllowedValue('fireBurst', parent.id));
         fireRapid[i]    = constrain(fireRapid[parent.id]    + random(-movementMutationRate, movementMutationRate), 0, getMaxAllowedValue('fireRapid', parent.id));
         fireAlternating[i]    = constrain(fireAlternating[parent.id]    + random(-movementMutationRate, movementMutationRate), 0, getMaxAllowedValue('fireAlternating', parent.id));
+        fireAlarm[i]    = constrain(fireAlarm[parent.id]    + random(-movementMutationRate, movementMutationRate), 0, getMaxAllowedValue('fireAlarm', parent.id));
+        // Only mutate the alarm radius if parent uses alarm fire
+        if (getFireType(parent.id) === 5) {
+          alarmInnerRadius[i] = constrain(alarmInnerRadius[parent.id] + random(-10, 10), ALARM_MIN_INNER_RADIUS, ALARM_MAX_INNER_RADIUS);
+        } else {
+          alarmInnerRadius[i] = alarmInnerRadius[parent.id];
+        }
         firePotential[i]    = constrain(firePotential[parent.id]    + random(-movementMutationRate, movementMutationRate), 0, 1);
         // Only mutate burst/rapid stats if parent uses burst or rapid fire
-        if (firePotential[parent.id] > 0.5 && (fireBurst[parent.id] >= Math.max(fireRapid[parent.id], fireAlternating[parent.id]) || fireRapid[parent.id] >= Math.max(fireBurst[parent.id], fireAlternating[parent.id]))) {
+        if (firePotential[parent.id] > 0.5 && (fireBurst[parent.id] >= Math.max(fireRapid[parent.id], fireAlternating[parent.id], fireAlarm[parent.id]) || fireRapid[parent.id] >= Math.max(fireBurst[parent.id], fireAlternating[parent.id], fireAlarm[parent.id]))) {
           bulletBurstCount[i] = constrain(bulletBurstCount[parent.id] + random(-movementMutationRate, movementMutationRate), 1.5, getMaxAllowedValue('bulletBurstCount', parent.id));
           bulletBurstSpread[i] = constrain(bulletBurstSpread[parent.id] + random(-movementMutationRate, movementMutationRate), PI/3, getMaxAllowedValue('bulletBurstSpread', parent.id));
         } else {
@@ -10799,13 +11565,13 @@ function nextRound(){
           bulletBurstSpread[i] = bulletBurstSpread[parent.id];
         }
         // Only mutate burst delay if parent uses delayed burst fire
-        if (firePotential[parent.id] > 0.5 && fireBurst[parent.id] >= 1 && fireBurst[parent.id] >= Math.max(fireRapid[parent.id], fireAlternating[parent.id])) {
+        if (firePotential[parent.id] > 0.5 && fireBurst[parent.id] >= 1 && fireBurst[parent.id] >= Math.max(fireRapid[parent.id], fireAlternating[parent.id], fireAlarm[parent.id])) {
           bulletBurstDelay[i] = constrain(bulletBurstDelay[parent.id] + random(-5, 5), DELAYED_BURST_MIN_DELAY, DELAYED_BURST_MAX_DELAY);
         } else {
           bulletBurstDelay[i] = bulletBurstDelay[parent.id];
         }
         // Only mutate cooldown multiplier if parent uses alternating fire
-        if (firePotential[parent.id] > 0.5 && fireAlternating[parent.id] >= Math.max(fireBurst[parent.id], fireRapid[parent.id])) {
+        if (firePotential[parent.id] > 0.5 && fireAlternating[parent.id] >= Math.max(fireBurst[parent.id], fireRapid[parent.id], fireAlarm[parent.id])) {
           bulletCooldownMultiplier[i] = constrain(bulletCooldownMultiplier[parent.id] + random(-movementMutationRate, movementMutationRate), 0.5, getMaxAllowedValue('bulletCooldownMultiplier', parent.id));
         } else {
           bulletCooldownMultiplier[i] = bulletCooldownMultiplier[parent.id];
@@ -10813,31 +11579,43 @@ function nextRound(){
         // Death category (mutation-based)
         deathLandmine[i]    = constrain(deathLandmine[parent.id]    + random(-(movementMutationRate/2), (movementMutationRate/2)), 0, getMaxAllowedValue('deathLandmine', parent.id));
         deathRefire[i]    = constrain(deathRefire[parent.id]    + random(-(movementMutationRate/2), (movementMutationRate/2)), 0, getMaxAllowedValue('deathRefire', parent.id));
+        deathTerritory[i]    = constrain(deathTerritory[parent.id]    + random(-(movementMutationRate/2), (movementMutationRate/2)), 0, getMaxAllowedValue('deathTerritory', parent.id));
+        deathMound[i]    = constrain(deathMound[parent.id]    + random(-(movementMutationRate/2), (movementMutationRate/2)), 0, getMaxAllowedValue('deathMound', parent.id));
+        // Every ant can hide in any bunker, so bunker range always mutates
+        bunkerRange[i] = constrain(bunkerRange[parent.id] + random(-5, 5), BUNKER_MIN_RANGE, BUNKER_MAX_RANGE);
         deathPotential[i]    = constrain(deathPotential[parent.id]    + random(-(movementMutationRate/2), (movementMutationRate/2)), 0, 1);
         // Path category (mutation-based)
         pathHighArc[i]    = constrain(pathHighArc[parent.id]    + random(-movementMutationRate, movementMutationRate), 0, getMaxAllowedValue('pathHighArc', parent.id));
         pathCurve[i]    = constrain(pathCurve[parent.id]    + random(-movementMutationRate, movementMutationRate), 0, getMaxAllowedValue('pathCurve', parent.id));
         pathAccelerate[i]    = constrain(pathAccelerate[parent.id]    + random(-movementMutationRate, movementMutationRate), 0, getMaxAllowedValue('pathAccelerate', parent.id));
+        pathBlink[i]    = constrain(pathBlink[parent.id]    + random(-movementMutationRate, movementMutationRate), 0, getMaxAllowedValue('pathBlink', parent.id));
+        // Only mutate the blink delay if parent uses blink / portal
+        if (getPathType(parent.id) === 3) {
+          blinkDelay[i] = constrain(blinkDelay[parent.id] + random(-10, 10), BLINK_MIN_DELAY, BLINK_MAX_DELAY);
+        } else {
+          blinkDelay[i] = blinkDelay[parent.id];
+        }
         pathPotential[i]    = constrain(pathPotential[parent.id]    + random(-movementMutationRate, movementMutationRate), 0, 1);
         // Determine dominant path trait
         let pathHighArcVal = pathHighArc[parent.id];
         let pathCurveVal = pathCurve[parent.id];
         let pathAccelerateVal = pathAccelerate[parent.id];
+        let pathBlinkVal = pathBlink[parent.id];
         // Only mutate arc duration if parent uses high arc
-        if (pathPotential[parent.id] > 0.5 && pathHighArcVal >= pathCurveVal && pathHighArcVal >= pathAccelerateVal) {
+        if (pathPotential[parent.id] > 0.5 && pathHighArcVal >= pathCurveVal && pathHighArcVal >= pathAccelerateVal && pathHighArcVal >= pathBlinkVal) {
           bulletArcDuration[i] = constrain(bulletArcDuration[parent.id] + random(-50, 50), HIGH_ARC_MIN_DURATION, getMaxAllowedValue('bulletArcDuration', parent.id));
         } else {
           bulletArcDuration[i] = bulletArcDuration[parent.id];
         }
         // Only mutate curve strength if parent uses curve/homing path
-        if (pathPotential[parent.id] > 0.5 && pathCurveVal >= pathHighArcVal && pathCurveVal >= pathAccelerateVal) {
+        if (pathPotential[parent.id] > 0.5 && pathCurveVal >= pathHighArcVal && pathCurveVal >= pathAccelerateVal && pathCurveVal >= pathBlinkVal) {
           const maxCurve = getMaxAllowedValue('bulletCurveStrength', parent.id);
           bulletCurveStrength[i] = constrain(bulletCurveStrength[parent.id] + random(-0.005, 0.005), -maxCurve, maxCurve);
         } else {
           bulletCurveStrength[i] = bulletCurveStrength[parent.id];
         }
         // Only mutate accelerate delay if parent uses accelerating bullets
-        if (pathPotential[parent.id] > 0.5 && pathAccelerateVal >= pathHighArcVal && pathAccelerateVal >= pathCurveVal) {
+        if (pathPotential[parent.id] > 0.5 && pathAccelerateVal >= pathHighArcVal && pathAccelerateVal >= pathCurveVal && pathAccelerateVal >= pathBlinkVal) {
           bulletAccelerateDelay[i] = constrain(bulletAccelerateDelay[parent.id] + random(-20, 20), getMinAllowedValue('bulletAccelerateDelay', parent.id), 200);
         } else {
           bulletAccelerateDelay[i] = bulletAccelerateDelay[parent.id];
@@ -11039,12 +11817,25 @@ function nextRound(){
         ? constrain(fireAlternating[winner.id] + random(-movementMutationRate, movementMutationRate), 0, getMaxAllowedValue('fireAlternating', winner.id))
         : random(0, 1);
       
+      fireAlarm[i] = winner
+        ? constrain(fireAlarm[winner.id] + random(-movementMutationRate, movementMutationRate), 0, getMaxAllowedValue('fireAlarm', winner.id))
+        : random(0, 0.9);
+
+      // Only mutate the alarm radius if winner uses alarm fire
+      if (winner && getFireType(winner.id) === 5) {
+        alarmInnerRadius[i] = constrain(alarmInnerRadius[winner.id] + random(-10, 10), ALARM_MIN_INNER_RADIUS, ALARM_MAX_INNER_RADIUS);
+      } else if (winner) {
+        alarmInnerRadius[i] = alarmInnerRadius[winner.id];
+      } else {
+        alarmInnerRadius[i] = random(ALARM_MIN_INNER_RADIUS, ALARM_MAX_INNER_RADIUS);
+      }
+
       firePotential[i] = winner
         ? constrain(firePotential[winner.id] + random(-movementMutationRate, movementMutationRate), 0, 1)
         : random(0, 1);
       
       // Only mutate burst/rapid stats if winner uses burst or rapid fire
-      if (winner && firePotential[winner.id] > 0.5 && (fireBurst[winner.id] >= Math.max(fireRapid[winner.id], fireAlternating[winner.id]) || fireRapid[winner.id] >= Math.max(fireBurst[winner.id], fireAlternating[winner.id]))) {
+      if (winner && firePotential[winner.id] > 0.5 && (fireBurst[winner.id] >= Math.max(fireRapid[winner.id], fireAlternating[winner.id], fireAlarm[winner.id]) || fireRapid[winner.id] >= Math.max(fireBurst[winner.id], fireAlternating[winner.id], fireAlarm[winner.id]))) {
         bulletBurstCount[i] = constrain(bulletBurstCount[winner.id] + random(-1, 1), 1.5, getMaxAllowedValue('bulletBurstCount', winner.id));
         bulletBurstSpread[i] = constrain(bulletBurstSpread[winner.id] + random(-0.2, 0.2), PI/3, getMaxAllowedValue('bulletBurstSpread', winner.id));
       } else if (winner) {
@@ -11056,7 +11847,7 @@ function nextRound(){
       }
 
       // Only mutate burst delay if winner uses delayed burst fire
-      if (winner && firePotential[winner.id] > 0.5 && fireBurst[winner.id] >= 1 && fireBurst[winner.id] >= Math.max(fireRapid[winner.id], fireAlternating[winner.id])) {
+      if (winner && firePotential[winner.id] > 0.5 && fireBurst[winner.id] >= 1 && fireBurst[winner.id] >= Math.max(fireRapid[winner.id], fireAlternating[winner.id], fireAlarm[winner.id])) {
         bulletBurstDelay[i] = constrain(bulletBurstDelay[winner.id] + random(-10, 10), DELAYED_BURST_MIN_DELAY, DELAYED_BURST_MAX_DELAY);
       } else if (winner) {
         bulletBurstDelay[i] = bulletBurstDelay[winner.id];
@@ -11065,7 +11856,7 @@ function nextRound(){
       }
       
       // Only mutate cooldown multiplier if winner uses alternating fire
-      if (winner && firePotential[winner.id] > 0.5 && fireAlternating[winner.id] >= Math.max(fireBurst[winner.id], fireRapid[winner.id])) {
+      if (winner && firePotential[winner.id] > 0.5 && fireAlternating[winner.id] >= Math.max(fireBurst[winner.id], fireRapid[winner.id], fireAlarm[winner.id])) {
         bulletCooldownMultiplier[i] = constrain(bulletCooldownMultiplier[winner.id] + random(-1, 1), 0.5, getMaxAllowedValue('bulletCooldownMultiplier', winner.id));
       } else if (winner) {
         bulletCooldownMultiplier[i] = bulletCooldownMultiplier[winner.id];
@@ -11081,6 +11872,17 @@ function nextRound(){
         ? constrain(deathRefire[winner.id] + random(-(movementMutationRate/2), (movementMutationRate/2)), 0, getMaxAllowedValue('deathRefire', winner.id))
         : random(0, 1);
       
+      deathTerritory[i] = winner
+        ? constrain(deathTerritory[winner.id] + random(-(movementMutationRate/2), (movementMutationRate/2)), 0, getMaxAllowedValue('deathTerritory', winner.id))
+        : random(0, 0.9);
+      deathMound[i] = winner
+        ? constrain(deathMound[winner.id] + random(-(movementMutationRate/2), (movementMutationRate/2)), 0, getMaxAllowedValue('deathMound', winner.id))
+        : random(0, 0.9);
+      // Every ant can hide in any bunker, so bunker range always mutates
+      bunkerRange[i] = winner
+        ? constrain(bunkerRange[winner.id] + random(-5, 5), BUNKER_MIN_RANGE, BUNKER_MAX_RANGE)
+        : random(BUNKER_MIN_RANGE, BUNKER_MAX_RANGE);
+
       deathPotential[i] = winner
         ? constrain(deathPotential[winner.id] + random(-(movementMutationRate/2), (movementMutationRate/2)), 0, 1)
         : random(0, 1);
@@ -11098,6 +11900,19 @@ function nextRound(){
         ? constrain(pathAccelerate[winner.id] + random(-movementMutationRate, movementMutationRate), 0, getMaxAllowedValue('pathAccelerate', winner.id))
         : random(0, 0.9);
       
+      pathBlink[i] = winner
+        ? constrain(pathBlink[winner.id] + random(-movementMutationRate, movementMutationRate), 0, getMaxAllowedValue('pathBlink', winner.id))
+        : random(0, 0.9);
+
+      // Only mutate the blink delay if winner uses blink / portal
+      if (winner && getPathType(winner.id) === 3) {
+        blinkDelay[i] = constrain(blinkDelay[winner.id] + random(-10, 10), BLINK_MIN_DELAY, BLINK_MAX_DELAY);
+      } else if (winner) {
+        blinkDelay[i] = blinkDelay[winner.id];
+      } else {
+        blinkDelay[i] = random(BLINK_MIN_DELAY, BLINK_MAX_DELAY);
+      }
+
       pathPotential[i] = winner
         ? constrain(pathPotential[winner.id] + random(-movementMutationRate, movementMutationRate), 0, 1)
         : random(0, 1);
@@ -11106,9 +11921,10 @@ function nextRound(){
       let pathHighArcVal = winner ? pathHighArc[winner.id] : 0.5;
       let pathCurveVal = winner ? pathCurve[winner.id] : 0.5;
       let pathAccelerateVal = winner ? pathAccelerate[winner.id] : 0.5;
+      let pathBlinkVal = winner ? pathBlink[winner.id] : 0.5;
       
       // Only mutate arc duration if winner uses high arc
-      if (winner && pathPotential[winner.id] > 0.5 && pathHighArcVal >= pathCurveVal && pathHighArcVal >= pathAccelerateVal) {
+      if (winner && pathPotential[winner.id] > 0.5 && pathHighArcVal >= pathCurveVal && pathHighArcVal >= pathAccelerateVal && pathHighArcVal >= pathBlinkVal) {
         bulletArcDuration[i] = constrain(bulletArcDuration[winner.id] + random(-50, 50), HIGH_ARC_MIN_DURATION, getMaxAllowedValue('bulletArcDuration', winner.id));
       } else if (winner) {
         bulletArcDuration[i] = bulletArcDuration[winner.id];
@@ -11117,7 +11933,7 @@ function nextRound(){
       }
       
       // Only mutate curve strength if winner uses curve/homing path
-      if (winner && pathPotential[winner.id] > 0.5 && pathCurveVal >= pathHighArcVal && pathCurveVal >= pathAccelerateVal) {
+      if (winner && pathPotential[winner.id] > 0.5 && pathCurveVal >= pathHighArcVal && pathCurveVal >= pathAccelerateVal && pathCurveVal >= pathBlinkVal) {
         const maxCurve = getMaxAllowedValue('bulletCurveStrength', winner.id);
         bulletCurveStrength[i] = constrain(bulletCurveStrength[winner.id] + random(-0.005, 0.005), -maxCurve, maxCurve);
       } else if (winner) {
@@ -11127,7 +11943,7 @@ function nextRound(){
       }
       
       // Only mutate accelerate delay if winner uses accelerating bullets
-      if (winner && pathPotential[winner.id] > 0.5 && pathAccelerateVal >= pathHighArcVal && pathAccelerateVal >= pathCurveVal) {
+      if (winner && pathPotential[winner.id] > 0.5 && pathAccelerateVal >= pathHighArcVal && pathAccelerateVal >= pathCurveVal && pathAccelerateVal >= pathBlinkVal) {
         bulletAccelerateDelay[i] = constrain(bulletAccelerateDelay[winner.id] + random(-20, 20), getMinAllowedValue('bulletAccelerateDelay', winner.id), 200);
       } else if (winner) {
         bulletAccelerateDelay[i] = bulletAccelerateDelay[winner.id];
@@ -11145,7 +11961,7 @@ function nextRound(){
 
       // Explosion stats - only mutate if winner uses explosions
       const winnerUsesExplosion = winner && specialPotential[winner.id] > 0.5 && specialExplosion[winner.id] >= Math.max(specialKnockback[winner.id], specialCamo[winner.id], specialRecoil[winner.id]);
-      const winnerUsesHighArc = winner && pathPotential[winner.id] > 0.5 && pathHighArc[winner.id] >= pathCurve[winner.id] && pathHighArc[winner.id] >= pathAccelerate[winner.id];
+      const winnerUsesHighArc = winner && pathPotential[winner.id] > 0.5 && pathHighArc[winner.id] >= pathCurve[winner.id] && pathHighArc[winner.id] >= pathAccelerate[winner.id] && pathHighArc[winner.id] >= pathBlink[winner.id];
       if (winnerUsesExplosion) {
         bulletExplodeAfter[i] = constrain(bulletExplodeAfter[winner.id] + random(-50, 50), EXPLODE_AFTER_MIN, EXPLODE_AFTER_MAX);
       } else if (winner) {
@@ -11155,11 +11971,14 @@ function nextRound(){
       }
 
       // Radius stat - only mutate if winner uses explosions or high arc
-      const winnerUsesLandmine = winner && deathPotential[winner.id] > 0.5 && deathLandmine[winner.id] > 0 && deathLandmine[winner.id] >= deathRefire[winner.id];
+      const winnerUsesLandmine = winner && deathPotential[winner.id] > 0.5 && deathLandmine[winner.id] > 0 && deathLandmine[winner.id] >= Math.max(deathRefire[winner.id], deathTerritory[winner.id], deathMound[winner.id]);
       const winnerUsesSmear = winnerUsesLandmine && deathLandmine[winner.id] < 1;
       const winnerUsesBeam = winner && isBeamAccelerate(winner.id);
       const winnerUsesStream = winner && isStreamFire(winner.id);
-      if (winnerUsesExplosion || winnerUsesHighArc || winnerUsesSmear || winnerUsesBeam || winnerUsesStream) {
+      const winnerDeathType = winner ? getDeathType(winner.id) : 0;
+      const winnerUsesTerritory = winnerDeathType === 4 || winnerDeathType === 5;
+      const winnerUsesMound = winnerDeathType === 6 || winnerDeathType === 7;
+      if (winnerUsesExplosion || winnerUsesHighArc || winnerUsesSmear || winnerUsesBeam || winnerUsesStream || winnerUsesTerritory) {
         radiusMultiplier[i] = constrain(radiusMultiplier[winner.id] + random(-0.2, 0.2), 0.5, 3);
       } else if (winner) {
         radiusMultiplier[i] = radiusMultiplier[winner.id];
@@ -11168,7 +11987,7 @@ function nextRound(){
       }
 
       // Residue stat - only mutate if winner uses explosions, high arc, landmines, or beams
-      if (winnerUsesExplosion || winnerUsesHighArc || winnerUsesLandmine || winnerUsesBeam || winnerUsesStream) {
+      if (winnerUsesExplosion || winnerUsesHighArc || winnerUsesLandmine || winnerUsesBeam || winnerUsesStream || winnerUsesTerritory || winnerUsesMound) {
         residueMultiplier[i] = constrain(residueMultiplier[winner.id] + random(-0.2, 0.2), 0.5, 3);
       } else if (winner) {
         residueMultiplier[i] = residueMultiplier[winner.id];
@@ -12668,6 +13487,10 @@ function updateAntDexEntries() {
   if (getItem('rapidFirePreviouslyDiscovered') === true) rapidFireDiscovered = getItem('rapidFirePreviouslyDiscovered');
   if (streamFireDiscovered === true) storeItem('streamFirePreviouslyDiscovered', streamFireDiscovered);
   if (getItem('streamFirePreviouslyDiscovered') === true) streamFireDiscovered = getItem('streamFirePreviouslyDiscovered');
+  if (alarmFireDiscovered === true) storeItem('alarmFirePreviouslyDiscovered', alarmFireDiscovered);
+  if (getItem('alarmFirePreviouslyDiscovered') === true) alarmFireDiscovered = getItem('alarmFirePreviouslyDiscovered');
+  if (avengeFireDiscovered === true) storeItem('avengeFirePreviouslyDiscovered', avengeFireDiscovered);
+  if (getItem('avengeFirePreviouslyDiscovered') === true) avengeFireDiscovered = getItem('avengeFirePreviouslyDiscovered');
 
   // Explosion Fuse (47-51)
   if (fuseMinDiscovered === true) storeItem('fuseMinPreviouslyDiscovered', fuseMinDiscovered);
@@ -12793,6 +13616,16 @@ function updateAntDexEntries() {
   if (turretDeathDiscovered === true) storeItem('turretDeathPreviouslyDiscovered', turretDeathDiscovered);
   if (getItem('turretDeathPreviouslyDiscovered') === true) turretDeathDiscovered = getItem('turretDeathPreviouslyDiscovered');
 
+  // Bullet Death Types: Territory, Nest, Mound, Bunker
+  if (territoryDeathDiscovered === true) storeItem('territoryDeathPreviouslyDiscovered', territoryDeathDiscovered);
+  if (getItem('territoryDeathPreviouslyDiscovered') === true) territoryDeathDiscovered = getItem('territoryDeathPreviouslyDiscovered');
+  if (nestDeathDiscovered === true) storeItem('nestDeathPreviouslyDiscovered', nestDeathDiscovered);
+  if (getItem('nestDeathPreviouslyDiscovered') === true) nestDeathDiscovered = getItem('nestDeathPreviouslyDiscovered');
+  if (moundDeathDiscovered === true) storeItem('moundDeathPreviouslyDiscovered', moundDeathDiscovered);
+  if (getItem('moundDeathPreviouslyDiscovered') === true) moundDeathDiscovered = getItem('moundDeathPreviouslyDiscovered');
+  if (bunkerDeathDiscovered === true) storeItem('bunkerDeathPreviouslyDiscovered', bunkerDeathDiscovered);
+  if (getItem('bunkerDeathPreviouslyDiscovered') === true) bunkerDeathDiscovered = getItem('bunkerDeathPreviouslyDiscovered');
+
   // Bullet Death Type: Landmine Conversion
   if (landmineConversionDiscovered === true) storeItem('landmineConversionPreviouslyDiscovered', landmineConversionDiscovered);
   if (getItem('landmineConversionPreviouslyDiscovered') === true) landmineConversionDiscovered = getItem('landmineConversionPreviouslyDiscovered');
@@ -12810,6 +13643,10 @@ function updateAntDexEntries() {
   if (getItem('splitArcPreviouslyDiscovered') === true) splitArcDiscovered = getItem('splitArcPreviouslyDiscovered');
   if (beamDiscovered === true) storeItem('beamPreviouslyDiscovered', beamDiscovered);
   if (getItem('beamPreviouslyDiscovered') === true) beamDiscovered = getItem('beamPreviouslyDiscovered');
+  if (blinkDiscovered === true) storeItem('blinkPreviouslyDiscovered', blinkDiscovered);
+  if (getItem('blinkPreviouslyDiscovered') === true) blinkDiscovered = getItem('blinkPreviouslyDiscovered');
+  if (portalDiscovered === true) storeItem('portalPreviouslyDiscovered', portalDiscovered);
+  if (getItem('portalPreviouslyDiscovered') === true) portalDiscovered = getItem('portalPreviouslyDiscovered');
 
   // Burst Spread (88-92)
   if (burstSpreadMinDiscovered === true) storeItem('burstSpreadMinPreviouslyDiscovered', burstSpreadMinDiscovered);
@@ -13107,6 +13944,14 @@ function updateAntDexEntries() {
         streamFireDiscovered = true;
         triggerDiscoveryPopup();
       }
+      if (!alarmFireDiscovered && fireType === 5) {
+        alarmFireDiscovered = true;
+        triggerDiscoveryPopup();
+      }
+      if (!avengeFireDiscovered && fireType === 6) {
+        avengeFireDiscovered = true;
+        triggerDiscoveryPopup();
+      }
 
       // 47-51: Explosion Fuse (Time Explosion only)
       if (specialType === 1 && specialExplosion[i] < 1) {
@@ -13301,6 +14146,22 @@ function updateAntDexEntries() {
         turretDeathDiscovered = true;
         triggerDiscoveryPopup();
       }
+      if (!territoryDeathDiscovered && deathType === 4) {
+        territoryDeathDiscovered = true;
+        triggerDiscoveryPopup();
+      }
+      if (!nestDeathDiscovered && deathType === 5) {
+        nestDeathDiscovered = true;
+        triggerDiscoveryPopup();
+      }
+      if (!moundDeathDiscovered && deathType === 6) {
+        moundDeathDiscovered = true;
+        triggerDiscoveryPopup();
+      }
+      if (!bunkerDeathDiscovered && deathType === 7) {
+        bunkerDeathDiscovered = true;
+        triggerDiscoveryPopup();
+      }
 
       // Bullet Path Type discoveries
       const pathType = getPathType(i);
@@ -13318,6 +14179,14 @@ function updateAntDexEntries() {
       }
       if (!beamDiscovered && isBeamAccelerate(i)) {
         beamDiscovered = true;
+        triggerDiscoveryPopup();
+      }
+      if (!blinkDiscovered && pathType === 3 && pathBlink[i] < 1) {
+        blinkDiscovered = true;
+        triggerDiscoveryPopup();
+      }
+      if (!portalDiscovered && pathType === 3 && pathBlink[i] >= 1) {
+        portalDiscovered = true;
         triggerDiscoveryPopup();
       }
       if (!highArcDiscovered && pathType === 1) {
@@ -13905,6 +14774,18 @@ function updateAntDexEntries() {
       stats: "Fire Type: Stream • Width / Range: Radius Multiplier • Duration: Residue Multiplier",
       discovered: streamFireDiscovered
     },
+    {
+      name: "Alarm Ants",
+      desc: "Fire faster while the beetle is close: 1.5x inside their outer radius and 2x inside their inner radius, shown by an orange or red ring. The inner radius is 25-100px; the smaller it is, the further the outer radius reaches (300px down to 100px).",
+      stats: "Fire Type: Alarm • Inner Radius: 25-100px",
+      discovered: alarmFireDiscovered
+    },
+    {
+      name: "Avenge Ants",
+      desc: "Whenever another ant dies within 180px, they flash white to reload like a hit reload ant and fire again. Every death they see is another shot, one reload at a time.",
+      stats: "Fire Type: Avenge",
+      discovered: avengeFireDiscovered
+    },
 
     // 73-77: Bullet Burst Count
     {
@@ -14004,6 +14885,32 @@ function updateAntDexEntries() {
       discovered: turretDeathDiscovered
     },
 
+    // Bullet Death Types - Territory / Nest / Mound / Bunker
+    {
+      name: "Territory Ants",
+      desc: "Where a bullet hits the ground it marks out an amber area. Any ant standing in it reloads 1.5x faster. It won't form on top of another territory, nest, mound or bunker. Radius and residue stats control its size and how long it lasts.",
+      stats: "Death Type: Territory • Size: Radius Multiplier (max 150px) • Duration: Residue Multiplier",
+      discovered: territoryDeathDiscovered
+    },
+    {
+      name: "Nest Ants",
+      desc: "Bullets leave a territory with a blue ring. Ants in it reload 1.5x faster and also grow a shield, quickly at first and slower as the nest fades. A shield soaks up 1 damage and stops the ant being run over, and it stays after the ant leaves.",
+      stats: "Death Type: Nest • Size: Radius Multiplier (max 150px) • Duration: Residue Multiplier",
+      discovered: nestDeathDiscovered
+    },
+    {
+      name: "Mound Ants",
+      desc: "Where a bullet hits the ground a round wall of dirt rises for a short time, blocking the beetle and its shots. It won't form on top of another territory, nest, mound or bunker, and takes as much damage to break as the bullet's size. Residue controls how long it stands.",
+      stats: "Death Type: Mound • Duration: Residue Multiplier",
+      discovered: moundDeathDiscovered
+    },
+    {
+      name: "Bunker Ants",
+      desc: "Full-size bullets raise a covered dirt bunker where they land, solid enough to block the beetle. Any ant close enough can climb in unseen and keep shooting while the beetle can only hit the bunker. It won't form on top of another territory, nest, mound or bunker. When it's destroyed or caves in, everyone inside spills out.",
+      stats: "Death Type: Bunker • Duration: Residue Multiplier",
+      discovered: bunkerDeathDiscovered
+    },
+
     // 84-86: Bullet Path Types
     {
       name: "Clockwise Curve Ants",
@@ -14034,6 +14941,18 @@ function updateAntDexEntries() {
       desc: "Bullets charge up with closing rings, then fire a beam to the edge of the screen when they would start accelerating. Knockback beams shove the beetle along the beam and vacuum beams pull it in. Explosive beams fire both ways and burn like an explosion. Beam color shows the effect: white knockback, purple vacuum, green explosive, cyan plain. Beam bullets have no death effect.",
       stats: "Path Type: Beam • Width: Radius Multiplier • Duration: Residue Multiplier",
       discovered: beamDiscovered
+    },
+    {
+      name: "Blink Ants",
+      desc: "Bullets flicker cyan, then vanish and reappear in a flash where they'd be half a second later, skipping everything in between. Blink streams jump 90px partway along.",
+      stats: "Path Type: Blink • Blink Delay: 10-120 frames",
+      discovered: blinkDiscovered
+    },
+    {
+      name: "Portal Ants",
+      desc: "Bullets flicker pink and blink ahead like blink bullets, then come out of the flash aimed straight at the beetle at the same speed. Portal streams re-aim the same way.",
+      stats: "Path Type: Portal • Blink Delay: 10-120 frames",
+      discovered: portalDiscovered
     },
 
     // 87-91: Burst Spread (60°-180°, Burst Fire only)
@@ -14880,6 +15799,10 @@ function drawAntsTab(fadeAlpha) {
       help: 'Frames before a delayed burst bullet splits (10-60)' },
     { name: 'Cooldown Multiplier', key: 'bulletCooldownMultiplier', min: 0.5, max: 5.5, step: 0.1,
       help: 'Alternating cooldown multiplier (1-5)' },
+    { name: 'Fire: Alarm', key: 'fireAlarm', min: 0, max: 2, step: 0.01,
+      help: 'Mutation stat for alarm fire (0-2, <1=alarm, >=1=avenge)' },
+    { name: 'Alarm Inner Radius', key: 'alarmInnerRadius', min: 25, max: 100, step: 1,
+      help: 'Alarm: 2x fire rate inside this radius; outer (1.5x) radius goes 300px -> 100px as it grows' },
     
     // Death category (mutation-based)
     { name: '── DEATH CATEGORY ──', key: null, min: 0, max: 0, step: 0 }, // Header
@@ -14887,6 +15810,12 @@ function drawAntsTab(fadeAlpha) {
       help: 'Mutation stat for bullet death (0-2, <1=smear, >=1=landmine)' },
     { name: 'Death: Refire', key: 'deathRefire', min: 0, max: 2, step: 0.01,
       help: 'Mutation stat for bullet death (0-2, <1=refire, >=1=turret)' },
+    { name: 'Death: Territory', key: 'deathTerritory', min: 0, max: 2, step: 0.01,
+      help: 'Mutation stat for bullet death (0-2, <1=territory, >=1=nest)' },
+    { name: 'Death: Mound', key: 'deathMound', min: 0, max: 2, step: 0.01,
+      help: 'Mutation stat for bullet death (0-2, <1=mound, >=1=bunker)' },
+    { name: 'Bunker Range', key: 'bunkerRange', min: 1, max: 70, step: 1,
+      help: 'How close (px) to a bunker edge this ant must be to hide in it' },
     { name: 'Death Potential', key: 'deathPotential', min: 0, max: 1, step: 0.01,
       help: 'If >0.5, use highest death trait; else fading' },
     
@@ -14900,6 +15829,10 @@ function drawAntsTab(fadeAlpha) {
       help: 'Mutation stat for accelerating bullets (0-2, <1=accelerate, >=1=beam)' },
     { name: 'Bullet Accelerate Delay', key: 'bulletAccelerateDelay', min: 30, max: 200, step: 1, integer: true,
       help: 'Frames before bullet accelerates (200=slow, 30=fast, inverse stat)' },
+    { name: 'Path: Blink', key: 'pathBlink', min: 0, max: 2, step: 0.01,
+      help: 'Mutation stat for blinking bullets (0-2, <1=blink, >=1=portal)' },
+    { name: 'Blink Delay', key: 'blinkDelay', min: 10, max: 120, step: 1, integer: true,
+      help: 'Frames after firing before a bullet blinks ahead (10-120)' },
     { name: 'Path Potential', key: 'pathPotential', min: 0, max: 1, step: 0.01,
       help: 'If >0.5, use highest path trait; else straight' },
     { name: 'Bullet Arc Duration', key: 'bulletArcDuration', min: 130, max: 600, step: 1,
@@ -15110,6 +16043,10 @@ bulletKnockbackMultiplier: { caps: [2, 3, 4, 5], inverse: false },
       pathHighArc: { caps: [1.0, 2.0], inverse: false },  // <1 = high arc, >=1 = split arc
       pathAccelerate: { caps: [1.0, 2.0], inverse: false },  // <1 = accelerate, >=1 = beam
       specialKnockback: { caps: [1.0, 2.0], inverse: false },  // <1 = knockback, >=1 = vacuum
+      fireAlarm: { caps: [1.0, 2.0], inverse: false },  // <1 = alarm, >=1 = avenge
+      pathBlink: { caps: [1.0, 2.0], inverse: false },  // <1 = blink, >=1 = portal
+      deathTerritory: { caps: [1.0, 2.0], inverse: false },  // <1 = territory, >=1 = nest
+      deathMound: { caps: [1.0, 2.0], inverse: false },  // <1 = mound, >=1 = bunker
       explosionProximity: { caps: [400, 600, 800, 1000], inverse: false },
       bulletSize: { caps: [1.5, 2.0, 2.5, 3.0], inverse: false },
       radiusMultiplier: { caps: [1.5, 2.0, 2.5, 3.0], inverse: false },
