@@ -2697,10 +2697,6 @@ function drawGroundShadow(x, y, w, h, angle, alpha, offsetX = 2, offsetY = 3) {
 let beetleShadowW = null;
 let beetleShadowH = null;
 
-// Shot/shield icon grids sit above the beetle, or below it (under the health/EXP bars) when it's
-// too close to the top edge to fit them. 0 = above, 1 = below; eases so the icons don't snap.
-let playerIconsBelow = false;
-let playerIconsBelowT = 0;
 // Half the visible size of each icon (the PNGs are mostly transparent padding)
 const BULLET_ICON_HALF = 5;
 const SHIELD_ICON_HALF = 9;
@@ -2841,15 +2837,8 @@ function drawBeetle(){
     let shieldIconSize = 30;
     let shieldSpacing = 20;
 
-    // Near the top edge the grids would be drawn off screen, so move them below the beetle
-    // (with a little hysteresis so they don't flip back and forth at the threshold)
-    let iconsAboveY = -50;
-    let roomAbove = playerY + iconsAboveY - SHIELD_ICON_HALF - scoreBarHeight;
-    if (roomAbove < 0) playerIconsBelow = true;
-    else if (roomAbove > 10) playerIconsBelow = false;
-    playerIconsBelowT = lerp(playerIconsBelowT, playerIconsBelow ? 1 : 0, 0.25);
-    let bulletStartY = lerp(iconsAboveY, 62, playerIconsBelowT);
-    let shieldStartY = lerp(iconsAboveY, 64, playerIconsBelowT);
+    let bulletStartY = -50;
+    let shieldStartY = -50;
 
     // Slide both grids together so they stay inside the left/right edges
     let bulletStartX = -55;
