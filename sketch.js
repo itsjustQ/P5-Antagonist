@@ -74,10 +74,12 @@ function updateDifficultyCompletedRound(roundCompleted) {
   }
 }
 
-// Difficulty unlocks: moving on from a difficulty takes a total number of queens defeated (lifetime)
+// Difficulty unlocks: moving on from a difficulty takes a total number of queens defeated (lifetime), some of
+// which have to be from that difficulty itself
 function isDifficultyUnlocked(value) {
   if (value <= 1 || devToolsUnlockAllDifficulties) return true;
-  return getTotalQueensCollected() >= getQueensRequiredToAdvance(value - 1);
+  return getTotalQueensCollected() >= getQueensRequiredToAdvance(value - 1) &&
+    getQueensCollectedOnDifficulty(value - 1) >= getQueensRequiredOnDifficulty(value - 1);
 }
 
 function openDifficultyMenu() {
@@ -9787,13 +9789,23 @@ function getQueensAvailable() {
   return getItem('queensAvailable') || 0;
 }
 
+function getQueensCollectedOnDifficulty(value) {
+  return getItem('queensCollected_difficulty' + value) || 0;
+}
+
 function awardQueen() {
   storeItem('queensTotalCollected', getTotalQueensCollected() + 1);
   storeItem('queensAvailable', getQueensAvailable() + 1);
+  storeItem('queensCollected_difficulty' + difficulty, getQueensCollectedOnDifficulty(difficulty) + 1);
 }
 
 function getQueensRequiredToAdvance(fromDifficulty) {
   return QUEENS_REQUIRED_TO_ADVANCE[fromDifficulty - 1];
+}
+
+// Of those, how many have to come from the difficulty being moved on from: 5 easy, 10 medium, 20 hard and insane
+function getQueensRequiredOnDifficulty(fromDifficulty) {
+  return { easy: 5, medium: 10, hard: 20, insane: 20 }[getDifficultyTierInfo(fromDifficulty).name.toLowerCase()];
 }
 
 function getPermanentUpgradeLevels() {
@@ -14770,20 +14782,23 @@ function drawStartScreen(){
         } else {
           // Right column: what it takes to unlock this difficulty
           let queensNeeded = getQueensRequiredToAdvance(sel - 1);
+          let queensNeededHere = getQueensRequiredOnDifficulty(sel - 1);
           drawLockIcon(colRightX + 11, headerY - 8, 22, 255);
           fill(255, 80, 80);
           textSize(22);
           text('Locked', colRightX + 32, headerY);
           fill(200);
           textSize(17);
-          text(`Defeat ${queensNeeded} queens in total`, colRightX, headerY + 40);
-          text(`to move on from Difficulty ${sel - 1}`, colRightX, headerY + 64);
+          text(`Defeat ${queensNeeded} queens in total,`, colRightX, headerY + 40);
+          text(`${queensNeededHere} of them on Difficulty ${sel - 1}`, colRightX, headerY + 64);
           fill(150);
           textSize(16);
-          text('Queens collected', colRightX, headerY + 110);
+          text('Total', colRightX, headerY + 110);
+          text(`On Difficulty ${sel - 1}`, colRightX + 150, headerY + 110);
           fill(255);
-          textSize(32);
+          textSize(28);
           text(`${Math.min(getTotalQueensCollected(), queensNeeded)} / ${queensNeeded}`, colRightX, headerY + 146);
+          text(`${Math.min(getQueensCollectedOnDifficulty(sel - 1), queensNeededHere)} / ${queensNeededHere}`, colRightX + 150, headerY + 146);
         }
       pop();
 
