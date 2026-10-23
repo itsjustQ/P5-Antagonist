@@ -920,8 +920,16 @@ let upgrade33Level = 0; // Impact Bomb (max 1, requires Add Bullets): unlocks th
 let upgrade34Level = 0; // Timed Bomb (max 1, requires Impact Bomb): unlocks the timed bomb shot mode
 let upgrade35Level = 0; // Proximity Bomb (max 1, requires Timed Bomb): unlocks the proximity bomb shot mode
 let upgrade36Level = 0; // Blast Radius (max 3, 60→180px, requires Impact Bomb)
-const UPGRADE_COUNT = 36;
-const UPGRADE_MAX_LEVELS = [4, 5, 5, 9, 8, 5, 5, 5, 1, 1, 1, 4, 4, 1, 5, 5, 5, 3, 4, 5, 1, 7, 10, 4, 1, 1, 1, 1, 4, 4, 1, 9, 1, 1, 1, 3];
+let upgrade37Level = 0; // Lady Beetle (max 1): aphids spawn on the field
+let upgrade38Level = 0; // Aphid Health (max 3, requires Lady Beetle): beetle heal 2→5, ant heal 0.5→1.25
+let upgrade39Level = 0; // Aphid Spawn Rate (max 2, requires Lady Beetle): every 20s→15s→10s
+let upgrade40Level = 0; // Speedy Aphids (max 1, requires Lady Beetle): movement aphids
+let upgrade41Level = 0; // Armored Aphids (max 1, requires Lady Beetle): damage reduction aphids
+let upgrade42Level = 0; // Wise Aphids (max 1, requires Lady Beetle): experience aphids
+let upgrade43Level = 0; // Healthy Aphids (max 1, requires Lady Beetle): regeneration aphids
+let upgrade44Level = 0; // Lucky Aphids (max 1, requires Lady Beetle): reroll aphids
+const UPGRADE_COUNT = 44;
+const UPGRADE_MAX_LEVELS = [4, 5, 5, 9, 8, 5, 5, 5, 1, 1, 1, 4, 4, 1, 5, 5, 5, 3, 4, 5, 1, 7, 10, 4, 1, 1, 1, 1, 4, 4, 1, 9, 1, 1, 1, 3, 1, 3, 2, 1, 1, 1, 1, 1];
 let displayedUpgrades = [];  // Array of up to 3 randomly selected upgrade indices (0-9)
 
 // Pre-game upgrade menu variables (insane difficulty 8-10)
@@ -1676,6 +1684,7 @@ function draw() {
       autonomousAntMovement();
       updateEnemyTerritories();
       updateEnemyWalls();
+      updateAphids();
       drawEnemy();
       updateQueen();
       drawBeetle();
@@ -1731,7 +1740,7 @@ function draw() {
       // Shield regeneration (outside scaling)
       let maxShields = shieldQuantity > 0 ? shieldQuantity : 0;
       if (shield < maxShields){
-        shield = shield + (1 / shieldRegenerationRate);
+        shield = shield + getPlayerRegenMultiplier() / shieldRegenerationRate;
       }
       
       // Health regeneration - if player hasn't taken damage for 200 frames
@@ -1739,7 +1748,7 @@ function draw() {
         if (frameCount - playerLastDamageFrame >= 200 && health < 30) {
           // Regeneration rates: 0.001, 0.005, 0.01, 0.05, 0.1
           let regenRates = [0.001, 0.005, 0.01, 0.05, 0.1];
-          let regenAmount = regenRates[upgrade20Level - 1];
+          let regenAmount = regenRates[upgrade20Level - 1] * getPlayerRegenMultiplier();
           // Scale down regeneration as health increases (full rate at 10, nearly 0 at 30)
           let regenMultiplier = max(0, (30 - health) / 20);
           health = min(health + regenAmount * regenMultiplier, 30);
@@ -1910,6 +1919,14 @@ function resetRunState() {
   upgrade34Level = 0;
   upgrade35Level = 0;
   upgrade36Level = 0;
+  upgrade37Level = 0;
+  upgrade38Level = 0;
+  upgrade39Level = 0;
+  upgrade40Level = 0;
+  upgrade41Level = 0;
+  upgrade42Level = 0;
+  upgrade43Level = 0;
+  upgrade44Level = 0;
   upgradeRerolls = UPGRADE_REROLLS_PER_RUN;
   displayedUpgrades = [];
   updateUpgradeBooleans();  // Reset all upgrade booleans to false
@@ -2610,7 +2627,7 @@ function addKillScore(basePoints, size, source) {
   if (source === 'bullet' && upgrade27Level > 0) multiplier *= 2;
   let points = Math.round(basePoints * sizeFactor * multiplier);
   score += points;
-  addExp(points);
+  addExp(isPlayerAphidActive('exp') ? points * 2 : points); // Experience aphid: double EXP (not score)
   return points;
 }
 
@@ -3209,7 +3226,7 @@ function drawBeetle(){
   // Reload shots based on bulletQuantity
   let maxShots = bulletQuantity > 0 ? bulletQuantity : 0;
   if (shot < maxShots){
-    shot = shot + (1 / bulletReloadRate);
+    shot = shot + getPlayerRegenMultiplier() / bulletReloadRate;
   }
 
 }
@@ -4796,6 +4813,7 @@ function handlePlayerHit(i, isKnockbackBullet = false, bulletX = 0, bulletY = 0,
     } else {
       damage = actualBulletSize * speedTier.damageMultiplier;
     }
+    damage *= getPlayerDamageTakenMultiplier();
     
     // Apply knockback if this is a knockback bullet
     if (isKnockbackBullet) {
@@ -5598,7 +5616,7 @@ function beetleDash(){
 
   //handle dash
   if (dash == true && dashReady == true) {
-    playerSpeed = movementSpeed / enemyCount * dashSpeedStat;
+    playerSpeed = movementSpeed / enemyCount * dashSpeedStat * getPlayerAphidSpeedMultiplier();
     
     // Tiger Beetle: dash is a toggle, no time limit
     if (tigerBeetleActive) {
@@ -5617,9 +5635,9 @@ function beetleDash(){
       }
     }
   } else {
-    dashCoolDown = dashCoolDown - (1 / 100);
+    dashCoolDown = dashCoolDown - getPlayerRegenMultiplier() / 100;
     //debugLog(round(dashCoolDown));
-    playerSpeed = movementSpeed / enemyCount;
+    playerSpeed = movementSpeed / enemyCount * getPlayerAphidSpeedMultiplier();
     if (dashCoolDown <= 0){
       speedTime = 0.25;
       if (!dashReady) {
@@ -5787,7 +5805,7 @@ function handleWindAttack() {
       windAttackCooldown = windCooldownStat;
     }
     
-    windAttackCooldown -= (1 / 100);
+    windAttackCooldown -= getPlayerRegenMultiplier() / 100;
     if (windAttackCooldown <= 0) {
       if (!windAttackReady) {
         windAttackReadyFlash = 1.0;
@@ -5875,6 +5893,8 @@ function getMineStealthType(ownerId) {
 }
 
 function getSpecialType(antIndex) {
+  const aphidAbility = getAphidAbilityOverride(antIndex, 'special'); // Reroll aphid
+  if (aphidAbility !== null) return aphidAbility;
   // If potential <= 0.5, return default (none)
   if (specialPotential[antIndex] <= 0.5) {
     return 0; // None (default)
@@ -6275,6 +6295,8 @@ function spawnDelayedBurst(parent, i) {
 }
 
 function getFireType(antIndex) {
+  const aphidAbility = getAphidAbilityOverride(antIndex, 'fire'); // Reroll aphid
+  if (aphidAbility !== null) return aphidAbility;
   // If potential <= 0.5, return default (normal)
   if (firePotential[antIndex] <= 0.5) {
     return 0; // Normal (default)
@@ -6305,6 +6327,8 @@ function getFireType(antIndex) {
 }
 
 function getDeathType(antIndex) {
+  const aphidAbility = getAphidAbilityOverride(antIndex, 'death'); // Reroll aphid
+  if (aphidAbility !== null) return aphidAbility;
   // If potential <= 0.5, return default (fading)
   if (deathPotential[antIndex] <= 0.5) {
     return 0; // Fading (default)
@@ -7389,6 +7413,8 @@ function getBulletSplitFrame(bullet) {
 }
 
 function getPathType(antIndex) {
+  const aphidAbility = getAphidAbilityOverride(antIndex, 'path'); // Reroll aphid
+  if (aphidAbility !== null) return aphidAbility;
   // If potential <= 0.5, return default (straight)
   if (pathPotential[antIndex] <= 0.5) {
     return 0; // Straight (default)
@@ -7505,9 +7531,10 @@ function updateAntCooldownBoosts() {
       territoryBoost = TERRITORY_BOOST; // Overlapping areas give the same flat boost
       if (area.nest) shieldGain = Math.max(shieldGain, getAreaLifeTimePercentage(area) / NEST_SHIELD_RATE_DIVISOR);
     }
-    if (shieldGain > 0) antShield[i] = Math.min(1, (antShield[i] || 0) + shieldGain);
+    const aphidRegen = isAntAphidActive(i, 'regen') ? 2 : 1; // Regeneration aphid: shields and cooldowns twice as fast
+    if (shieldGain > 0) antShield[i] = Math.min(1, (antShield[i] || 0) + shieldGain * aphidRegen);
 
-    const boost = Math.min(MAX_COOLDOWN_BOOST, getAlarmBoost(i) * territoryBoost);
+    const boost = Math.min(MAX_COOLDOWN_BOOST, getAlarmBoost(i) * territoryBoost) * aphidRegen;
     antCooldownBoost[i] = boost;
     // Hold off during a hit reload / avenge flash so the shot still goes as the flash ends
     if (boost > 1 && !isReloadFlashActive(i)) {
@@ -7542,6 +7569,7 @@ function onAntDied(i) {
   const x = antX[i];
   const y = antY[i];
   if (isQueenFight()) onQueenAntDied(i);
+  clearAntAphidEffectsFor(i);
   antShield[i] = 0;
   antAvengeQueue[i] = 0;
   antAvengeArmed[i] = false;
@@ -7561,6 +7589,7 @@ function hasAntShield(i) {
 
 // Damage an ant from the beetle; its nest shield soaks up what it can first
 function damageAnt(i, amount) {
+  if (isAntAphidActive(i, 'armor')) amount *= 0.5; // Damage reduction aphid
   const shieldLeft = antShield[i] || 0;
   if (shieldLeft > 0) {
     const absorbed = Math.min(shieldLeft, amount);
@@ -8096,6 +8125,7 @@ function getCloneableAntArrays() {
 
 function cloneAntGenes(src, dst) {
   for (const arr of getCloneableAntArrays()) arr[dst] = arr[src];
+  restoreAphidBaseStatsOnCopy(src, dst);
   geneTokenInvestments[dst] = (geneTokenInvestments[src] || []).map(inv => ({ ...inv }));
 }
 
@@ -8881,6 +8911,7 @@ function updateQueenContact() {
 
 function queenHitPlayer(damage, silent = false) {
   if (end) return;
+  damage *= getPlayerDamageTakenMultiplier();
   if (shield > 0) {
     shield -= damage;
     if (!silent && !sShieldHit1.isPlaying() && !sShieldHit2.isPlaying()) (random() < 0.5 ? sShieldHit1 : sShieldHit2).play();
@@ -9772,13 +9803,15 @@ const UPGRADE_NAMES = ['Walking Speed', 'Dash Speed', 'Dash Cooldown', 'Add Shie
   'Shockwave', 'Shockwave Radius', 'Shockwave Damage', 'Shockwave Cooldown', 'Shockwave Knockback', 'Bullet Deflection',
   'Health Regeneration', 'Runt Hunter', 'Increased Metabolism', 'EXP Boost', 'Combo Surge', 'Dash Harvest',
   'Shockwave Harvest', 'Bullet Harvest', 'Spray Acid', 'Spray Length', 'Spray Width', 'Piercing Acid', 'Piercing Depth',
-  'Impact Bomb', 'Timed Bomb', 'Proximity Bomb', 'Blast Radius'];
+  'Impact Bomb', 'Timed Bomb', 'Proximity Bomb', 'Blast Radius', 'Lady Beetle', 'Aphid Health', 'Aphid Spawn Rate',
+  'Speedy Aphids', 'Armored Aphids', 'Wise Aphids', 'Healthy Aphids', 'Lucky Aphids'];
 const UPGRADE_PREREQUISITE_TEXT = {
   5: 'Add Shield', 6: 'Add Bullets', 7: 'Add Bullets', 8: 'Add Bullets, Bullet Reload, Bullet Speed',
   9: 'Dash Cooldown maxed', 10: 'Bullet Reload 3+', 12: 'Add Bullets', 14: 'Shockwave', 15: 'Shockwave',
   16: 'Shockwave', 18: 'Shockwave', 25: 'Shockwave', 26: 'Add Bullets', 27: 'Add Bullets', 28: 'Spray Acid',
   29: 'Spray Acid', 30: 'Add Bullets', 31: 'Piercing Acid', 32: 'Add Bullets', 33: 'Impact Bomb',
-  34: 'Timed Bomb', 35: 'Impact Bomb'
+  34: 'Timed Bomb', 35: 'Impact Bomb', 37: 'Lady Beetle', 38: 'Lady Beetle', 39: 'Lady Beetle', 40: 'Lady Beetle',
+  41: 'Lady Beetle', 42: 'Lady Beetle', 43: 'Lady Beetle'
 };
 
 function getTotalQueensCollected() {
@@ -9819,7 +9852,7 @@ function getPermanentUpgradeLevels() {
 function getUpgradeRarityTier(id) {
   if (id === 20) return 'Ultra Rare';
   if (id >= 24 && id <= 26) return 'Very Rare';
-  if (id === 19 || (id >= 21 && id <= 23) || (id >= 27 && id <= 35)) return 'Medium';
+  if (id === 19 || (id >= 21 && id <= 23) || (id >= 27 && id <= 43)) return 'Medium';
   if (!isCoreUpgrade(id)) return 'Uncommon';
   return 'Common';
 }
@@ -9892,7 +9925,8 @@ function getQueenShopItems() {
 function getQueenShopCellRect(index) {
   const col = Math.floor(index / QUEEN_SHOP_ROWS);
   const row = index % QUEEN_SHOP_ROWS;
-  return { x: 50 + col * 400, y: 112 + row * 38, w: 380, h: 32 };
+  const colWidth = (getMenuWidth() - 40) / Math.ceil(getQueenShopItems().length / QUEEN_SHOP_ROWS);
+  return { x: 20 + col * colWidth, y: 112 + row * 38, w: colWidth - 12, h: 32 };
 }
 
 function openQueenShop() {
@@ -11277,7 +11311,7 @@ function drawEnemyExplosions() {
 }
 
 function handleExplosionDamage(size, ownerId) {
-  let damage = size/60; // same “units” as bulletSize
+  let damage = size/60 * getPlayerDamageTakenMultiplier(); // same “units” as bulletSize
   onPlayerDamaged(damage);
 
   if (shield > 0) {
@@ -11304,6 +11338,362 @@ function handleExplosionDamage(size, ownerId) {
       }
     }
   }
+}
+
+// ========== LADY BEETLE & APHIDS ==========
+// Lady Beetle (upgrade id 36) puts aphids on the field: neutral bugs that spawn at a random spot on a timer and
+// despawn after APHID_LIFE_FRAMES (no cap on how many are out). Eating one heals the beetle and gives it the
+// aphid's effect. An ant that stays within APHID_ANT_RANGE of one for APHID_ANT_FRAMES frames in a row gets a
+// smaller heal and the ant version of the effect, once per aphid (ants never eat them). Effects last
+// APHID_EFFECT_FRAMES; getting one again while it's active restarts its timer.
+// Ant effects that change stats (speed, EXP's maxed stat) save the real value in antAphidBaseStats and put it back
+// when they end, when the ant dies, and when the round ends, so they never count toward the ant's genes.
+const APHID_LIFE_FRAMES = 1500;
+const APHID_BLINK_FRAMES = 120;           // Blinks for this long before despawning
+const APHID_ANT_RANGE = 50;
+const APHID_ANT_FRAMES = 100;
+const APHID_EFFECT_FRAMES = 300;          // 5 seconds
+const APHID_RADIUS = 9;
+const APHID_PLAYER_REACH = 22 + APHID_RADIUS;
+const APHID_PLAYER_HEAL = [2, 3, 4, 5];       // By Aphid Health level
+const APHID_ANT_HEAL = [0.5, 0.75, 1, 1.25];
+const APHID_SPAWN_SECONDS = [20, 15, 10];     // By Aphid Spawn Rate level
+// Special aphids: the upgrade id that unlocks each, its spawn chance (taken out of the basic aphid's share) and colour
+const APHID_TYPES = {
+  speed:  { upgrade: 39, chance: 0.1,  color: [255, 220, 60] },
+  armor:  { upgrade: 40, chance: 0.1,  color: [80, 150, 255] },
+  exp:    { upgrade: 41, chance: 0.1,  color: [190, 90, 255] },
+  regen:  { upgrade: 42, chance: 0.1,  color: [255, 110, 160] },
+  reroll: { upgrade: 43, chance: 0.05, color: [255, 150, 40] }
+};
+// Reroll aphids give ants a level 1 ability for a while (level 2 ones lean on their real trait stats)
+const APHID_ANT_ABILITIES = {
+  fire: [1, 2, -1, 5],      // Burst, Rapid, Alternating, Alarm
+  path: [1, -1, 2, 3],      // High Arc, Curved, Accelerate, Blink
+  special: [1, -1, 2, 3],   // Explosion, Knockback, Camouflage, Recoil
+  death: [-1, 2, 4, 6]      // Smear, Refire, Territory, Mound
+};
+
+let aphids = [];
+let aphidSpawnTimer = 0;
+let playerAphidEffects = {};  // speed / armor / exp / regen -> frames left
+let antAphidEffects = [];     // Per ant: { speed, armor, regen: frames left, exp: {stat, frames}, reroll: {category, type, frames} }
+let antAphidBaseStats = [];   // Per ant: { statName: real value } for stats an aphid effect has changed
+
+function isLadyBeetleActive() {
+  return upgrade37Level > 0;
+}
+
+function resetAphids() {
+  clearAntAphidEffects();
+  aphids = [];
+  aphidSpawnTimer = 0;
+  playerAphidEffects = {};
+}
+
+function pickAphidType() {
+  const levels = getCurrentUpgradeLevels();
+  let roll = random();
+  for (const type in APHID_TYPES) {
+    if (!(levels[APHID_TYPES[type].upgrade] > 0)) continue;
+    if (roll < APHID_TYPES[type].chance) return type;
+    roll -= APHID_TYPES[type].chance;
+  }
+  return 'basic';
+}
+
+function spawnAphid() {
+  const b = getPlayAreaBounds(APHID_RADIUS * 2);
+  aphids.push({ x: random(b.minX, b.maxX), y: random(b.minY, b.maxY), type: pickAphidType(), age: 0,
+    angle: random(360), antFrames: [], boostedAnts: [] });
+}
+
+function updateAphids() {
+  if (end) {
+    clearAntAphidEffects(); // Boosted stats never count toward genes
+  } else {
+    for (const key in playerAphidEffects) {
+      if (--playerAphidEffects[key] <= 0) delete playerAphidEffects[key];
+    }
+    if (isLadyBeetleActive() && ++aphidSpawnTimer >= APHID_SPAWN_SECONDS[upgrade39Level] * 60) {
+      aphidSpawnTimer = 0;
+      spawnAphid();
+    }
+    for (let a = aphids.length - 1; a >= 0; a--) {
+      const aphid = aphids[a];
+      if (++aphid.age >= APHID_LIFE_FRAMES) {
+        aphids.splice(a, 1);
+      } else if (health > 0 && dist(playerX, playerY, aphid.x, aphid.y) < APHID_PLAYER_REACH) {
+        eatAphid(aphid);
+        aphids.splice(a, 1);
+      } else {
+        updateAphidAntBoosts(aphid);
+      }
+    }
+    updateAntAphidEffects();
+  }
+  for (const aphid of aphids) drawAphid(aphid);
+  drawAphidEffectRings();
+}
+
+function addAphidHealText(x, y, amount) {
+  floatingTexts.push({ x: x, y: y - 10, text: `+${amount}`, opacity: 255, riseSpeed: 1.5, color: [120, 255, 120] });
+}
+
+// --- Player ---
+
+function eatAphid(aphid) {
+  const heal = APHID_PLAYER_HEAL[upgrade38Level];
+  health += heal;
+  addAphidHealText(aphid.x, aphid.y, heal);
+  if (aphid.type === 'reroll') upgradeRerolls++;
+  else if (aphid.type !== 'basic') playerAphidEffects[aphid.type] = APHID_EFFECT_FRAMES;
+  if (!sGainShield.isPlaying()) sGainShield.play();
+}
+
+function isPlayerAphidActive(key) {
+  return playerAphidEffects[key] > 0;
+}
+
+// Movement aphid: double walking (and dash) speed
+function getPlayerAphidSpeedMultiplier() {
+  return isPlayerAphidActive('speed') ? 2 : 1;
+}
+
+// Damage reduction aphid: take half damage
+function getPlayerDamageTakenMultiplier() {
+  return isPlayerAphidActive('armor') ? 0.5 : 1;
+}
+
+// Regeneration aphid: bullets, shields, health and cooldowns all come back twice as fast
+function getPlayerRegenMultiplier() {
+  return isPlayerAphidActive('regen') ? 2 : 1;
+}
+
+// --- Ants ---
+
+function updateAphidAntBoosts(aphid) {
+  for (let i = 1; i <= enemyCount; i++) {
+    if (aphid.boostedAnts[i] || antDormant[i]) continue;
+    const dx = antX[i] - aphid.x;
+    const dy = antY[i] - aphid.y;
+    if (dx * dx + dy * dy > APHID_ANT_RANGE * APHID_ANT_RANGE) {
+      aphid.antFrames[i] = 0; // Leaving the range starts the count over
+      continue;
+    }
+    aphid.antFrames[i] = (aphid.antFrames[i] || 0) + 1;
+    if (aphid.antFrames[i] >= APHID_ANT_FRAMES) {
+      aphid.boostedAnts[i] = true;
+      aphid.antFrames[i] = 0;
+      boostAntFromAphid(i, aphid.type);
+    }
+  }
+}
+
+function boostAntFromAphid(i, type) {
+  const heal = APHID_ANT_HEAL[upgrade38Level];
+  antHealth[i] += heal;
+  addAphidHealText(antX[i], antY[i], heal);
+  if (type === 'basic') return;
+  const fx = antAphidEffects[i] || (antAphidEffects[i] = {});
+  if (type === 'exp') {
+    if (!fx.exp) fx.exp = { stat: random(getAntAphidStatOptions(i)), frames: 0 };
+    fx.exp.frames = APHID_EFFECT_FRAMES;
+  } else if (type === 'reroll') {
+    if (!fx.reroll) fx.reroll = pickAntAphidAbility(i);
+    fx.reroll.frames = APHID_EFFECT_FRAMES;
+  } else {
+    fx[type] = APHID_EFFECT_FRAMES;
+  }
+  applyAntAphidStats(i);
+}
+
+function isAntAphidActive(i, key) {
+  return !!(antAphidEffects[i] && antAphidEffects[i][key]);
+}
+
+function hasAntAphidEffects(i) {
+  return !!antAphidEffects[i];
+}
+
+// Reroll aphid: the ability type an ant has been given for a category, or null
+function getAphidAbilityOverride(i, category) {
+  const reroll = antAphidEffects[i] && antAphidEffects[i].reroll;
+  return reroll && reroll.category === category ? reroll.type : null;
+}
+
+// A category the ant has no ability in, or (if it has all four) one to swap to a different ability
+function pickAntAphidAbility(i) {
+  const current = { fire: getFireType(i), path: getPathType(i), special: getSpecialType(i), death: getDeathType(i) };
+  let categories = Object.keys(current).filter(c => current[c] === 0);
+  if (categories.length === 0) {
+    categories = Object.keys(current).filter(c => !(c === 'fire' && isStreamFire(i))); // Streams can't stop mid-spray
+  }
+  const category = random(categories);
+  return { category, type: random(APHID_ANT_ABILITIES[category].filter(t => t !== current[category])), frames: 0 };
+}
+
+// Stat arrays the ant aphid effects can change, looked up fresh since some get reassigned
+function getAphidStatArrays() {
+  return { bulletSpeed, bulletCooldown, antSpeed, bulletSize, bulletKnockbackMultiplier, explosionProximity,
+    bulletBurstCount, bulletBurstSpread, bulletCooldownMultiplier, bulletArcDuration, bulletCurveStrength };
+}
+
+// EXP aphid: stats the ant is actually using that can be maxed out
+function getAntAphidStatOptions(i) {
+  const stats = ['bulletSpeed', 'bulletCooldown', 'antSpeed', 'bulletSize'];
+  const fire = getFireType(i);
+  const path = getPathType(i);
+  const special = getSpecialType(i);
+  if (special === -1) stats.push('bulletKnockbackMultiplier');
+  if (special === 1) stats.push('explosionProximity');
+  if (fire === 1 || fire === 3) stats.push('bulletBurstCount', 'bulletBurstSpread');
+  if (fire === -1) stats.push('bulletCooldownMultiplier');
+  if (path === 1) stats.push('bulletArcDuration');
+  if (path === -1 || path === -2) stats.push('bulletCurveStrength');
+  return stats;
+}
+
+// The best value a stat can reach (inverse stats get better as they go down)
+function getAphidMaxedStat(stat, value) {
+  const tier = moduleStatCapTiers[stat];
+  const best = tier.caps[tier.caps.length - 1];
+  return tier.inverse ? Math.min(value, best) : Math.max(value, best);
+}
+
+// Put an ant's real stats back, then reapply whatever aphid effects it still has
+function applyAntAphidStats(i) {
+  const arrays = getAphidStatArrays();
+  const base = antAphidBaseStats[i];
+  if (base) {
+    for (const stat in base) arrays[stat][i] = base[stat];
+    antAphidBaseStats[i] = undefined;
+  }
+  const fx = antAphidEffects[i];
+  if (!fx) return;
+  const saved = {};
+  const set = (stat, value) => {
+    if (!(stat in saved)) saved[stat] = arrays[stat][i];
+    arrays[stat][i] = value;
+  };
+  if (fx.exp) set(fx.exp.stat, getAphidMaxedStat(fx.exp.stat, arrays[fx.exp.stat][i]));
+  if (fx.speed) set('antSpeed', arrays.antSpeed[i] * 2);
+  if (Object.keys(saved).length > 0) antAphidBaseStats[i] = saved;
+}
+
+function updateAntAphidEffects() {
+  for (let i = 1; i <= enemyCount; i++) {
+    const fx = antAphidEffects[i];
+    if (!fx) continue;
+    let statsChanged = false;
+    for (const key of ['speed', 'armor', 'regen']) {
+      if (fx[key] && --fx[key] <= 0) {
+        delete fx[key];
+        if (key === 'speed') statsChanged = true;
+      }
+    }
+    if (fx.exp && --fx.exp.frames <= 0) {
+      delete fx.exp;
+      statsChanged = true;
+    }
+    if (fx.reroll && --fx.reroll.frames <= 0) delete fx.reroll;
+    if (Object.keys(fx).length === 0) antAphidEffects[i] = undefined;
+    if (statsChanged) applyAntAphidStats(i);
+  }
+}
+
+function clearAntAphidEffectsFor(i) {
+  if (!antAphidEffects[i] && !antAphidBaseStats[i]) return;
+  antAphidEffects[i] = undefined;
+  applyAntAphidStats(i);
+}
+
+function clearAntAphidEffects() {
+  for (let i = 0; i < antAphidBaseStats.length; i++) clearAntAphidEffectsFor(i);
+  antAphidEffects = [];
+  antAphidBaseStats = [];
+}
+
+// A copied ant gets the source's real stats, not its aphid-boosted ones
+function restoreAphidBaseStatsOnCopy(src, dst) {
+  const base = antAphidBaseStats[src];
+  if (!base) return;
+  const arrays = getAphidStatArrays();
+  for (const stat in base) arrays[stat][dst] = base[stat];
+}
+
+// --- Drawing ---
+
+function drawAphid(aphid) {
+  const blinking = aphid.age > APHID_LIFE_FRAMES - APHID_BLINK_FRAMES && Math.floor(aphid.age / 8) % 2 === 0;
+  const alpha = blinking ? 90 : 255;
+  const mark = APHID_TYPES[aphid.type] ? APHID_TYPES[aphid.type].color : null;
+  push();
+  angleMode(DEGREES);
+  translate(aphid.x, aphid.y);
+
+  // How close the nearest ant is to getting a boost
+  let progress = 0;
+  for (let i = 1; i <= enemyCount; i++) progress = Math.max(progress, aphid.antFrames[i] || 0);
+  if (progress > 0) {
+    noFill();
+    stroke(255, 255, 255, 160);
+    strokeWeight(2);
+    arc(0, 0, 30, 30, -90, -90 + 360 * progress / APHID_ANT_FRAMES);
+  }
+
+  rotate(aphid.angle);
+  noStroke();
+  fill(0, 0, 0, alpha * 0.25);
+  ellipse(2, 3, 18, 13);
+  stroke(60, 110, 40, alpha);
+  strokeWeight(1.2);
+  for (let k = -1; k <= 1; k++) {
+    line(k * 4, -4, k * 4 - 2, -8);
+    line(k * 4, 4, k * 4 - 2, 8);
+  }
+  line(-7, -2, -10, -3); // Cornicles
+  line(-7, 2, -10, 3);
+  noStroke();
+  fill(150, 225, 100, alpha);
+  ellipse(0, 0, 16, 11);
+  fill(105, 180, 70, alpha);
+  ellipse(7, 0, 6, 6);
+  if (mark) {
+    fill(mark[0], mark[1], mark[2], alpha);
+    ellipse(-1, 0, 7, 7);
+  }
+  pop();
+}
+
+// Coloured rings around the beetle and ants for each aphid effect they have; they blink as they run out
+function drawAphidEffectRing(x, y, radius, color, framesLeft) {
+  if (framesLeft < 60 && Math.floor(framesLeft / 6) % 2 === 0) return;
+  noFill();
+  stroke(color[0], color[1], color[2], 170 + 60 * sin(frameCount * 8));
+  strokeWeight(2);
+  ellipse(x, y, radius * 2, radius * 2);
+}
+
+function drawAphidEffectRings() {
+  push();
+  angleMode(DEGREES);
+  let ring = 0;
+  for (const key of ['speed', 'armor', 'exp', 'regen']) {
+    if (isPlayerAphidActive(key)) drawAphidEffectRing(playerX, playerY, 40 + 5 * ring++, APHID_TYPES[key].color, playerAphidEffects[key]);
+  }
+  for (let i = 1; i <= enemyCount; i++) {
+    const fx = antAphidEffects[i];
+    if (!fx || antDormant[i] || antInBunker[i]) continue;
+    const y = antY[i] - antAirHeight[i];
+    let r = 0;
+    for (const key of ['speed', 'armor', 'exp', 'regen', 'reroll']) {
+      if (!fx[key]) continue;
+      const framesLeft = typeof fx[key] === 'object' ? fx[key].frames : fx[key];
+      drawAphidEffectRing(antX[i], y, 14 + 6 * antSize[i] + 4 * r++, APHID_TYPES[key].color, framesLeft);
+    }
+  }
+  pop();
 }
 
 function autonomousAntMovement(){
@@ -11424,7 +11814,8 @@ function drawDeathEffects() {
       textSize(24);
       stroke(0, t.opacity);
       strokeWeight(3);
-      fill(255, 255, 0, t.opacity);
+      const textColor = t.color || [255, 255, 0]; // Aphid heals are green
+      fill(textColor[0], textColor[1], textColor[2], t.opacity);
       text(t.text, t.x, t.y);
     pop();
 
@@ -12363,6 +12754,54 @@ function drawUpgradeScreen() {
       description: 'Increase bomb blast radius. Each level adds 40 pixels (60→180). Requires Impact Bomb.',
       level: upgrade36Level,
       maxLevel: 3
+    },
+    {
+      title: 'Lady Beetle',
+      description: 'Aphids appear on the field. Eat one for 2 health. Ants that stay near one for a while get 0.5 health.',
+      level: upgrade37Level,
+      maxLevel: 1
+    },
+    {
+      title: 'Aphid Health',
+      description: 'Aphids heal more: +1 for you and +0.25 for ants per level (2→5, 0.5→1.25). Requires Lady Beetle.',
+      level: upgrade38Level,
+      maxLevel: 3
+    },
+    {
+      title: 'Aphid Spawn Rate',
+      description: 'Aphids appear more often (every 20s→15s→10s). Requires Lady Beetle.',
+      level: upgrade39Level,
+      maxLevel: 2
+    },
+    {
+      title: 'Speedy Aphids',
+      description: 'Yellow aphids (10%) double movement speed for 5 seconds. Ants near them get the same. Requires Lady Beetle.',
+      level: upgrade40Level,
+      maxLevel: 1
+    },
+    {
+      title: 'Armored Aphids',
+      description: 'Blue aphids (10%) halve damage taken for 5 seconds. Ants near them get the same. Requires Lady Beetle.',
+      level: upgrade41Level,
+      maxLevel: 1
+    },
+    {
+      title: 'Wise Aphids',
+      description: 'Purple aphids (10%) double EXP for 5 seconds. Ants near them max out one stat for 5 seconds. Requires Lady Beetle.',
+      level: upgrade42Level,
+      maxLevel: 1
+    },
+    {
+      title: 'Healthy Aphids',
+      description: 'Pink aphids (10%) double bullet, shield, health and cooldown regeneration for 5 seconds. Ants near them get the same. Requires Lady Beetle.',
+      level: upgrade43Level,
+      maxLevel: 1
+    },
+    {
+      title: 'Lucky Aphids',
+      description: 'Orange aphids (5%) give an extra reroll. Ants near them get a random ability for 5 seconds. Requires Lady Beetle.',
+      level: upgrade44Level,
+      maxLevel: 1
     }
   ];
   
@@ -12532,6 +12971,33 @@ function drawUpgradeScreen() {
         const nxt = getBombRadius(nextLevel);
         return `Increase bomb blast radius. Current: ${cur}px → ${level === allUpgrades[upgradeIndex].maxLevel ? `${cur}px (max)` : `${nxt}px`}`;
       }
+      case 36: { // Lady Beetle
+        return `Aphids appear every ${APHID_SPAWN_SECONDS[upgrade39Level]}s. Eat one for ${APHID_PLAYER_HEAL[upgrade38Level]} health; ants that stay near one get ${APHID_ANT_HEAL[upgrade38Level]}.`;
+      }
+      case 37: { // Aphid Health
+        const isMax = level === allUpgrades[upgradeIndex].maxLevel;
+        return `Aphids heal more. You: ${APHID_PLAYER_HEAL[level]} → ${isMax ? `${APHID_PLAYER_HEAL[level]} (max)` : APHID_PLAYER_HEAL[nextLevel]}, ants: ${APHID_ANT_HEAL[level]} → ${isMax ? `${APHID_ANT_HEAL[level]} (max)` : APHID_ANT_HEAL[nextLevel]}`;
+      }
+      case 38: { // Aphid Spawn Rate
+        const cur = APHID_SPAWN_SECONDS[level];
+        const nxt = APHID_SPAWN_SECONDS[nextLevel];
+        return `Aphids appear more often. Every: ${cur}s → ${level === allUpgrades[upgradeIndex].maxLevel ? `${cur}s (max)` : `${nxt}s`}`;
+      }
+      case 39: { // Speedy Aphids
+        return 'Unlock yellow aphids (10%): double movement speed for 5 seconds. Ants near one get the same.';
+      }
+      case 40: { // Armored Aphids
+        return 'Unlock blue aphids (10%): take half damage for 5 seconds. Ants near one get the same.';
+      }
+      case 41: { // Wise Aphids
+        return 'Unlock purple aphids (10%): double EXP for 5 seconds. Ants near one max out a stat for 5 seconds.';
+      }
+      case 42: { // Healthy Aphids
+        return 'Unlock pink aphids (10%): bullets, shields, health and cooldowns regenerate twice as fast for 5 seconds. Ants near one get the same.';
+      }
+      case 43: { // Lucky Aphids
+        return 'Unlock orange aphids (5%): +1 reroll. Ants near one get a random ability for 5 seconds.';
+      }
       default:
         return allUpgrades[upgradeIndex].description;
     }
@@ -12575,6 +13041,14 @@ function drawUpgradeScreen() {
       case 29:{ cur = `${getSprayWidth(level)}px`; nxt = `${getSprayWidth(nextLevel)}px`; break; }
       case 31:{ cur = `${getPierceCount(level)}`; nxt = `${getPierceCount(nextLevel)}`; break; }
       case 35:{ cur = `${getBombRadius(level)}px`; nxt = `${getBombRadius(nextLevel)}px`; break; }
+      case 37:{ cur = `${APHID_PLAYER_HEAL[level]}`; nxt = `${APHID_PLAYER_HEAL[nextLevel]}`; break; }
+      case 38:{ cur = `${APHID_SPAWN_SECONDS[level]}s`; nxt = `${APHID_SPAWN_SECONDS[nextLevel]}s`; break; }
+      case 36:
+      case 39:
+      case 40:
+      case 41:
+      case 42:
+      case 43:{ cur = level > 0 ? 'ON' : 'OFF'; nxt = 'ON'; break; }
       case 27:
       case 30:
       case 32:
@@ -12767,17 +13241,18 @@ function isCoreUpgrade(upgradeId) {
 function getUpgradeRarity(upgradeId) {
   if (upgradeId === 20) return { label: 'ULTRA RARE', weight: 0.1, color: [255, 180, 0] };
   if (upgradeId >= 24 && upgradeId <= 26) return { label: 'VERY RARE', weight: 0.2, color: [200, 90, 255] };
-  // Medium rare: Health Regeneration, economy (Metabolism, EXP Boost, Combo Surge), and all special shot upgrades
-  if (upgradeId === 19 || (upgradeId >= 21 && upgradeId <= 23) || (upgradeId >= 27 && upgradeId <= 35)) {
+  // Medium rare: Health Regeneration, economy (Metabolism, EXP Boost, Combo Surge), all special shot upgrades,
+  // and Lady Beetle with all its aphid upgrades
+  if (upgradeId === 19 || (upgradeId >= 21 && upgradeId <= 23) || (upgradeId >= 27 && upgradeId <= 43)) {
     return { label: '', weight: 0.5, color: null };
   }
   if (!isCoreUpgrade(upgradeId)) return { label: '', weight: 0.9, color: null };  // Uncommon
   return { label: '', weight: 1, color: null };
 }
 
-// Upgrade levels by id (0-35)
+// Upgrade levels by id (0-43)
 function getCurrentUpgradeLevels() {
-  return [upgrade1Level, upgrade2Level, upgrade3Level, upgrade4Level, upgrade5Level, upgrade6Level, upgrade7Level, upgrade8Level, upgrade9Level, upgrade10Level, upgrade11Level, upgrade12Level, upgrade13Level, upgrade14Level, upgrade15Level, upgrade16Level, upgrade17Level, upgrade18Level, upgrade19Level, upgrade20Level, upgrade21Level, upgrade22Level, upgrade23Level, upgrade24Level, upgrade25Level, upgrade26Level, upgrade27Level, upgrade28Level, upgrade29Level, upgrade30Level, upgrade31Level, upgrade32Level, upgrade33Level, upgrade34Level, upgrade35Level, upgrade36Level];
+  return [upgrade1Level, upgrade2Level, upgrade3Level, upgrade4Level, upgrade5Level, upgrade6Level, upgrade7Level, upgrade8Level, upgrade9Level, upgrade10Level, upgrade11Level, upgrade12Level, upgrade13Level, upgrade14Level, upgrade15Level, upgrade16Level, upgrade17Level, upgrade18Level, upgrade19Level, upgrade20Level, upgrade21Level, upgrade22Level, upgrade23Level, upgrade24Level, upgrade25Level, upgrade26Level, upgrade27Level, upgrade28Level, upgrade29Level, upgrade30Level, upgrade31Level, upgrade32Level, upgrade33Level, upgrade34Level, upgrade35Level, upgrade36Level, upgrade37Level, upgrade38Level, upgrade39Level, upgrade40Level, upgrade41Level, upgrade42Level, upgrade43Level, upgrade44Level];
 }
 
 // Whether an upgrade's prerequisites are met (lv = upgrade levels by id). Also used by the Queen Upgrades shop.
@@ -12804,6 +13279,7 @@ function upgradePrereqsMet(i, lv) {
   if (i === 33 && lv[32] === 0) return false;  // Timed Bomb requires Impact Bomb
   if (i === 34 && lv[33] === 0) return false;  // Proximity Bomb requires Timed Bomb
   if (i === 35 && lv[32] === 0) return false;  // Blast Radius requires Impact Bomb
+  if (i >= 37 && i <= 43 && lv[36] === 0) return false;  // Aphid upgrades require Lady Beetle
   return true;
 }
 
@@ -12816,7 +13292,7 @@ function isUpgradeUnlocked(i) {
 // Fill displayedUpgrades with up to 3 unmaxed, unlocked upgrades, weighted by rarity.
 // Upgrades in `exclude` are only offered once nothing else is left.
 function pickUpgradeOptions(exclude = []) {
-  let upgradeLevels = [upgrade1Level, upgrade2Level, upgrade3Level, upgrade4Level, upgrade5Level, upgrade6Level, upgrade7Level, upgrade8Level, upgrade9Level, upgrade10Level, upgrade11Level, upgrade12Level, upgrade13Level, upgrade14Level, upgrade15Level, upgrade16Level, upgrade17Level, upgrade18Level, upgrade19Level, upgrade20Level, upgrade21Level, upgrade22Level, upgrade23Level, upgrade24Level, upgrade25Level, upgrade26Level, upgrade27Level, upgrade28Level, upgrade29Level, upgrade30Level, upgrade31Level, upgrade32Level, upgrade33Level, upgrade34Level, upgrade35Level, upgrade36Level];
+  let upgradeLevels = [upgrade1Level, upgrade2Level, upgrade3Level, upgrade4Level, upgrade5Level, upgrade6Level, upgrade7Level, upgrade8Level, upgrade9Level, upgrade10Level, upgrade11Level, upgrade12Level, upgrade13Level, upgrade14Level, upgrade15Level, upgrade16Level, upgrade17Level, upgrade18Level, upgrade19Level, upgrade20Level, upgrade21Level, upgrade22Level, upgrade23Level, upgrade24Level, upgrade25Level, upgrade26Level, upgrade27Level, upgrade28Level, upgrade29Level, upgrade30Level, upgrade31Level, upgrade32Level, upgrade33Level, upgrade34Level, upgrade35Level, upgrade36Level, upgrade37Level, upgrade38Level, upgrade39Level, upgrade40Level, upgrade41Level, upgrade42Level, upgrade43Level, upgrade44Level];
   let availableUpgrades = [];
   for (let i = 0; i < UPGRADE_COUNT; i++) {
     if (upgradeLevels[i] < UPGRADE_MAX_LEVELS[i] && isUpgradeUnlocked(i)) {
@@ -12846,7 +13322,7 @@ function pickUpgradeOptions(exclude = []) {
 // Whether rerolling could show at least one upgrade that isn't on screen now
 function canRerollUpgrades() {
   if (upgradeRerolls <= 0) return false;
-  let upgradeLevels = [upgrade1Level, upgrade2Level, upgrade3Level, upgrade4Level, upgrade5Level, upgrade6Level, upgrade7Level, upgrade8Level, upgrade9Level, upgrade10Level, upgrade11Level, upgrade12Level, upgrade13Level, upgrade14Level, upgrade15Level, upgrade16Level, upgrade17Level, upgrade18Level, upgrade19Level, upgrade20Level, upgrade21Level, upgrade22Level, upgrade23Level, upgrade24Level, upgrade25Level, upgrade26Level, upgrade27Level, upgrade28Level, upgrade29Level, upgrade30Level, upgrade31Level, upgrade32Level, upgrade33Level, upgrade34Level, upgrade35Level, upgrade36Level];
+  let upgradeLevels = [upgrade1Level, upgrade2Level, upgrade3Level, upgrade4Level, upgrade5Level, upgrade6Level, upgrade7Level, upgrade8Level, upgrade9Level, upgrade10Level, upgrade11Level, upgrade12Level, upgrade13Level, upgrade14Level, upgrade15Level, upgrade16Level, upgrade17Level, upgrade18Level, upgrade19Level, upgrade20Level, upgrade21Level, upgrade22Level, upgrade23Level, upgrade24Level, upgrade25Level, upgrade26Level, upgrade27Level, upgrade28Level, upgrade29Level, upgrade30Level, upgrade31Level, upgrade32Level, upgrade33Level, upgrade34Level, upgrade35Level, upgrade36Level, upgrade37Level, upgrade38Level, upgrade39Level, upgrade40Level, upgrade41Level, upgrade42Level, upgrade43Level, upgrade44Level];
   for (let i = 0; i < UPGRADE_COUNT; i++) {
     if (upgradeLevels[i] < UPGRADE_MAX_LEVELS[i] && isUpgradeUnlocked(i) && !displayedUpgrades.includes(i)) return true;
   }
@@ -12939,6 +13415,22 @@ function applyUpgrade(upgradeIndex) {
     upgrade35Level++;
   } else if (actualUpgradeId === 35 && upgrade36Level < upgradeMaxLevels[35]) {
     upgrade36Level++;
+  } else if (actualUpgradeId === 36 && upgrade37Level < upgradeMaxLevels[36]) {
+    upgrade37Level++;
+  } else if (actualUpgradeId === 37 && upgrade38Level < upgradeMaxLevels[37]) {
+    upgrade38Level++;
+  } else if (actualUpgradeId === 38 && upgrade39Level < upgradeMaxLevels[38]) {
+    upgrade39Level++;
+  } else if (actualUpgradeId === 39 && upgrade40Level < upgradeMaxLevels[39]) {
+    upgrade40Level++;
+  } else if (actualUpgradeId === 40 && upgrade41Level < upgradeMaxLevels[40]) {
+    upgrade41Level++;
+  } else if (actualUpgradeId === 41 && upgrade42Level < upgradeMaxLevels[41]) {
+    upgrade42Level++;
+  } else if (actualUpgradeId === 42 && upgrade43Level < upgradeMaxLevels[42]) {
+    upgrade43Level++;
+  } else if (actualUpgradeId === 43 && upgrade44Level < upgradeMaxLevels[43]) {
+    upgrade44Level++;
   }
   
   // Level up the EXP system
@@ -12964,8 +13456,8 @@ function applyUpgrade(upgradeIndex) {
   }
   
   //TODO: Add actual upgrade effects based on actualUpgradeId (0-19)
-  let levels = [upgrade1Level, upgrade2Level, upgrade3Level, upgrade4Level, upgrade5Level, upgrade6Level, upgrade7Level, upgrade8Level, upgrade9Level, upgrade10Level, upgrade11Level, upgrade12Level, upgrade13Level, upgrade14Level, upgrade15Level, upgrade16Level, upgrade17Level, upgrade18Level, upgrade19Level, upgrade20Level, upgrade21Level, upgrade22Level, upgrade23Level, upgrade24Level, upgrade25Level, upgrade26Level, upgrade27Level, upgrade28Level, upgrade29Level, upgrade30Level, upgrade31Level, upgrade32Level, upgrade33Level, upgrade34Level, upgrade35Level, upgrade36Level];
-  let upgradeNames = ['Walking Speed', 'Dash Speed', 'Dash Cooldown', 'Add Shield', 'Add Bullets', 'Shield Regeneration', 'Bullet Reload', 'Bullet Speed', 'Free-Angle Aiming', 'Tiger Beetle', 'Oogpister Beetle', 'Horns', 'Potent Acid', 'Shockwave', 'Shockwave Radius', 'Shockwave Damage', 'Shockwave Cooldown', 'Shockwave Knockback', 'Bullet Deflection', 'Health Regeneration', 'Runt Hunter', 'Increased Metabolism', 'EXP Boost', 'Combo Surge', 'Dash Harvest', 'Shockwave Harvest', 'Bullet Harvest', 'Spray Acid', 'Spray Length', 'Spray Width', 'Piercing Acid', 'Piercing Depth', 'Impact Bomb', 'Timed Bomb', 'Proximity Bomb', 'Blast Radius'];
+  let levels = [upgrade1Level, upgrade2Level, upgrade3Level, upgrade4Level, upgrade5Level, upgrade6Level, upgrade7Level, upgrade8Level, upgrade9Level, upgrade10Level, upgrade11Level, upgrade12Level, upgrade13Level, upgrade14Level, upgrade15Level, upgrade16Level, upgrade17Level, upgrade18Level, upgrade19Level, upgrade20Level, upgrade21Level, upgrade22Level, upgrade23Level, upgrade24Level, upgrade25Level, upgrade26Level, upgrade27Level, upgrade28Level, upgrade29Level, upgrade30Level, upgrade31Level, upgrade32Level, upgrade33Level, upgrade34Level, upgrade35Level, upgrade36Level, upgrade37Level, upgrade38Level, upgrade39Level, upgrade40Level, upgrade41Level, upgrade42Level, upgrade43Level, upgrade44Level];
+  let upgradeNames = ['Walking Speed', 'Dash Speed', 'Dash Cooldown', 'Add Shield', 'Add Bullets', 'Shield Regeneration', 'Bullet Reload', 'Bullet Speed', 'Free-Angle Aiming', 'Tiger Beetle', 'Oogpister Beetle', 'Horns', 'Potent Acid', 'Shockwave', 'Shockwave Radius', 'Shockwave Damage', 'Shockwave Cooldown', 'Shockwave Knockback', 'Bullet Deflection', 'Health Regeneration', 'Runt Hunter', 'Increased Metabolism', 'EXP Boost', 'Combo Surge', 'Dash Harvest', 'Shockwave Harvest', 'Bullet Harvest', 'Spray Acid', 'Spray Length', 'Spray Width', 'Piercing Acid', 'Piercing Depth', 'Impact Bomb', 'Timed Bomb', 'Proximity Bomb', 'Blast Radius', 'Lady Beetle', 'Aphid Health', 'Aphid Spawn Rate', 'Speedy Aphids', 'Armored Aphids', 'Wise Aphids', 'Healthy Aphids', 'Lucky Aphids'];
   debugLog(`${upgradeNames[actualUpgradeId]} selected! Level: ${levels[actualUpgradeId]}`);
   
   // Update upgrade booleans
@@ -13263,6 +13755,7 @@ function clearRoundEffects() {
   deathAnimations = [];
   floatingTexts = [];
   flashingEntities = [];
+  resetAphids();
   endQueenFight();
   antHitSpots = [];
   pendingHitSpot = null;
@@ -15826,6 +16319,7 @@ function updateAntDexEntries() {
   //checks for new discoveries
   if (start === true){
     for (let i = 1; i <= enemyCount; i++) {
+      if (hasAntAphidEffects(i)) continue; // Aphid boosts aren't the ant's own genes
       // 1-8: Movement Behaviors
       if (!movementType1Discovered && followBeetle[i] && followTarget[i]) {
         movementType1Discovered = true;
@@ -17409,6 +17903,14 @@ function savePlayerState(playerIndex) {
   p.upgrade34 = upgrade34Level;
   p.upgrade35 = upgrade35Level;
   p.upgrade36 = upgrade36Level;
+  p.upgrade37 = upgrade37Level;
+  p.upgrade38 = upgrade38Level;
+  p.upgrade39 = upgrade39Level;
+  p.upgrade40 = upgrade40Level;
+  p.upgrade41 = upgrade41Level;
+  p.upgrade42 = upgrade42Level;
+  p.upgrade43 = upgrade43Level;
+  p.upgrade44 = upgrade44Level;
   p.upgradeRerolls = upgradeRerolls;
   
   // Save experience
@@ -17470,8 +17972,17 @@ function loadPlayerState(playerIndex) {
   upgrade34Level = p.upgrade34 || 0;
   upgrade35Level = p.upgrade35 || 0;
   upgrade36Level = p.upgrade36 || 0;
+  upgrade37Level = p.upgrade37 || 0;
+  upgrade38Level = p.upgrade38 || 0;
+  upgrade39Level = p.upgrade39 || 0;
+  upgrade40Level = p.upgrade40 || 0;
+  upgrade41Level = p.upgrade41 || 0;
+  upgrade42Level = p.upgrade42 || 0;
+  upgrade43Level = p.upgrade43 || 0;
+  upgrade44Level = p.upgrade44 || 0;
   upgradeRerolls = p.upgradeRerolls !== undefined ? p.upgradeRerolls : UPGRADE_REROLLS_PER_RUN;
   resetShotMode(); // Each player's turn starts on the default shot
+  resetAphids(); // ...with no aphids or aphid effects left over from the last player
 
   // Load experience
   expLevel = p.expLevel;
@@ -18606,7 +19117,15 @@ function drawDevTools() {
         upgrade33: upgrade33Level,
         upgrade34: upgrade34Level,
         upgrade35: upgrade35Level,
-        upgrade36: upgrade36Level
+        upgrade36: upgrade36Level,
+        upgrade37: upgrade37Level,
+        upgrade38: upgrade38Level,
+        upgrade39: upgrade39Level,
+        upgrade40: upgrade40Level,
+        upgrade41: upgrade41Level,
+        upgrade42: upgrade42Level,
+        upgrade43: upgrade43Level,
+        upgrade44: upgrade44Level
       };
     } else if (devToolsTab === 'multi') {
       // Multiplayer mode - get upgrades from selected player
@@ -18647,7 +19166,15 @@ function drawDevTools() {
           upgrade33: players[devToolsPlayerTab].upgrade33 || 0,
           upgrade34: players[devToolsPlayerTab].upgrade34 || 0,
           upgrade35: players[devToolsPlayerTab].upgrade35 || 0,
-          upgrade36: players[devToolsPlayerTab].upgrade36 || 0
+          upgrade36: players[devToolsPlayerTab].upgrade36 || 0,
+          upgrade37: players[devToolsPlayerTab].upgrade37 || 0,
+          upgrade38: players[devToolsPlayerTab].upgrade38 || 0,
+          upgrade39: players[devToolsPlayerTab].upgrade39 || 0,
+          upgrade40: players[devToolsPlayerTab].upgrade40 || 0,
+          upgrade41: players[devToolsPlayerTab].upgrade41 || 0,
+          upgrade42: players[devToolsPlayerTab].upgrade42 || 0,
+          upgrade43: players[devToolsPlayerTab].upgrade43 || 0,
+          upgrade44: players[devToolsPlayerTab].upgrade44 || 0
         };
       } else {
         // Player doesn't exist, show zeros
@@ -18657,7 +19184,7 @@ function drawDevTools() {
           upgrade11: 0, upgrade12: 0, upgrade13: 0, upgrade14: 0, upgrade15: 0,
           upgrade16: 0, upgrade17: 0, upgrade18: 0, upgrade19: 0, upgrade20: 0,
           upgrade21: 0, upgrade22: 0, upgrade23: 0, upgrade24: 0, upgrade25: 0, upgrade26: 0, upgrade27: 0,
-          upgrade28: 0, upgrade29: 0, upgrade30: 0, upgrade31: 0, upgrade32: 0, upgrade33: 0, upgrade34: 0, upgrade35: 0, upgrade36: 0
+          upgrade28: 0, upgrade29: 0, upgrade30: 0, upgrade31: 0, upgrade32: 0, upgrade33: 0, upgrade34: 0, upgrade35: 0, upgrade36: 0, upgrade37: 0, upgrade38: 0, upgrade39: 0, upgrade40: 0, upgrade41: 0, upgrade42: 0, upgrade43: 0, upgrade44: 0
         };
       }
     }
@@ -18701,7 +19228,15 @@ function drawDevTools() {
         { name: 'Impact Bomb', level: currentUpgrades.upgrade33, maxLevel: 1, id: 32 },
         { name: 'Timed Bomb', level: currentUpgrades.upgrade34, maxLevel: 1, id: 33 },
         { name: 'Proximity Bomb', level: currentUpgrades.upgrade35, maxLevel: 1, id: 34 },
-        { name: 'Blast Radius', level: currentUpgrades.upgrade36, maxLevel: 3, id: 35 }
+        { name: 'Blast Radius', level: currentUpgrades.upgrade36, maxLevel: 3, id: 35 },
+        { name: 'Lady Beetle', level: currentUpgrades.upgrade37, maxLevel: 1, id: 36 },
+        { name: 'Aphid Health', level: currentUpgrades.upgrade38, maxLevel: 3, id: 37 },
+        { name: 'Aphid Spawn Rate', level: currentUpgrades.upgrade39, maxLevel: 2, id: 38 },
+        { name: 'Speedy Aphids', level: currentUpgrades.upgrade40, maxLevel: 1, id: 39 },
+        { name: 'Armored Aphids', level: currentUpgrades.upgrade41, maxLevel: 1, id: 40 },
+        { name: 'Wise Aphids', level: currentUpgrades.upgrade42, maxLevel: 1, id: 41 },
+        { name: 'Healthy Aphids', level: currentUpgrades.upgrade43, maxLevel: 1, id: 42 },
+        { name: 'Lucky Aphids', level: currentUpgrades.upgrade44, maxLevel: 1, id: 43 }
       ];
     
     // Handle player sub-tab switching in multiplayer mode
@@ -18933,7 +19468,7 @@ function toggleDevUpgrade(upgradeId) {
   
   if (devToolsTab === 'single') {
     let upgradeLevels = [upgrade1Level, upgrade2Level, upgrade3Level, upgrade4Level, upgrade5Level, 
-                         upgrade6Level, upgrade7Level, upgrade8Level, upgrade9Level, upgrade10Level, upgrade11Level, upgrade12Level, upgrade13Level, upgrade14Level, upgrade15Level, upgrade16Level, upgrade17Level, upgrade18Level, upgrade19Level, upgrade20Level, upgrade21Level, upgrade22Level, upgrade23Level, upgrade24Level, upgrade25Level, upgrade26Level, upgrade27Level, upgrade28Level, upgrade29Level, upgrade30Level, upgrade31Level, upgrade32Level, upgrade33Level, upgrade34Level, upgrade35Level, upgrade36Level];
+                         upgrade6Level, upgrade7Level, upgrade8Level, upgrade9Level, upgrade10Level, upgrade11Level, upgrade12Level, upgrade13Level, upgrade14Level, upgrade15Level, upgrade16Level, upgrade17Level, upgrade18Level, upgrade19Level, upgrade20Level, upgrade21Level, upgrade22Level, upgrade23Level, upgrade24Level, upgrade25Level, upgrade26Level, upgrade27Level, upgrade28Level, upgrade29Level, upgrade30Level, upgrade31Level, upgrade32Level, upgrade33Level, upgrade34Level, upgrade35Level, upgrade36Level, upgrade37Level, upgrade38Level, upgrade39Level, upgrade40Level, upgrade41Level, upgrade42Level, upgrade43Level, upgrade44Level];
     currentLevel = upgradeLevels[upgradeId];
   } else {
     // Multiplayer - get from selected player
@@ -18974,7 +19509,15 @@ function toggleDevUpgrade(upgradeId) {
         players[devToolsPlayerTab].upgrade33 || 0,
         players[devToolsPlayerTab].upgrade34 || 0,
         players[devToolsPlayerTab].upgrade35 || 0,
-        players[devToolsPlayerTab].upgrade36 || 0
+        players[devToolsPlayerTab].upgrade36 || 0,
+        players[devToolsPlayerTab].upgrade37 || 0,
+        players[devToolsPlayerTab].upgrade38 || 0,
+        players[devToolsPlayerTab].upgrade39 || 0,
+        players[devToolsPlayerTab].upgrade40 || 0,
+        players[devToolsPlayerTab].upgrade41 || 0,
+        players[devToolsPlayerTab].upgrade42 || 0,
+        players[devToolsPlayerTab].upgrade43 || 0,
+        players[devToolsPlayerTab].upgrade44 || 0
       ];
       currentLevel = playerUpgrades[upgradeId];
     }
@@ -19049,7 +19592,7 @@ function activateDevPrerequisites(upgradeId, targetLevel) {
   let getCurrentLevel = (id) => {
     if (devToolsTab === 'single') {
       let levels = [upgrade1Level, upgrade2Level, upgrade3Level, upgrade4Level, upgrade5Level, 
-                    upgrade6Level, upgrade7Level, upgrade8Level, upgrade9Level, upgrade10Level, upgrade11Level, upgrade12Level, upgrade13Level, upgrade14Level, upgrade15Level, upgrade16Level, upgrade17Level, upgrade18Level, upgrade19Level, upgrade20Level, upgrade21Level, upgrade22Level, upgrade23Level, upgrade24Level, upgrade25Level, upgrade26Level, upgrade27Level, upgrade28Level, upgrade29Level, upgrade30Level, upgrade31Level, upgrade32Level, upgrade33Level, upgrade34Level, upgrade35Level, upgrade36Level];
+                    upgrade6Level, upgrade7Level, upgrade8Level, upgrade9Level, upgrade10Level, upgrade11Level, upgrade12Level, upgrade13Level, upgrade14Level, upgrade15Level, upgrade16Level, upgrade17Level, upgrade18Level, upgrade19Level, upgrade20Level, upgrade21Level, upgrade22Level, upgrade23Level, upgrade24Level, upgrade25Level, upgrade26Level, upgrade27Level, upgrade28Level, upgrade29Level, upgrade30Level, upgrade31Level, upgrade32Level, upgrade33Level, upgrade34Level, upgrade35Level, upgrade36Level, upgrade37Level, upgrade38Level, upgrade39Level, upgrade40Level, upgrade41Level, upgrade42Level, upgrade43Level, upgrade44Level];
       return levels[id];
     } else if (players[devToolsPlayerTab]) {
       let playerLevels = [
@@ -19088,7 +19631,15 @@ function activateDevPrerequisites(upgradeId, targetLevel) {
         players[devToolsPlayerTab].upgrade33 || 0,
         players[devToolsPlayerTab].upgrade34 || 0,
         players[devToolsPlayerTab].upgrade35 || 0,
-        players[devToolsPlayerTab].upgrade36 || 0
+        players[devToolsPlayerTab].upgrade36 || 0,
+        players[devToolsPlayerTab].upgrade37 || 0,
+        players[devToolsPlayerTab].upgrade38 || 0,
+        players[devToolsPlayerTab].upgrade39 || 0,
+        players[devToolsPlayerTab].upgrade40 || 0,
+        players[devToolsPlayerTab].upgrade41 || 0,
+        players[devToolsPlayerTab].upgrade42 || 0,
+        players[devToolsPlayerTab].upgrade43 || 0,
+        players[devToolsPlayerTab].upgrade44 || 0
       ];
       return playerLevels[id];
     }
@@ -19176,6 +19727,9 @@ function activateDevPrerequisites(upgradeId, targetLevel) {
   if (upgradeId === 34 && getCurrentLevel(33) === 0) {
     setDevUpgradeLevel(33, 1);  // Proximity Bomb requires Timed Bomb
   }
+  if (upgradeId >= 37 && upgradeId <= 43 && getCurrentLevel(36) === 0) {
+    setDevUpgradeLevel(36, 1);  // Aphid upgrades require Lady Beetle
+  }
 }
 
 // Deactivate upgrades that depend on this one
@@ -19241,6 +19795,11 @@ function deactivateDevDependentUpgrades(upgradeId) {
   }
   if (upgradeId === 33) {
     setDevUpgradeLevel(34, 0);
+  }
+
+  // If Lady Beetle (36) is reset, reset every aphid upgrade
+  if (upgradeId === 36) {
+    for (let id = 37; id <= 43; id++) setDevUpgradeLevel(id, 0);
   }
   
   // If Bullet Reload (6) is reset, reset Free-Angle Aiming (8) and Oogpister Beetle (10)
@@ -19308,6 +19867,14 @@ function setUpgradeLevel(upgradeId, level) {
   else if (upgradeId === 33) upgrade34Level = level;
   else if (upgradeId === 34) upgrade35Level = level;
   else if (upgradeId === 35) upgrade36Level = level;
+  else if (upgradeId === 36) upgrade37Level = level;
+  else if (upgradeId === 37) upgrade38Level = level;
+  else if (upgradeId === 38) upgrade39Level = level;
+  else if (upgradeId === 39) upgrade40Level = level;
+  else if (upgradeId === 40) upgrade41Level = level;
+  else if (upgradeId === 41) upgrade42Level = level;
+  else if (upgradeId === 42) upgrade43Level = level;
+  else if (upgradeId === 43) upgrade44Level = level;
   
   // Apply the changes to game stats
   updateUpgradeBooleans();
@@ -19353,6 +19920,14 @@ function setDevUpgradeLevel(upgradeId, level) {
     else if (upgradeId === 33) upgrade34Level = level;
     else if (upgradeId === 34) upgrade35Level = level;
     else if (upgradeId === 35) upgrade36Level = level;
+    else if (upgradeId === 36) upgrade37Level = level;
+    else if (upgradeId === 37) upgrade38Level = level;
+    else if (upgradeId === 38) upgrade39Level = level;
+    else if (upgradeId === 39) upgrade40Level = level;
+    else if (upgradeId === 40) upgrade41Level = level;
+    else if (upgradeId === 41) upgrade42Level = level;
+    else if (upgradeId === 42) upgrade43Level = level;
+    else if (upgradeId === 43) upgrade44Level = level;
     
     // Apply the changes to game stats
     updateUpgradeBooleans();
@@ -19395,6 +19970,14 @@ function setDevUpgradeLevel(upgradeId, level) {
       else if (upgradeId === 33) players[devToolsPlayerTab].upgrade34 = level;
       else if (upgradeId === 34) players[devToolsPlayerTab].upgrade35 = level;
       else if (upgradeId === 35) players[devToolsPlayerTab].upgrade36 = level;
+      else if (upgradeId === 36) players[devToolsPlayerTab].upgrade37 = level;
+      else if (upgradeId === 37) players[devToolsPlayerTab].upgrade38 = level;
+      else if (upgradeId === 38) players[devToolsPlayerTab].upgrade39 = level;
+      else if (upgradeId === 39) players[devToolsPlayerTab].upgrade40 = level;
+      else if (upgradeId === 40) players[devToolsPlayerTab].upgrade41 = level;
+      else if (upgradeId === 41) players[devToolsPlayerTab].upgrade42 = level;
+      else if (upgradeId === 42) players[devToolsPlayerTab].upgrade43 = level;
+      else if (upgradeId === 43) players[devToolsPlayerTab].upgrade44 = level;
       
       // Update player's stats based on their new upgrade levels
       updatePlayerStats(devToolsPlayerTab);
