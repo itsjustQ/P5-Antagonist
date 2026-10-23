@@ -1436,6 +1436,7 @@ function getNearbyCells(x, y) {
 function draw() {
   // Poll gamepad each frame
   updateGamepad();
+  menuSlideY = 0;
 
   // Every couple of seconds, make sure the shot/shield icons weren't wiped
   if (frameCount % 120 === 0) {
@@ -1568,6 +1569,9 @@ function draw() {
   if (start == true && roundIntroTimer > 0 && roundIntroSnapshot) {
     // Round intro: everything stays frozen until the countdown finishes
     drawRoundIntro();
+  } else if (start == true && roundOutroTimer > 0 && roundOutroSnapshot) {
+    // Round outro: frozen and darkened with "Victory" / "Queen Defeated" before the round-over screen
+    drawRoundOutro();
   } else if (start == true){
       // Only snapshot a round that was already started before this frame; nextRound() runs
       // inside endGame() from the round-over screen, which would otherwise freeze that screen
@@ -2449,6 +2453,7 @@ function beginMenuScaling() {
   let scaleX = windowWidth / MENU_REFERENCE_WIDTH;
   let scaleY = windowHeight / MENU_REFERENCE_HEIGHT;
   scale(scaleX, scaleY);
+  if (menuSlideY !== 0) translate(0, menuSlideY);
 }
 
 function endMenuScaling() {
@@ -3232,6 +3237,77 @@ function drawBeetle(){
 }
 
 // Freeze the next gameplay frame and count down 3-2-1 before play starts
+// Round outro: when a round is won (timer ran out or the queen died) the screen freezes and darkens like the
+// countdown and says so, then the round-over screen and upgrades slide up over it
+const ROUND_OUTRO_FRAMES = 120;
+const QUEEN_OUTRO_FRAMES = 170;     // Longer, to fit her explosion before the words
+const QUEEN_OUTRO_TEXT_DELAY = 35;
+const INTERMISSION_SLIDE_FRAMES = 24;
+let roundOutroTimer = 0;            // Frames left in the outro (0 = not running)
+let roundOutroFrames = 0;
+let roundOutroQueen = false;        // The queen's death ended the round
+let roundOutroStartFrame = 0;
+let roundOutroSnapshot = null;      // Frozen image of the frame after the round ended
+let intermissionSlideFrame = INTERMISSION_SLIDE_FRAMES;
+let menuSlideY = 0;                 // beginMenuScaling shifts menus down this far (reset every frame)
+
+function startRoundOutro() {
+  roundOutroQueen = queenDefeatedThisRound;
+  roundOutroFrames = roundOutroQueen ? QUEEN_OUTRO_FRAMES : ROUND_OUTRO_FRAMES;
+  roundOutroTimer = roundOutroFrames;
+  roundOutroStartFrame = frameCount;
+  roundOutroSnapshot = null;
+  intermissionSlideFrame = 0;
+}
+
+function clearRoundOutro() {
+  roundOutroTimer = 0;
+  roundOutroSnapshot = null;
+  queenDeathBurst = null;
+  intermissionSlideFrame = INTERMISSION_SLIDE_FRAMES;
+}
+
+function drawRoundOutro() {
+  const age = roundOutroFrames - roundOutroTimer;
+  image(roundOutroSnapshot, 0, 0, windowWidth, windowHeight);
+  noStroke();
+  fill(0, 0, 0, 120 * Math.min(1, age / 20));
+  rectMode(CORNER);
+  rect(0, 0, windowWidth, windowHeight);
+
+  if (roundOutroQueen && queenDeathBurst) {
+    beginGameplayScaling();
+    drawQueenDeathBurst(queenDeathBurst, age);
+    endGameplayScaling();
+  }
+
+  const textAge = age - (roundOutroQueen ? QUEEN_OUTRO_TEXT_DELAY : 4);
+  if (textAge >= 0) {
+    const titleSize = min(windowWidth, windowHeight) * 0.13;
+    const popScale = map(textAge, 0, 12, 1.5, 1, true);
+    const alpha = map(textAge, 0, 8, 0, 255, true);
+    push();
+    textAlign(CENTER, CENTER);
+    stroke(0, alpha);
+    strokeWeight(titleSize * 0.1);
+    textSize(titleSize * popScale);
+    if (roundOutroQueen) fill(220, 150, 255, alpha);
+    else fill(120, 255, 120, alpha);
+    text(roundOutroQueen ? 'QUEEN DEFEATED!' : 'VICTORY!', windowWidth / 2, windowHeight * 0.42);
+    textSize(titleSize * 0.3);
+    strokeWeight(titleSize * 0.04);
+    fill(255, alpha);
+    text(`Round ${level} complete`, windowWidth / 2, windowHeight * 0.42 + titleSize * 0.85);
+    pop();
+  }
+
+  roundOutroTimer--;
+  if (roundOutroTimer <= 0) {
+    roundOutroSnapshot = null;
+    queenDeathBurst = null;
+  }
+}
+
 function startRoundIntro() {
   roundIntroTimer = ROUND_INTRO_FRAMES;
   roundIntroSnapshot = null;
@@ -4945,7 +5021,7 @@ function detectKeyboardInput(){
         if (playerX > sideBuffer + (currentMoveSpeed - 0.1)){
           playerX -= currentMoveSpeed;
         }
-        if (followTarget[i] === true && !antDormant[i]){
+        if (followTarget[i] === true && !antDormant[i] && !antOrder[i]){
           if (followBeetle[i] === true){
             if (antX[i] > sideBuffer + ((antSpeed[i]) -.01)){
               antX[i] -= (antSpeed[i]);
@@ -4964,7 +5040,7 @@ function detectKeyboardInput(){
         if (playerX < getGameplayWidth() - sideBuffer - (currentMoveSpeed - 0.1)){
           playerX += currentMoveSpeed;
         }
-        if (followTarget[i] === true && !antDormant[i]){
+        if (followTarget[i] === true && !antDormant[i] && !antOrder[i]){
           if (followBeetle[i] === true){
             if (antX[i] < getGameplayWidth() - sideBuffer - ((antSpeed[i]) -.01)){
               antX[i] += (antSpeed[i]);
@@ -4983,7 +5059,7 @@ function detectKeyboardInput(){
         if (playerY > (scoreBarHeight + 25) + (currentMoveSpeed - 0.01)){
           playerY -= currentMoveSpeed;
         }
-        if (followTarget[i] === true && !antDormant[i]){
+        if (followTarget[i] === true && !antDormant[i] && !antOrder[i]){
           if (followBeetle[i] === true){
             if (antY[i] > (scoreBarHeight + 15) + ((antSpeed[i]) -.01)){
               antY[i] -= (antSpeed[i]);
@@ -5002,7 +5078,7 @@ function detectKeyboardInput(){
         if (playerY < getGameplayHeight() - expBarHeight - expBarBuffer - (currentMoveSpeed - 0.1)){
           playerY += currentMoveSpeed;
         }
-        if (followTarget[i] === true && !antDormant[i]){
+        if (followTarget[i] === true && !antDormant[i] && !antOrder[i]){
           if (followBeetle[i] === true){
             if (antY[i] < getGameplayHeight() - expBarHeight - expBarBuffer - ((antSpeed[i]) -.01)){
               antY[i] += (antSpeed[i]);
@@ -5057,7 +5133,7 @@ function detectKeyboardInput(){
   
   // Handle followAnt + followTarget ants (follow nearest ant's movement vector)
   for (let i = 1; i <= enemyCount; i++) {
-    if (followTarget[i] === true && followAnt[i] === true && !antDormant[i]) {
+    if (followTarget[i] === true && followAnt[i] === true && !antDormant[i] && !antOrder[i]) {
       let nearest = getNearestAnt(i);
       if (nearest !== -1) {
         let dx = antMoveX[nearest];
@@ -7963,6 +8039,9 @@ const QUEEN_SCORE_PER_ANT_LOST = -0.5;    // ...ants lost...
 const QUEEN_SCORE_PER_QUEEN_DAMAGE = -5;  // ...and damage taken
 const QUEEN_MAX_HIT_SPOTS = 30;           // Hit spots remembered per ant
 const PARKED_ANT_POS = -10000;            // Where dormant ants wait, far outside the play area
+const QUEEN_ORDER_ARRIVE = 70;            // Ordered ants go back to normal once they're this close to their spot
+const QUEEN_ORDER_FRAMES = 480;           // An order is dropped after this long even if they haven't arrived
+const QUEEN_ORDER_COOLDOWN = 180;         // Frames between orders (fixed, not learned)
 
 // The 32 ant abilities plus the generic shot, in the order the brain's ability outputs use
 const QUEEN_ABILITIES = [
@@ -7995,9 +8074,11 @@ let queenDefeatedThisRound = false;
 let queenProjectiles = [];       // Her acid and the ants she fires like bullets
 let queenEffects = [];           // Beams, streams, planted explosions, volleys, rings
 let antDormant = [];             // Ants that died during a queen fight and wait for her to spawn them again
+let antOrder = [];               // Ants the queen has ordered to walk to a spot: { x, y, expires }, or null
 let antQueenType = [];           // Which of the round's ants (by its index when she arrived) each ant is a copy of
 let antHitSpots = [];            // Where each ant was, relative to the beetle, when it fired shots that hit
 let pendingHitSpot = null;       // Set just before handlePlayerHit when the hitting bullet's firing spot is known
+let queenDeathBurst = null;      // Where the last queen died, for her explosion in the round outro
 let lastBeetleShotFrame = -9999;
 
 function isQueenFight() {
@@ -8076,6 +8157,7 @@ function parkAnt(i) {
   antRecoilAirTimer[i] = 0;
   antInBunker[i] = null;
   antSelfDestructFuse[i] = null;
+  antOrder[i] = null;
 }
 
 // Undo anything that moved a dormant ant this frame
@@ -8173,6 +8255,7 @@ function placeSpawnedAnt(i, x, y) {
   antMoveY[i] = 0;
   antSelfDestructFuse[i] = null;
   antDormant[i] = false;
+  antOrder[i] = null;
 }
 
 // Spawn one of the round's ants (type = its index when the queen arrived). A dormant copy of it comes back first;
@@ -8285,18 +8368,26 @@ function computeQueenTypeInfo() {
 
 // ========== QUEEN BRAIN ==========
 // A small feed-forward network plus a handful of plain strategy values (guard radius etc.). The network's output
-// layer starts at zero, so a new brain plays exactly the default strategy: go where the best ants did best
-// relative to the beetle and spawn them there, spawn everything as guards when the beetle comes close or shoots,
-// and use one of the best ant's abilities whenever she can. Learning is a (1+1) evolution strategy: each strategy
-// is scored over the stretch it was used for, the better of it and the best so far is kept, and that one is mutated.
-const QB_INPUTS = 33;
+// layer starts at zero, so a new brain plays exactly the default strategy: head for where the best ants did best
+// relative to the beetle (but stay at least 200px from it) and spawn them there, order ants that are out of place
+// to walk to their ideal spots, sidestep out of line with the beetle for a couple of seconds after it shoots, spawn
+// everything as guards when the beetle comes close or shoots, and use one of the best ant's abilities whenever she can.
+// Every decision runs through the networks, so all of them depend on everything she sees: each strategy value below is
+// only a base that a network output (fed all her raw inputs) can move anywhere in its range, ant choice and order spots
+// come from per-ant networks that also get all her inputs, and so do her movement offset, spot blend and ability picks.
+// Learning is a (1+1) evolution strategy: each strategy is scored over the stretch it was used for, the better of it
+// and the best so far is kept, and that one is mutated.
+const QB_INPUTS = 40;
 const QB_HIDDEN = 12;
 const QUEEN_TOP_TYPES = 3;                     // She tracks the ideal spots of her best 3 ants
-const QB_OUT_BLEND = 4;                        // Outputs: move x, move y, guard radius, spawn hold,
-const QB_OUT_ABILITIES = QB_OUT_BLEND + QUEEN_TOP_TYPES; // then a weight for each top ant's spot, then one per ability
-const QB_OUTPUTS = QB_OUT_ABILITIES + QUEEN_ABILITIES.length;
-const QT_INPUTS = 10;                          // Per-ant-type scorer
-const QT_HIDDEN = 6;
+const QB_OUT_BLEND = 2;                        // Outputs: move x, move y, then a weight for each top ant's spot,
+const QB_OUT_AIM = QB_OUT_BLEND + QUEEN_TOP_TYPES;   // ability aim x, aim y and formation turn,
+const QB_OUT_ALL_ORDER = QB_OUT_AIM + 3;             // order-everyone spot x, y,
+const QB_OUT_PARAMS = QB_OUT_ALL_ORDER + 2;          // then one per strategy value, then one per ability
+const QT_INPUTS = 7;                           // Per-ant-type networks: the ant's own values...
+const QT_HIDDEN = 8;
+const QT_ALL_INPUTS = QT_INPUTS + QB_INPUTS + QB_HIDDEN; // ...plus everything the queen sees and the main network's read of it
+const QO_HIDDEN = 8;
 const QUEEN_STRATEGY_DEFAULTS = {
   guardRadius: 100,     // Spawn everything as guards when the beetle is this close
   guardShotWindow: 45,  // ...or has fired within this many frames
@@ -8305,7 +8396,13 @@ const QUEEN_STRATEGY_DEFAULTS = {
   scoreWeight: 3,       // How much an ant's score counts when picking what to spawn
   bestAntBias: 2,       // How much she prefers her best ant's abilities
   spotFocus: 4,         // Where she goes: how much a top ant's score pulls her toward its ideal spot
-  antCohesion: 0        // Where she goes: pull toward (+) or away from (-) her own ants
+  antCohesion: 0,       // Where she goes: pull toward (+) or away from (-) her own ants
+  minBeetleDistance: 200, // Where she goes: never closer to the beetle than this (her ants are ordered in instead)
+  dodgeFrames: 120,     // After the beetle shoots, sidestep out of line with its x and y for this long...
+  dodgeBand: 70,        // ...getting at least this far off each line
+  orderDistance: 120,   // Order a kind of ant to its spot when they're this far from it on average
+  orderIdealWeight: 1,  // Order spot: how much of the ant's ideal spot it uses (the order network adds the rest)
+  orderAll: -1          // Above 0: her order goes to every ant (to one spot) instead of one kind of ant
 };
 const QUEEN_STRATEGY_RANGES = {
   guardRadius: [30, 600],
@@ -8315,8 +8412,17 @@ const QUEEN_STRATEGY_RANGES = {
   scoreWeight: [0, 6],
   bestAntBias: [0, 4],
   spotFocus: [0, 8],
-  antCohesion: [-1, 1]
+  antCohesion: [-1, 1],
+  minBeetleDistance: [0, 400],
+  dodgeFrames: [0, 300],
+  dodgeBand: [20, 150],
+  orderDistance: [QUEEN_ORDER_ARRIVE, 400],
+  orderIdealWeight: [0, 2],
+  orderAll: [-1, 1]
 };
+const QUEEN_STRATEGY_KEYS = Object.keys(QUEEN_STRATEGY_RANGES);
+const QB_OUT_ABILITIES = QB_OUT_PARAMS + QUEEN_STRATEGY_KEYS.length;
+const QB_OUTPUTS = QB_OUT_ABILITIES + QUEEN_ABILITIES.length;
 
 function randomWeights(count, scale) {
   const w = [];
@@ -8329,8 +8435,10 @@ function createQueenBrain() {
     strategy: { ...QUEEN_STRATEGY_DEFAULTS },
     w1: randomWeights(QB_HIDDEN * (QB_INPUTS + 1), 0.5),
     w2: new Array(QB_OUTPUTS * (QB_HIDDEN + 1)).fill(0),
-    t1: randomWeights(QT_HIDDEN * (QT_INPUTS + 1), 0.5),
-    t2: new Array(QT_HIDDEN + 1).fill(0)
+    t1: randomWeights(QT_HIDDEN * (QT_ALL_INPUTS + 1), 0.5),
+    t2: new Array(QT_HIDDEN + 1).fill(0),
+    o1: randomWeights(QO_HIDDEN * (QT_ALL_INPUTS + 1), 0.5),
+    o2: new Array(2 * (QO_HIDDEN + 1)).fill(0)
   };
 }
 
@@ -8340,12 +8448,14 @@ function cloneQueenBrain(brain) {
     w1: brain.w1.slice(),
     w2: brain.w2.slice(),
     t1: brain.t1.slice(),
-    t2: brain.t2.slice()
+    t2: brain.t2.slice(),
+    o1: brain.o1.slice(),
+    o2: brain.o2.slice()
   };
 }
 
 function mutateQueenBrain(brain, strength) {
-  for (const w of [brain.w1, brain.w2, brain.t1, brain.t2]) {
+  for (const w of [brain.w1, brain.w2, brain.t1, brain.t2, brain.o1, brain.o2]) {
     for (let k = 0; k < w.length; k++) {
       if (Math.random() < 0.25) w[k] = constrain(w[k] + randomGaussian() * 0.3 * strength, -4, 4);
     }
@@ -8416,6 +8526,33 @@ function getQueenInputs(topTypes, maxScore) {
     }
   }
 
+  // Aphids: the one nearest her, the one nearest the beetle (and whether it's a special one), and how many are out
+  let aphidQX = 0;
+  let aphidQY = 0;
+  let aphidQBest = Infinity;
+  let aphidBX = 0;
+  let aphidBY = 0;
+  let aphidBBest = Infinity;
+  let aphidBSpecial = 0;
+  for (const aphid of aphids) {
+    const dq = dist(qx, qy, aphid.x, aphid.y);
+    if (dq < aphidQBest) {
+      aphidQBest = dq;
+      aphidQX = (aphid.x - qx) / W;
+      aphidQY = (aphid.y - qy) / H;
+    }
+    const db = dist(playerX, playerY, aphid.x, aphid.y);
+    if (db < aphidBBest) {
+      aphidBBest = db;
+      aphidBX = (aphid.x - playerX) / W;
+      aphidBY = (aphid.y - playerY) / H;
+      aphidBSpecial = aphid.type === 'basic' ? 0 : 1;
+    }
+  }
+
+  let ordered = 0;
+  for (let i = 1; i <= enemyCount; i++) if (antOrder[i]) ordered++;
+
   const sinceShot = frameCount - lastBeetleShotFrame;
   const topSpots = [];
   for (const rec of topTypes) topSpots.push(rec.ideal.x / W, rec.ideal.y / H, rec.score / maxScore);
@@ -8428,7 +8565,9 @@ function getQueenInputs(topTypes, maxScore) {
     Math.min(alive, 20) / 10, cx, cy, nearestAnt / diag,
     wallX, wallY, Math.min(enemyWalls.length, 10) / 5,
     mineX, mineY, Math.min(mines, 20) / 10,
-    ...topSpots, getQueenPace() / 3
+    ...topSpots, getQueenPace() / 3,
+    aphidQX, aphidQY, aphidBX, aphidBY, aphidBSpecial, Math.min(aphids.length, 10) / 5,
+    Math.min(ordered, 20) / 10
   ];
 }
 
@@ -8439,17 +8578,35 @@ function getQueenTopTypes(types) {
   return top;
 }
 
-function scoreQueenType(brain, rec, maxScore, context) {
+// One kind of ant's own values, followed by everything the queen sees and the main network's read of it
+function getQueenTypeFeatures(rec, maxScore, globalInputs, globalHidden) {
   const W = getGameplayWidth();
   const H = getGameplayHeight();
   const diag = Math.sqrt(W * W + H * H);
-  const features = [
+  return [
     rec.score / maxScore, rec.size / 4, rec.abilities.length / 4, Math.min(rec.alive.length, 10) / 5,
     Math.min(rec.spots.length, 10) / 10, Math.sqrt(rec.ideal.x ** 2 + rec.ideal.y ** 2) / diag,
-    Math.min(rec.dormant, 10) / 5, context[6], context[7], context[12]
-  ];
+    Math.min(rec.dormant, 10) / 5
+  ].concat(globalInputs, globalHidden);
+}
+
+function scoreQueenType(brain, features) {
   const hidden = denseLayer(brain.t1, features, QT_HIDDEN, true);
   return denseLayer(brain.t2, hidden, 1, false)[0];
+}
+
+// Where she'd order a kind of ant to, relative to the beetle: orderIdealWeight x its ideal spot, plus a shift from a
+// small network that sees the ant's own values, everything the queen sees, and the main network's read of it. The
+// shift can reach a full screen in any direction, so an order can go anywhere on the map, but it starts at zero:
+// at first the order spot is exactly the ant's ideal spot and nothing else counts.
+function getQueenOrderSpot(brain, params, rec, features) {
+  const hidden = denseLayer(brain.o1, features, QO_HIDDEN, true);
+  const shift = denseLayer(brain.o2, hidden, 2, false);
+  const w = params.orderIdealWeight;
+  return {
+    x: rec.ideal.x * w + Math.tanh(shift[0]) * getGameplayWidth(),
+    y: rec.ideal.y * w + Math.tanh(shift[1]) * getGameplayHeight()
+  };
 }
 
 // Re-read the field: where to go, what to spawn, and how much she wants each ability
@@ -8466,15 +8623,25 @@ function updateQueenDecision() {
   const hidden = denseLayer(brain.w1, inputs, QB_HIDDEN, true);
   const out = denseLayer(brain.w2, hidden, QB_OUTPUTS, false);
 
+  // Each strategy value: her learned base, moved by its own network output, which can reach anywhere in its range
+  // (the output starts at zero, so at first each value is just its base)
+  const params = {};
+  QUEEN_STRATEGY_KEYS.forEach((key, k) => {
+    const [lo, hi] = QUEEN_STRATEGY_RANGES[key];
+    params[key] = constrain(s[key] + Math.tanh(out[QB_OUT_PARAMS + k]) * (hi - lo), lo, hi);
+  });
+
   for (const rec of types) {
-    rec.utility = s.scoreWeight * rec.score / maxScore + scoreQueenType(brain, rec, maxScore, inputs) + Math.random() * 0.01;
+    const features = getQueenTypeFeatures(rec, maxScore, inputs, hidden);
+    rec.utility = params.scoreWeight * rec.score / maxScore + scoreQueenType(brain, features) + Math.random() * 0.01;
+    rec.orderSpot = getQueenOrderSpot(brain, params, rec, features);
   }
   let best = types[0];
   for (const rec of types) if (rec.utility > best.utility) best = rec;
 
   // Where to go, relative to the beetle: a blend of her top 3 ants' ideal spots. Each spot's weight is its score
   // (scaled by spotFocus) plus what the network makes of everything else she knows; a softmax turns them into shares.
-  const weights = topTypes.map((rec, k) => s.spotFocus * rec.score / maxScore + out[QB_OUT_BLEND + k]);
+  const weights = topTypes.map((rec, k) => params.spotFocus * rec.score / maxScore + out[QB_OUT_BLEND + k]);
   const top = Math.max(...weights);
   const shares = weights.map(w => Math.exp(w - top));
   const shareSum = shares.reduce((a, b) => a + b, 0);
@@ -8490,10 +8657,17 @@ function updateQueenDecision() {
   queen.decision = {
     anchorX: anchorX,
     anchorY: anchorY,
-    moveX: Math.tanh(out[0]) * 250,
-    moveY: Math.tanh(out[1]) * 250,
-    guardRadius: constrain(s.guardRadius + Math.tanh(out[2]) * 200, 0, 1000),
-    holdCharges: Math.max(1, Math.round(s.holdCharges + Math.tanh(out[3]) * 2)),
+    moveX: Math.tanh(out[0]) * getGameplayWidth(),
+    moveY: Math.tanh(out[1]) * getGameplayHeight(),
+    // Abilities aim at a point relative to the beetle (at first the beetle itself), and formations of planted things
+    // (explosions, mines, turrets, mounds) turn by formationTurn from the aim direction
+    aimX: Math.tanh(out[QB_OUT_AIM]) * getGameplayWidth(),
+    aimY: Math.tanh(out[QB_OUT_AIM + 1]) * getGameplayHeight(),
+    formationTurn: Math.tanh(out[QB_OUT_AIM + 2]) * Math.PI,
+    // Where an order to every ant goes, relative to the beetle: the spot she's heading for, shifted
+    allOrderX: anchorX + Math.tanh(out[QB_OUT_ALL_ORDER]) * getGameplayWidth(),
+    allOrderY: anchorY + Math.tanh(out[QB_OUT_ALL_ORDER + 1]) * getGameplayHeight(),
+    params: params,
     abilityLogits: out.slice(QB_OUT_ABILITIES)
   };
 }
@@ -8579,6 +8753,7 @@ function startQueenFight() {
     ghostFrames: 0,
     refireFrames: 0,
     vacuumFrames: 0,
+    orderCooldown: 0,
     bunker: null,
     dashHit: false,
     hitFlash: 0,
@@ -8623,6 +8798,8 @@ function isQueenHitAt(x, y, pad = 0) {
 
 function killQueen() {
   spawnSmokeImpact(queen.x, queen.y, 70, 8);
+  queenDeathBurst = createQueenDeathBurst(queen.x, queen.y);
+  if (!sHit2.isPlaying()) sHit2.play();
   // Her last strategy goes to the next queen of this run
   queenInheritedBrain = cloneQueenBrain(queen.brain);
   queensDefeatedThisRun++;
@@ -8641,6 +8818,7 @@ function endQueenFight() {
   queenEffects = [];
   antDormant = [];
   antQueenType = [];
+  antOrder = [];
 }
 
 // How fast she does everything (Alarm: 2x with the beetle within QUEEN_AREA_RADIUS, 3x within 150px)
@@ -8693,6 +8871,7 @@ function updateQueen() {
 
   updateQueenMovement(pace);
   updateQueenSpawning(spawnRate);
+  updateQueenOrders();
 
   if (!queen.abilityReady) {
     queen.abilityTimer = Math.min(QUEEN_ABILITY_FRAMES, queen.abilityTimer + cooldownRate);
@@ -8717,12 +8896,13 @@ function updateQueen() {
 }
 
 // Where she heads: the blend of her top ants' ideal spots around the beetle, shifted by the network's offset (which
-// sees everything she tracks) and pulled toward or away from her own ants by antCohesion
+// sees everything she tracks), pulled toward or away from her own ants by antCohesion, kept minBeetleDistance from the
+// beetle, and, for dodgeFrames after it shoots, kept out of line with its x and y
 function getQueenTarget() {
   const d = queen.decision;
   let x = playerX + d.anchorX + d.moveX;
   let y = playerY + d.anchorY + d.moveY;
-  const cohesion = queen.brain.strategy.antCohesion;
+  const cohesion = d.params.antCohesion;
   if (cohesion !== 0) {
     let alive = 0;
     let cx = 0;
@@ -8738,7 +8918,115 @@ function getQueenTarget() {
       y += (cy / alive - y) * cohesion;
     }
   }
+
+  const s = d.params;
+  // Too close to the beetle: back off along the same direction (her ants get ordered in instead)
+  let ax = x - playerX;
+  let ay = y - playerY;
+  let ad = Math.sqrt(ax * ax + ay * ay);
+  if (ad < s.minBeetleDistance) {
+    if (ad < 1) {
+      ax = queen.x - playerX;
+      ay = queen.y - playerY;
+      ad = Math.sqrt(ax * ax + ay * ay);
+      if (ad < 1) {
+        ax = 0;
+        ay = -1;
+        ad = 1;
+      }
+    }
+    x = playerX + ax / ad * s.minBeetleDistance;
+    y = playerY + ay / ad * s.minBeetleDistance;
+  }
+
+  // Dodge: the beetle's shots fly along its x and y, so stay on her side of each line and at least dodgeBand off it
+  if (frameCount - lastBeetleShotFrame < s.dodgeFrames) {
+    const sideX = queen.x >= playerX ? 1 : -1;
+    const sideY = queen.y >= playerY ? 1 : -1;
+    if (sideX * (x - playerX) < s.dodgeBand) x = playerX + sideX * s.dodgeBand;
+    if (sideY * (y - playerY) < s.dodgeBand) y = playerY + sideY * s.dodgeBand;
+  }
   return clampToPlayArea(x, y, 50);
+}
+
+// --- Orders ---
+// The queen marks a spot for one kind of ant (see getQueenOrderSpot; at first its ideal spot around the beetle) and its ants
+// walk straight there at their own speed, like a keep distance ant closing in. Within QUEEN_ORDER_ARRIVE of the spot
+// they go back to moving like normal.
+function updateQueenOrders() {
+  for (let i = 1; i <= enemyCount; i++) {
+    const order = antOrder[i];
+    if (!order) continue;
+    if (antDormant[i] || antInBunker[i] || frameCount >= order.expires) {
+      antOrder[i] = null;
+      continue;
+    }
+    const dx = order.x - antX[i];
+    const dy = order.y - antY[i];
+    const d = Math.sqrt(dx * dx + dy * dy);
+    if (d <= QUEEN_ORDER_ARRIVE) {
+      antOrder[i] = null;
+      continue;
+    }
+    if (antKnockedBack[i]) continue;
+    antX[i] = constrain(antX[i] + dx / d * antSpeed[i], sideBuffer, getGameplayWidth() - sideBuffer);
+    antY[i] = constrain(antY[i] + dy / d * antSpeed[i], scoreBarHeight + 15, getGameplayHeight() - expBarHeight - expBarBuffer);
+  }
+
+  if (queen.orderCooldown > 0) {
+    queen.orderCooldown--;
+    return;
+  }
+  const d = queen.decision;
+  if (d.params.orderAll > 0) {
+    // Everyone (that isn't hiding in a bunker) to one spot
+    const spot = clampToPlayArea(playerX + d.allOrderX, playerY + d.allOrderY);
+    const members = [];
+    let away = 0;
+    for (let i = 1; i <= enemyCount; i++) {
+      if (antDormant[i] || antInBunker[i]) continue;
+      members.push(i);
+      away += dist(antX[i], antY[i], spot.x, spot.y);
+    }
+    if (members.length === 0 || away / members.length < d.params.orderDistance) return;
+    issueQueenOrder(members, spot);
+    return;
+  }
+
+  // Order the kind of ant that matters most and is furthest out of place
+  let best = null;
+  let bestValue = -Infinity;
+  for (const rec of queen.typeInfo) {
+    const members = rec.alive.filter(i => !antDormant[i] && !antInBunker[i] && !antOrder[i]);
+    if (members.length === 0) continue;
+    const spot = clampToPlayArea(playerX + rec.orderSpot.x, playerY + rec.orderSpot.y);
+    let away = 0;
+    for (const i of members) away += dist(antX[i], antY[i], spot.x, spot.y);
+    away /= members.length;
+    if (away < d.params.orderDistance) continue;
+    const value = rec.utility + away / 300;
+    if (value > bestValue) {
+      bestValue = value;
+      best = { members: members, spot: spot };
+    }
+  }
+  if (!best) return;
+  issueQueenOrder(best.members, best.spot);
+}
+
+function issueQueenOrder(members, spot) {
+  let cx = 0;
+  let cy = 0;
+  for (const i of members) {
+    antOrder[i] = { x: spot.x, y: spot.y, expires: frameCount + QUEEN_ORDER_FRAMES };
+    cx += antX[i];
+    cy += antY[i];
+    queenEffects.push({ kind: 'antMark', ant: i, life: 0, frames: 40 });
+  }
+  // She shouts toward the ants she's ordering (the spot itself is never shown)
+  queenEffects.push({ kind: 'shout', life: 0, frames: 26,
+    angle: Math.atan2(cy / members.length - queen.y, cx / members.length - queen.x) });
+  queen.orderCooldown = QUEEN_ORDER_COOLDOWN;
 }
 
 function updateQueenMovement(pace) {
@@ -8787,9 +9075,9 @@ function updateQueenMovement(pace) {
 }
 
 function isQueenGuarding() {
-  const s = queen.brain.strategy;
-  return dist(queen.x, queen.y, playerX, playerY) < queen.decision.guardRadius ||
-    frameCount - lastBeetleShotFrame < s.guardShotWindow;
+  const p = queen.decision.params;
+  return dist(queen.x, queen.y, playerX, playerY) < p.guardRadius ||
+    frameCount - lastBeetleShotFrame < p.guardShotWindow;
 }
 
 // Pick a type to spawn; penalties spread a batch over several types
@@ -8836,8 +9124,9 @@ function updateQueenSpawning(spawnRate) {
     return;
   }
   const target = getQueenTarget();
-  if (queen.spawnCharges >= queen.decision.holdCharges &&
-      dist(queen.x, queen.y, target.x, target.y) <= queen.brain.strategy.arriveRadius) {
+  const p = queen.decision.params;
+  if (queen.spawnCharges >= Math.max(1, Math.round(p.holdCharges)) &&
+      dist(queen.x, queen.y, target.x, target.y) <= p.arriveRadius) {
     releaseQueenSpawns(queen.spawnCharges);
     queen.spawnCharges = 0;
   }
@@ -8972,7 +9261,7 @@ function useQueenAbility() {
   let ability = QA.generic;
   if (available.size > 0) {
     const logits = queen.decision.abilityLogits;
-    const bias = queen.brain.strategy.bestAntBias;
+    const bias = queen.decision.params.bestAntBias;
     let bestValue = -Infinity;
     for (const a of available) {
       const value = logits[a] + (bestAntAbilities.includes(a) ? bias : 0) + Math.random() * 0.01;
@@ -8988,10 +9277,44 @@ function useQueenAbility() {
   castQueenAbility(QUEEN_ABILITIES[ability].key, src);
 }
 
+// Where her abilities aim: a point the network picks relative to the beetle (starts on the beetle)
+function getQueenAimPoint() {
+  const d = queen.decision;
+  return clampToPlayArea(playerX + d.aimX, playerY + d.aimY);
+}
+
+// Points of a fixed formation around (cx, cy), as [distance, angle from facing] pairs. If facing would push any of
+// them off the map it turns (half way round, then a quarter either way); if none of those fit (in a corner), the
+// whole formation slides back onto the map. Either way the spacing always holds.
+function placeQueenFormation(cx, cy, facing, offsets) {
+  const place = (turn) => offsets.map(([r, a]) => ({ x: cx + Math.cos(facing + turn + a) * r, y: cy + Math.sin(facing + turn + a) * r }));
+  for (const turn of [0, Math.PI, Math.PI / 2, -Math.PI / 2]) {
+    const points = place(turn);
+    if (points.every(p => isInPlayArea(p.x, p.y))) return points;
+  }
+  const points = place(0);
+  const b = getPlayAreaBounds();
+  const minX = Math.min(...points.map(p => p.x));
+  const maxX = Math.max(...points.map(p => p.x));
+  const minY = Math.min(...points.map(p => p.y));
+  const maxY = Math.max(...points.map(p => p.y));
+  const shiftX = minX < b.minX ? b.minX - minX : (maxX > b.maxX ? b.maxX - maxX : 0);
+  const shiftY = minY < b.minY ? b.minY - minY : (maxY > b.maxY ? b.maxY - maxY : 0);
+  return points.map(p => clampToPlayArea(p.x + shiftX, p.y + shiftY));
+}
+
+function getQueenAimAngle(fromX, fromY) {
+  const p = getQueenAimPoint();
+  return Math.atan2(p.y - fromY, p.x - fromX);
+}
+
+// The abilities themselves are fixed; the network only picks the aim point and which way formations face
 function castQueenAbility(key, src) {
   const qx = queen.x;
   const qy = queen.y;
-  const aim = angleToBeetle(qx, qy);
+  const aimPoint = getQueenAimPoint();
+  const aim = Math.atan2(aimPoint.y - qy, aimPoint.x - qx);
+  const facing = aim + queen.decision.formationTurn; // Which way formations of planted things point
   switch (key) {
     case 'alternating': {
       // Two ants right now, but the next spawn takes twice as long
@@ -9060,13 +9383,12 @@ function castQueenAbility(key, src) {
       queenPortal();
       break;
     case 'timeExplosion': {
-      // Three huge blasts, planted around the beetle, going off one after another
-      for (let k = 0; k < 3; k++) {
-        const a = Math.random() * Math.PI * 2;
-        const r = k === 0 ? 0 : 150;
-        const p = clampToPlayArea(playerX + Math.cos(a) * r, playerY + Math.sin(a) * r);
+      // Three huge blasts going off one after another: one on her aim point and two 150px out from it, 60 degrees
+      // either side of the way the formation faces (fixed spacing, so they never stack up on one spot)
+      const points = placeQueenFormation(aimPoint.x, aimPoint.y, facing, [[0, 0], [150, -Math.PI / 3], [150, Math.PI / 3]]);
+      points.forEach((p, k) => {
         queenEffects.push({ kind: 'timeBomb', life: 0, x: p.x, y: p.y, at: 180 + k * 10, radius: 140, owner: src });
-      }
+      });
       break;
     }
     case 'proximityExplosion':
@@ -9104,9 +9426,7 @@ function castQueenAbility(key, src) {
       }
       break;
     case 'landmine':
-      for (let k = -1; k <= 1; k++) {
-        const a = aim + k * 2.1;
-        const p = clampToPlayArea(qx + Math.cos(a) * 75, qy + Math.sin(a) * 75);
+      for (const p of placeQueenFormation(qx, qy, facing, [[75, -2.1], [75, 0], [75, 2.1]])) {
         landMines.push(makeQueenMine(p.x, p.y, 1.5, src));
       }
       break;
@@ -9114,9 +9434,7 @@ function castQueenAbility(key, src) {
       queen.refireFrames = QUEEN_EFFECT_FRAMES;
       break;
     case 'turret':
-      for (let k = 0; k < 3; k++) {
-        const a = aim + (k / 3) * Math.PI * 2;
-        const p = clampToPlayArea(qx + Math.cos(a) * 70, qy + Math.sin(a) * 70);
+      for (const p of placeQueenFormation(qx, qy, facing, [[70, 0], [70, Math.PI * 2 / 3], [70, -Math.PI * 2 / 3]])) {
         deathRefires.push({ x: p.x, y: p.y, size: 1.5, owner: src, isTurret: true, life: 0, shotsLeft: TURRET_SHOTS,
           nextShotAt: TURRET_DEPLOY_FRAMES, finishedAt: null });
       }
@@ -9125,15 +9443,15 @@ function castQueenAbility(key, src) {
     case 'nest':
       enemyTerritories.push({ x: qx, y: qy, radius: QUEEN_AREA_RADIUS, nest: key === 'nest', life: 0, maxLife: 600 });
       break;
-    case 'mound':
-      // Three mounds in a row between her and the beetle
-      for (let k = -1; k <= 1; k++) {
-        const px = qx + Math.cos(aim) * 80 - Math.sin(aim) * k * 45;
-        const py = qy + Math.sin(aim) * 80 + Math.cos(aim) * k * 45;
-        const p = clampToPlayArea(px, py);
+    case 'mound': {
+      // Three mounds in a row in front of her, the way the formation faces (80px out, 45px apart)
+      const side = Math.atan2(45, 80);
+      const outer = Math.sqrt(80 * 80 + 45 * 45);
+      for (const p of placeQueenFormation(qx, qy, facing, [[outer, -side], [80, 0], [outer, side]])) {
         enemyWalls.push(makeQueenWall(p.x, p.y, MOUND_RADIUS, false, 1.5, 480));
       }
       break;
+    }
     case 'bunker': {
       const wall = makeQueenWall(qx, qy, QUEEN_BODY_RADIUS, true, 2, 540);
       enemyWalls.push(wall);
@@ -9354,7 +9672,7 @@ function updateQueenProjectiles() {
       if (p.hitReload && queen) {
         // Hit reload: every hit earns another ant to spawn and another shot
         queen.spawnCharges++;
-        fireQueenAcid(queen.x, queen.y, angleToBeetle(queen.x, queen.y), p.size, QUEEN_BULLET_SPEED, { hitReload: true });
+        fireQueenAcid(queen.x, queen.y, getQueenAimAngle(queen.x, queen.y), p.size, QUEEN_BULLET_SPEED, { hitReload: true });
       }
       queenProjectiles.splice(k, 1);
       continue;
@@ -9467,7 +9785,7 @@ function updateQueenEffects() {
     let done = false;
     if (e.kind === 'volley') {
       if (e.life >= (e.next || 0)) {
-        const a = angleToBeetle(queen.x, queen.y) + random(-e.spread, e.spread);
+        const a = getQueenAimAngle(queen.x, queen.y) + random(-e.spread, e.spread);
         fireQueenAcid(queen.x, queen.y, a, e.size, e.speed, { accel: e.accel, dmgSpeed: QUEEN_BULLET_SPEED });
         e.left--;
         e.next = e.life + e.every;
@@ -9479,6 +9797,12 @@ function updateQueenEffects() {
       done = updateQueenBeam(e, hidden);
     } else if (e.kind === 'timeBomb') {
       done = updateQueenTimeBomb(e, hidden);
+    } else if (e.kind === 'shout') {
+      if (!hidden && queen) drawQueenShout(e);
+      done = e.life >= e.frames;
+    } else if (e.kind === 'antMark') {
+      if (!hidden && !antDormant[e.ant]) drawQueenAntMark(e);
+      done = e.life >= e.frames || antDormant[e.ant];
     } else if (e.kind === 'ring') {
       if (!hidden) {
         const t = e.life / e.frames;
@@ -9495,9 +9819,9 @@ function updateQueenEffects() {
   }
 }
 
-// Stream Fire: twice an ant stream's reach and width, swinging slowly after the beetle
+// Stream Fire: twice an ant stream's reach and width, swinging slowly after her aim point
 function updateQueenStream(e, hidden) {
-  const want = angleToBeetle(queen.x, queen.y);
+  const want = getQueenAimAngle(queen.x, queen.y);
   let diff = want - e.angle;
   while (diff > Math.PI) diff -= Math.PI * 2;
   while (diff < -Math.PI) diff += Math.PI * 2;
@@ -9538,11 +9862,12 @@ function updateQueenStream(e, hidden) {
   return e.life >= e.frames;
 }
 
-// Beam: aimed at where the beetle was 30 frames before it fires, then fired straight from her
+// Beam: aimed at her aim point 30 frames before it fires, then fired straight from her
 function updateQueenBeam(e, hidden) {
   if (e.life === e.aimAt) {
-    e.aimX = playerX;
-    e.aimY = playerY;
+    const aimPoint = getQueenAimPoint();
+    e.aimX = aimPoint.x;
+    e.aimY = aimPoint.y;
   }
   if (e.life < e.aimAt) return false;
   if (e.life < e.fireAt) {
@@ -9586,6 +9911,45 @@ function updateQueenBeam(e, hidden) {
     pop();
   }
   return e.life >= e.frames;
+}
+
+// Order shout: three arcs bursting out of her in a fan toward the ants she's ordering
+function drawQueenShout(e) {
+  const t = e.life / e.frames;
+  const mouth = QUEEN_IMAGE_SIZE * 0.35;
+  const ox = queen.x + Math.cos(e.angle) * mouth;
+  const oy = queen.y - queen.airHeight + Math.sin(e.angle) * mouth;
+  const deg = e.angle * 180 / Math.PI;
+  push();
+  angleMode(DEGREES);
+  noFill();
+  for (let k = 0; k < 3; k++) {
+    const a = t - k * 0.18;
+    if (a <= 0 || a >= 1) continue;
+    stroke(230, 170, 255, 230 * (1 - a));
+    strokeWeight(3.5 * (1 - a) + 1);
+    const r = 14 + a * 70;
+    arc(ox, oy, r * 2, r * 2, deg - 35, deg + 35, OPEN);
+  }
+  pop();
+}
+
+// A little "!" popping over each ant she just ordered
+function drawQueenAntMark(e) {
+  const t = e.life / e.frames;
+  const i = e.ant;
+  const size = (45 + 15 * antSize[i]);
+  const y = antY[i] - antAirHeight[i] - size * 0.55 - 6 * Math.min(1, t * 4);
+  const scale = t < 0.15 ? map(t, 0, 0.15, 0.4, 1.2) : (t < 0.3 ? map(t, 0.15, 0.3, 1.2, 1) : 1);
+  push();
+  textAlign(CENTER, CENTER);
+  textStyle(BOLD);
+  textSize(16 * scale);
+  stroke(40, 0, 60, 255 * (1 - t));
+  strokeWeight(3);
+  fill(230, 170, 255, 255 * (1 - t));
+  text('!', antX[i], y);
+  pop();
 }
 
 function distToSegment(px, py, ax, ay, bx, by) {
@@ -9745,6 +10109,62 @@ function drawQueenOverlays() {
   strokeWeight(2);
   ellipse(queen.x, queen.y, radius * 2);
   pop();
+}
+
+// Her explosion, played over the frozen screen in the round outro (gameplay coordinates)
+function createQueenDeathBurst(x, y) {
+  const particles = [];
+  const colors = [[200, 120, 255], [150, 60, 220], [0, 220, 0], [255, 200, 40]];
+  for (let k = 0; k < 46; k++) {
+    particles.push({
+      angle: Math.random() * Math.PI * 2,
+      speed: 2 + Math.random() * 7,
+      size: 4 + Math.random() * 10,
+      color: colors[k % colors.length],
+      life: 50 + Math.random() * 60
+    });
+  }
+  return { x: x, y: y, particles: particles };
+}
+
+function drawQueenDeathBurst(burst, age) {
+  push();
+  noStroke();
+  // Flash
+  if (age < 16) {
+    const t = age / 16;
+    fill(255, 230, 255, 255 * (1 - t));
+    ellipse(burst.x, burst.y, 40 + 220 * t);
+  }
+  // Shockwave rings
+  noFill();
+  for (const [delay, speed] of [[0, 7], [8, 5]]) {
+    const a = age - delay;
+    if (a <= 0 || a > 60) continue;
+    stroke(220, 150, 255, 220 * (1 - a / 60));
+    strokeWeight(4 * (1 - a / 60) + 1);
+    ellipse(burst.x, burst.y, a * speed * 2);
+  }
+  // Acid and chitin flying out and slowing down
+  noStroke();
+  for (const p of burst.particles) {
+    if (age > p.life) continue;
+    const d = p.speed * 18 * (1 - Math.pow(0.93, age));
+    const alpha = 255 * (1 - age / p.life);
+    fill(p.color[0], p.color[1], p.color[2], alpha);
+    ellipse(burst.x + Math.cos(p.angle) * d, burst.y + Math.sin(p.angle) * d, p.size * (1 - 0.4 * age / p.life));
+  }
+  pop();
+  // Her crown pops up and tumbles back down
+  if (age < 90) {
+    const cy = burst.y - QUEEN_IMAGE_SIZE * 0.45 - age * 3.2 + 0.045 * age * age;
+    push();
+    translate(burst.x + age * 0.6, cy);
+    angleMode(DEGREES);
+    rotate(age * 9);
+    drawQueenCrown(0, 0, 1, 255 * Math.min(1, (90 - age) / 25));
+    pop();
+  }
 }
 
 // Queen health and status at the top of the screen. Progress toward the next queen is never shown, so taking hits on
@@ -11699,7 +12119,7 @@ function drawAphidEffectRings() {
 function autonomousAntMovement(){
   for (let i = 1; i <= enemyCount; i++) {
     // Skip knocked back ants - they use knockback movement instead (and ants hiding in a bunker)
-    if (antKnockedBack[i] || antInBunker[i] || antDormant[i]) continue;
+    if (antKnockedBack[i] || antInBunker[i] || antDormant[i] || antOrder[i]) continue;
     
     if (findLocation[i] === true){
       if (followTarget[i] === true){
@@ -11721,7 +12141,7 @@ function autonomousAntMovement(){
   }
   for (let i = 1; i <= enemyCount; i++) {
     // Skip knocked back ants and ants hiding in a bunker
-    if (antKnockedBack[i] || antInBunker[i] || antDormant[i]) continue;
+    if (antKnockedBack[i] || antInBunker[i] || antDormant[i] || antOrder[i]) continue;
     
     if (!keepDistance[i]) continue; // only handle autonomous keep-distance ants
 
@@ -12151,6 +12571,7 @@ if (timeCount < 0) {
         score = 0;  // Reset score to prevent double-counting in updateScoreAndTimer
       }
       levelEnd = 1;
+      startRoundOutro();
     }
     if (liveRankingsPrinted === false){
       printLiveAntRankings();
@@ -12159,6 +12580,15 @@ if (timeCount < 0) {
     }
 
     end = true;
+
+    // Outro first: let one more frame draw (so a killed queen is gone from it), freeze that frame, and wait it out
+    if (roundOutroTimer > 0) {
+      if (frameCount > roundOutroStartFrame && !roundOutroSnapshot) roundOutroSnapshot = get();
+      return;
+    }
+    // Then the round-over screen (and upgrades) slide up into place
+    if (intermissionSlideFrame < INTERMISSION_SLIDE_FRAMES) intermissionSlideFrame++;
+    menuSlideY = MENU_REFERENCE_HEIGHT * Math.pow(1 - intermissionSlideFrame / INTERMISSION_SLIDE_FRAMES, 3);
 
     // Multiplayer mode: Don't auto-advance, wait for button press
     // Button handler will check and advance to next player or show scoreboard
@@ -13757,6 +14187,7 @@ function clearRoundEffects() {
   flashingEntities = [];
   resetAphids();
   endQueenFight();
+  clearRoundOutro();
   antHitSpots = [];
   pendingHitSpot = null;
   queenDefeatedThisRound = false;
