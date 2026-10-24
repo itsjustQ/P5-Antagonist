@@ -8012,7 +8012,7 @@ function resolvePlayerWallCollisions() {
 // spawns another copy of them, and the round only ends when she dies (or the beetle does).
 // She is steered by a small neural network (see QUEEN BRAIN) that picks where she goes, which of the round's ants
 // she spawns and which ability she uses. It starts out as the default strategy and re-learns every time she's hit,
-// or after QUEEN_STALE_FRAMES without anything scoring. Her last strategy is handed to the next queen of the run.
+// or every QUEEN_ADAPT_FRAMES she goes without one. Her last strategy is handed to the next queen of the run.
 // Every QUEEN_ABILITY_FRAMES she can use an extra powerful version of one ability of a living ant under her
 // control (or a plain acid shot if none of them have one). Each queen defeated is a currency for permanent upgrades.
 const QUEEN_BASE_HITS = 100;              // Ant hits for the first queen of a run on difficulty 1...
@@ -8029,14 +8029,19 @@ const QUEEN_SPAWN_FRAMES = 120;           // She earns QUEEN_ANTS_PER_SPAWN ants
 const QUEEN_ANTS_PER_SPAWN = 2;
 const QUEEN_AREA_RADIUS = Math.round(300 / Math.SQRT2); // Her area abilities: half the area of a 300px circle
 const QUEEN_ABILITY_FRAMES = 600;         // She can use one ability this often (doesn't stockpile)
-const QUEEN_STALE_FRAMES = 1200;          // Re-strategize after this long with no scoring event
+const QUEEN_ADAPT_FRAMES = 600;           // Re-strategize after this long without being hit
 const QUEEN_DECISION_FRAMES = 6;          // How often the brain re-reads the field
 const QUEEN_EFFECT_FRAMES = 300;          // Alarm, avenge, refire, camouflage and ghost last 5 seconds
 const QUEEN_INTRO_FRAMES = 150;
 const QUEEN_MAX_ANTS = 300;               // Safety cap on ant slots while she's cloning ants
 const QUEEN_SCORE_PER_DAMAGE = 1;         // Brain score: damage done to the beetle...
 const QUEEN_SCORE_PER_ANT_LOST = -0.5;    // ...ants lost...
-const QUEEN_SCORE_PER_QUEEN_DAMAGE = -5;  // ...and damage taken
+const QUEEN_SCORE_PER_QUEEN_DAMAGE = -5;  // ...damage taken...
+const QUEEN_SCORE_PER_MISS = -1;          // ...and attacks where no part ever got within QUEEN_MISS_RANGE of the beetle
+const QUEEN_MISS_RANGE = 70;
+// Her attacking abilities (not the ones that spawn ants or leave things on the field), which can miss
+const QUEEN_ATTACK_ABILITIES = new Set(['hitReload', 'burst', 'delayedBurst', 'rapid', 'stream', 'accelerate', 'beam',
+  'timeExplosion', 'proximityExplosion', 'generic']);
 const QUEEN_MAX_HIT_SPOTS = 30;           // Hit spots remembered per ant
 const PARKED_ANT_POS = -10000;            // Where dormant ants wait, far outside the play area
 const QUEEN_ORDER_ARRIVE = 70;            // Ordered ants go back to normal once they're this close to their spot
@@ -8132,7 +8137,6 @@ function onAntHitPlayer(i) {
 function onPlayerDamaged(amount) {
   if (!queen || !(amount > 0)) return;
   queen.segmentScore += amount * QUEEN_SCORE_PER_DAMAGE;
-  queen.lastScoreFrame = frameCount;
 }
 
 // --- Dormant ants ---
@@ -8289,7 +8293,6 @@ function queenSpawnAnt(type, x, y) {
 function onQueenAntDied(i) {
   antDormant[i] = true;
   queen.segmentScore += QUEEN_SCORE_PER_ANT_LOST;
-  queen.lastScoreFrame = frameCount;
   if (queen.avengeFrames > 0) queen.avengeDeaths.push({ i: i, x: antX[i], y: antY[i] });
 }
 
@@ -8687,7 +8690,6 @@ function adaptQueenBrain(reason) {
   mutateQueenBrain(queen.brain, reason === 'hit' ? 1 : 0.6);
   queen.segmentScore = 0;
   queen.segmentStartFrame = frameCount;
-  queen.lastScoreFrame = frameCount;
   queen.adaptFlash = 30;
   updateQueenDecision();
 }
@@ -8727,7 +8729,6 @@ function startQueenFight() {
     bestFitness: -Infinity,
     segmentScore: 0,
     segmentStartFrame: frameCount,
-    lastScoreFrame: frameCount,
     decision: null,
     typeInfo: [],
     bestType: null,
@@ -8780,7 +8781,6 @@ function damageQueen(amount) {
   queen.hitFlash = 10;
   queen.lastHitTime = millis();
   queen.segmentScore += amount * QUEEN_SCORE_PER_QUEEN_DAMAGE;
-  queen.lastScoreFrame = frameCount;
   if (!sHit1.isPlaying()) sHit1.play();
   if (queen.health <= 0) {
     killQueen();
@@ -8892,7 +8892,8 @@ function updateQueen() {
   if (!queen) return; // A dash can kill her
   drawQueen();
 
-  if (frameCount - queen.lastScoreFrame >= QUEEN_STALE_FRAMES) adaptQueenBrain('stale');
+  // Every hit re-strategizes (and restarts this clock); otherwise she does it every QUEEN_ADAPT_FRAMES
+  if (frameCount - queen.segmentStartFrame >= QUEEN_ADAPT_FRAMES) adaptQueenBrain('timer');
 }
 
 // Where she heads: the blend of her top ants' ideal spots around the beetle, shifted by the network's offset (which
@@ -9308,6 +9309,23 @@ function getQueenAimAngle(fromX, fromY) {
   return Math.atan2(p.y - fromY, p.x - fromX);
 }
 
+// --- Misses ---
+// Each attack gets a tracker that its bullets, streams, beams and blasts all report to: how close any part of it got
+// to the beetle, and how many parts are still out. When the last part is gone, an attack that never got within
+// QUEEN_MISS_RANGE costs her brain QUEEN_SCORE_PER_MISS.
+function addQueenAttackPart(tracker) {
+  if (tracker) tracker.parts++;
+}
+
+function seeQueenAttackPart(tracker, distance) {
+  if (tracker && distance < tracker.closest) tracker.closest = distance;
+}
+
+function endQueenAttackPart(tracker) {
+  if (!tracker || --tracker.parts > 0) return;
+  if (tracker.closest > QUEEN_MISS_RANGE && queen) queen.segmentScore += QUEEN_SCORE_PER_MISS;
+}
+
 // The abilities themselves are fixed; the network only picks the aim point and which way formations face
 function castQueenAbility(key, src) {
   const qx = queen.x;
@@ -9315,6 +9333,7 @@ function castQueenAbility(key, src) {
   const aimPoint = getQueenAimPoint();
   const aim = Math.atan2(aimPoint.y - qy, aimPoint.x - qx);
   const facing = aim + queen.decision.formationTurn; // Which way formations of planted things point
+  const tracker = QUEEN_ATTACK_ABILITIES.has(key) ? { closest: Infinity, parts: 0 } : null;
   switch (key) {
     case 'alternating': {
       // Two ants right now, but the next spawn takes twice as long
@@ -9324,19 +9343,21 @@ function castQueenAbility(key, src) {
       break;
     }
     case 'hitReload':
-      fireQueenAcid(qx, qy, aim, QUEEN_BULLET_SIZE, QUEEN_BULLET_SPEED, { hitReload: true });
+      fireQueenAcid(qx, qy, aim, QUEEN_BULLET_SIZE, QUEEN_BULLET_SPEED, { hitReload: true, tracker: tracker });
       break;
     case 'burst':
-      for (let k = 0; k < 5; k++) fireQueenAcid(qx, qy, aim + (k - 2) * 0.17, 1, QUEEN_BULLET_SPEED);
+      for (let k = 0; k < 5; k++) fireQueenAcid(qx, qy, aim + (k - 2) * 0.17, 1, QUEEN_BULLET_SPEED, { tracker: tracker });
       break;
     case 'delayedBurst':
-      fireQueenAcid(qx, qy, aim, 3, 5, { splitAt: 40, splitCount: 6, splitSize: 0.5, dmgSpeed: 5 });
+      fireQueenAcid(qx, qy, aim, 3, 5, { splitAt: 40, splitCount: 6, splitSize: 0.5, dmgSpeed: 5, tracker: tracker });
       break;
     case 'rapid':
-      queenEffects.push({ kind: 'volley', life: 0, left: 15, every: 4, size: 0.5, speed: QUEEN_BULLET_SPEED, spread: 0.05 });
+      addQueenAttackPart(tracker);
+      queenEffects.push({ kind: 'volley', life: 0, left: 15, every: 4, size: 0.5, speed: QUEEN_BULLET_SPEED, spread: 0.05, tracker: tracker });
       break;
     case 'stream':
-      queenEffects.push({ kind: 'stream', life: 0, frames: 120, angle: aim, range: 250, width: 100 });
+      addQueenAttackPart(tracker);
+      queenEffects.push({ kind: 'stream', life: 0, frames: 120, angle: aim, range: 250, width: 100, tracker: tracker });
       break;
     case 'alarm':
       queen.alarmFrames = QUEEN_EFFECT_FRAMES;
@@ -9369,11 +9390,13 @@ function castQueenAbility(key, src) {
       break;
     }
     case 'accelerate':
-      queenEffects.push({ kind: 'volley', life: 0, left: 3, every: 12, size: QUEEN_BULLET_SIZE, speed: 2, accel: true, spread: 0 });
+      addQueenAttackPart(tracker);
+      queenEffects.push({ kind: 'volley', life: 0, left: 3, every: 12, size: QUEEN_BULLET_SIZE, speed: 2, accel: true, spread: 0, tracker: tracker });
       break;
     case 'beam':
       for (let k = 0; k < 3; k++) {
-        queenEffects.push({ kind: 'beam', life: 0, aimAt: k * 20, fireAt: k * 20 + 30, frames: k * 20 + 30 + 14, width: 28, hit: false });
+        addQueenAttackPart(tracker);
+        queenEffects.push({ kind: 'beam', life: 0, aimAt: k * 20, fireAt: k * 20 + 30, frames: k * 20 + 30 + 14, width: 28, hit: false, tracker: tracker });
       }
       break;
     case 'blink':
@@ -9387,13 +9410,14 @@ function castQueenAbility(key, src) {
       // either side of the way the formation faces (fixed spacing, so they never stack up on one spot)
       const points = placeQueenFormation(aimPoint.x, aimPoint.y, facing, [[0, 0], [150, -Math.PI / 3], [150, Math.PI / 3]]);
       points.forEach((p, k) => {
-        queenEffects.push({ kind: 'timeBomb', life: 0, x: p.x, y: p.y, at: 180 + k * 10, radius: 140, owner: src });
+        addQueenAttackPart(tracker);
+        queenEffects.push({ kind: 'timeBomb', life: 0, x: p.x, y: p.y, at: 180 + k * 10, radius: 140, owner: src, tracker: tracker });
       });
       break;
     }
     case 'proximityExplosion':
       for (let k = -1; k <= 1; k++) {
-        fireQueenAcid(qx, qy, aim + k * 0.26, 2.5, 4, { prox: { trigger: 80, radius: 110, owner: src }, maxLife: 240 });
+        fireQueenAcid(qx, qy, aim + k * 0.26, 2.5, 4, { prox: { trigger: 80, radius: 110, owner: src }, maxLife: 240, tracker: tracker });
       }
       break;
     case 'camo':
@@ -9459,7 +9483,7 @@ function castQueenAbility(key, src) {
       break;
     }
     default:
-      fireQueenAcid(qx, qy, aim, QUEEN_BULLET_SIZE, QUEEN_BULLET_SPEED);
+      fireQueenAcid(qx, qy, aim, QUEEN_BULLET_SIZE, QUEEN_BULLET_SPEED, { tracker: tracker });
   }
 }
 
@@ -9589,8 +9613,10 @@ function fireQueenAcid(x, y, angle, size, speed, opts = {}) {
     splitCount: opts.splitCount || 0,
     splitSize: opts.splitSize || 0,
     prox: opts.prox || null,
-    refired: !!opts.refired
+    refired: !!opts.refired,
+    tracker: opts.tracker || null
   });
+  addQueenAttackPart(opts.tracker);
   playSpitSound();
 }
 
@@ -9607,6 +9633,7 @@ function onEnemyBulletLeftScreen(bullet) {
 }
 
 function explodeQueenBomb(p) {
+  seeQueenAttackPart(p.tracker, Math.max(0, dist(p.x, p.y, playerX, playerY) - p.prox.radius));
   const owner = p.prox.owner;
   if (owner >= 1) {
     // Radius is fixed for the queen's version, whatever the ant's radius gene is
@@ -9616,6 +9643,11 @@ function explodeQueenBomb(p) {
     spawnSmokeImpact(p.x, p.y, p.prox.radius);
     if (dist(playerX, playerY, p.x, p.y) < p.prox.radius) queenHitPlayer(p.size);
   }
+}
+
+function removeQueenProjectile(k) {
+  endQueenAttackPart(queenProjectiles[k].tracker);
+  queenProjectiles.splice(k, 1);
 }
 
 function spawnQueenProjectileAnt(p, x, y) {
@@ -9630,7 +9662,7 @@ function updateQueenProjectiles() {
 
     if (p.kind === 'ant') {
       if (!updateQueenAntProjectile(p)) {
-        queenProjectiles.splice(k, 1);
+        removeQueenProjectile(k);
         continue;
       }
       if (!hidden) drawQueenAntProjectile(p);
@@ -9644,19 +9676,24 @@ function updateQueenProjectiles() {
         p.vx *= 1.06;
         p.vy *= 1.06;
       }
+      // Sonic boom trail, like the ants' accelerating bullets
+      if (p.life % 9 === 0) {
+        speedRings.push({ x: p.x, y: p.y, size: 8 * p.size, maxSize: 25 * p.size, alpha: 255, life: 0 });
+      }
     }
     if (p.splitAt && p.life >= p.splitAt) {
       // Delayed burst: a firework of small bullets in every direction
       for (let s = 0; s < p.splitCount; s++) {
         const a = (s / p.splitCount) * Math.PI * 2 + Math.random() * 0.2;
-        fireQueenAcid(p.x, p.y, a, p.splitSize, 5, { dmgSpeed: 5 });
+        fireQueenAcid(p.x, p.y, a, p.splitSize, 5, { dmgSpeed: 5, tracker: p.tracker });
       }
       spawnSmokeImpact(p.x, p.y, 30, 3);
-      queenProjectiles.splice(k, 1);
+      removeQueenProjectile(k);
       continue;
     }
     p.x += p.vx;
     p.y += p.vy;
+    seeQueenAttackPart(p.tracker, dist(p.x, p.y, playerX, playerY));
 
     if (p.prox) {
       if (dist(p.x, p.y, playerX, playerY) <= p.prox.trigger || (p.maxLife && p.life >= p.maxLife) || !isInPlayArea(p.x, p.y)) {
@@ -9664,7 +9701,7 @@ function updateQueenProjectiles() {
         p.x = edge.x;
         p.y = edge.y;
         explodeQueenBomb(p);
-        queenProjectiles.splice(k, 1);
+        removeQueenProjectile(k);
         continue;
       }
     } else if (dist(p.x, p.y, playerX, playerY) < 22 + 6 * p.size) {
@@ -9672,15 +9709,15 @@ function updateQueenProjectiles() {
       if (p.hitReload && queen) {
         // Hit reload: every hit earns another ant to spawn and another shot
         queen.spawnCharges++;
-        fireQueenAcid(queen.x, queen.y, getQueenAimAngle(queen.x, queen.y), p.size, QUEEN_BULLET_SPEED, { hitReload: true });
+        fireQueenAcid(queen.x, queen.y, getQueenAimAngle(queen.x, queen.y), p.size, QUEEN_BULLET_SPEED, { hitReload: true, tracker: p.tracker });
       }
-      queenProjectiles.splice(k, 1);
+      removeQueenProjectile(k);
       continue;
     }
 
     if (!isInPlayArea(p.x, p.y, -20)) {
       if (queen && queen.refireFrames > 0 && !p.refired) queenRefireFrom(p.x, p.y, p.size);
-      queenProjectiles.splice(k, 1);
+      removeQueenProjectile(k);
       continue;
     }
     if (!hidden) drawQueenAcid(p);
@@ -9786,7 +9823,7 @@ function updateQueenEffects() {
     if (e.kind === 'volley') {
       if (e.life >= (e.next || 0)) {
         const a = getQueenAimAngle(queen.x, queen.y) + random(-e.spread, e.spread);
-        fireQueenAcid(queen.x, queen.y, a, e.size, e.speed, { accel: e.accel, dmgSpeed: QUEEN_BULLET_SPEED });
+        fireQueenAcid(queen.x, queen.y, a, e.size, e.speed, { accel: e.accel, dmgSpeed: QUEEN_BULLET_SPEED, tracker: e.tracker });
         e.left--;
         e.next = e.life + e.every;
       }
@@ -9815,7 +9852,10 @@ function updateQueenEffects() {
       }
       done = e.life >= e.frames;
     }
-    if (done) queenEffects.splice(k, 1);
+    if (done) {
+      endQueenAttackPart(e.tracker);
+      queenEffects.splice(k, 1);
+    }
   }
 }
 
@@ -9842,6 +9882,10 @@ function updateQueenStream(e, hidden) {
     const halfWidth = lerp(baseW, e.width, constrain(along, 0, range) / Math.max(1, range)) / 2;
     if (across < halfWidth + 15) queenHitPlayer(2 / 60, true);
   }
+  // How close the stream's edge came to the beetle
+  const nearAlong = constrain(along, 0, range);
+  const nearHalfWidth = lerp(baseW, e.width, nearAlong / Math.max(1, range)) / 2;
+  seeQueenAttackPart(e.tracker, Math.sqrt((along - nearAlong) ** 2 + Math.max(0, across - nearHalfWidth) ** 2));
 
   if (!hidden) {
     const nx = -dirY;
@@ -9894,6 +9938,7 @@ function updateQueenBeam(e, hidden) {
     e.ey = queen.y + dy * len;
     playSpitSound();
   }
+  seeQueenAttackPart(e.tracker, Math.max(0, distToSegment(playerX, playerY, e.sx, e.sy, e.ex, e.ey) - e.width / 2));
   if (!e.hit && distToSegment(playerX, playerY, e.sx, e.sy, e.ex, e.ey) < e.width / 2 + 18) {
     e.hit = true;
     queenHitPlayer(2);
@@ -9963,6 +10008,7 @@ function distToSegment(px, py, ax, ay, bx, by) {
 // Time Explosion: a warning ring fills in until the blast
 function updateQueenTimeBomb(e, hidden) {
   if (e.life >= e.at) {
+    seeQueenAttackPart(e.tracker, Math.max(0, dist(playerX, playerY, e.x, e.y) - e.radius));
     if (e.owner >= 1) {
       const base = (20 + 40 * 2) * (radiusMultiplier[e.owner] || 1);
       spawnEnemyExplosion(e.x, e.y, 3, e.owner, e.radius / base);
