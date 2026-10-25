@@ -9,6 +9,11 @@ let difficultyMenu = false;
 let difficultySelection = 5; // 1-10 button carousel
 let difficultyScroll = 5; // Smoothed carousel position (follows difficultySelection)
 let difficulty = 5; // 1-10: 1-3=easy, 4-5=medium, 6-7=hard, 8-10=insane
+// Opening cinematic: plays on first launch only, then the splash screen takes over
+let openingCinematic = false;
+let cinematicFrame = 0;
+let cinematicTimer = 0; // frames spent on the current still
+let cinematicFlash = 0; // white flash when cutting to the splash screen
 let pendingGameMode = null; // stores whether we're starting single or multiplayer
 let preGameUpgradeMenu = false; // For difficulty 8-10
 let antdex = false;
@@ -1059,6 +1064,9 @@ function checkIconImages() {
 
 function setup() {
   
+  openingCinematic = getItem('openingCinematicSeen') !== true;
+  // Canvas text only uses a web font once it has loaded, so fetch the title card font up front
+  if (document.fonts) document.fonts.load('100px Creepster');
   let gameCanvas = createCanvas(windowWidth, windowHeight);
   gameCanvas.elt.addEventListener('contextmenu', e => e.preventDefault()); // Right click switches shot mode
   // A restored canvas means the browser reset its graphics state, which can wipe the icons too
@@ -1804,8 +1812,11 @@ function draw() {
         printLiveAntRankings();
       }
 
+  } else if (openingCinematic) {
+    drawOpeningCinematic();
   } else {
     drawStartScreen();
+    drawCinematicFlash();
   }
   if (start && /Android|iPhone|iPad/i.test(navigator.userAgent)) {
     drawMobileControls();
@@ -16383,6 +16394,722 @@ function nextRound(){
 
 
 
+// Seven stills with captions, then a cut to the splash screen (which carries the title).
+// `hold` overrides CINEMATIC_HOLD_FRAMES for a still. `art` is null until the real stills exist; drop a loadImage() result in to replace the `blockout` sketch.
+const OPENING_CINEMATIC = [
+  {
+    title: "Balance",
+    blockout: drawBlockoutBalance,
+    description: "Forest floor. Spider web in one corner, snake eating a mouse in the opposite corner.",
+    caption: "In the forest, nature is a delicate balance. Generations of adaptations to eat what you're meant to eat, and not get eaten by what eats you.",
+    art: null
+  },
+  {
+    title: "Arrival",
+    blockout: drawBlockoutArrival,
+    description: "Wide shot of a boat docking on the shore.",
+    caption: "But that all changed the second a foreign ship showed up...",
+    art: null
+  },
+  {
+    title: "Spill",
+    blockout: drawBlockoutSpill,
+    description: "Ants pouring out of a crate.",
+    caption: "...and little stowaways crawled out.",
+    art: null
+  },
+  {
+    title: "Wave",
+    blockout: drawBlockoutWave,
+    description: "The ant tide carrying off the spider, snake, and mouse, all dead.",
+    caption: "With no predators in this new land, everything became their prey. Nothing had seen anything like them.",
+    art: null
+  },
+  {
+    title: "Scale",
+    blockout: drawBlockoutScale,
+    description: "Countless ants, the occasional queen, and a huge shadowy silhouette looming in the back.",
+    caption: "Unchecked, their numbers grew and grew, and it seemed like no one could stop them.",
+    art: null
+  },
+  {
+    title: "Watcher",
+    blockout: drawBlockoutWatcher,
+    description: "The red and blue beetle on a ledge, looking at a lone scout.",
+    caption: "But maybe it takes someone more adaptable...",
+    hold: 270, // the last two linger so the build-up lands
+    art: null
+  },
+  {
+    title: "Eyes",
+    blockout: drawBlockoutEyes,
+    description: "Extreme close-up of the beetle's eyes.",
+    caption: "Someone willing to be a problem. Someone to be an-",
+    hold: 180,
+    art: null
+  }
+];
+const CINEMATIC_FADE_FRAMES = 30;
+const CINEMATIC_CHARS_PER_FRAME = 0.8; // caption typewriter speed
+const CINEMATIC_HOLD_FRAMES = 150; // how long a fully typed caption stays up before moving on
+
+function cinematicCaptionDoneFrame(frame) {
+  return CINEMATIC_FADE_FRAMES + ceil(frame.caption.length / CINEMATIC_CHARS_PER_FRAME);
+}
+
+// Enter / A / click: finish typing the caption, or move to the next still
+function advanceOpeningCinematic() {
+  if (cinematicFrame >= OPENING_CINEMATIC.length) {
+    endOpeningCinematic(); // title card
+    return;
+  }
+  let frame = OPENING_CINEMATIC[cinematicFrame];
+  if (cinematicTimer < cinematicCaptionDoneFrame(frame)) {
+    cinematicTimer = cinematicCaptionDoneFrame(frame);
+  } else {
+    nextOpeningCinematicFrame();
+  }
+}
+
+// Replay from the main menu; ends back on the splash screen like the first viewing
+function startOpeningCinematic() {
+  startMenu = false;
+  openingCinematic = true;
+  cinematicFrame = 0;
+  cinematicTimer = 0;
+  cinematicFlash = 0;
+}
+
+function nextOpeningCinematicFrame() {
+  cinematicFrame++;
+  cinematicTimer = 0;
+  // One step past the last still is the title card
+  if (cinematicFrame > OPENING_CINEMATIC.length) {
+    endOpeningCinematic();
+  }
+}
+
+// Esc / B skips the rest; either way it won't play again on later launches
+function endOpeningCinematic() {
+  openingCinematic = false;
+  cinematicFrame = 0;
+  cinematicTimer = 0;
+  cinematicFlash = 20;
+  storeItem('openingCinematicSeen', true);
+}
+
+function drawOpeningCinematic() {
+  if (isBackPressed()) {
+    cinematicFlash = 0;
+    endOpeningCinematic();
+    menuNavigationCooldown = 20;
+    return;
+  }
+  if (isConfirmPressed()) {
+    advanceOpeningCinematic();
+    if (!openingCinematic) return;
+  }
+  if (cinematicFrame >= OPENING_CINEMATIC.length) {
+    drawCinematicTitle();
+    return;
+  }
+
+  let frame = OPENING_CINEMATIC[cinematicFrame];
+  let captionDone = cinematicCaptionDoneFrame(frame);
+  let lastFrame = cinematicFrame === OPENING_CINEMATIC.length - 1;
+  // The last still cuts straight to the title mid-word instead of fading out
+  let endFrame = captionDone + (frame.hold || CINEMATIC_HOLD_FRAMES);
+
+  beginMenuScaling();
+  let w = getMenuWidth();
+  let h = getMenuHeight();
+  background(0);
+
+  // Still (or its placeholder), letterboxed above the caption
+  let artW = w * 0.72;
+  let artH = h * 0.62;
+  let artX = (w - artW) / 2;
+  let artY = h * 0.08;
+  if (frame.art) {
+    imageMode(CORNER);
+    image(frame.art, artX, artY, artW, artH);
+  } else {
+    // Placeholder: a rough blockout of the still, clipped to the frame
+    push();
+    translate(artX, artY);
+    drawingContext.save();
+    drawingContext.beginPath();
+    drawingContext.rect(0, 0, artW, artH);
+    drawingContext.clip();
+    frame.blockout(artW, artH, cinematicTimer);
+    drawingContext.restore();
+    noFill();
+    stroke(90);
+    strokeWeight(2);
+    drawingContext.setLineDash([12, 10]);
+    rect(0, 0, artW, artH, 6);
+    drawingContext.setLineDash([]);
+    noStroke();
+    fill(0, 160);
+    rect(10, 10, 330, 30, 4);
+    fill(220);
+    textAlign(LEFT, CENTER);
+    textSize(16);
+    text("PLACEHOLDER  \u2022  " + (cinematicFrame + 1) + "/" + OPENING_CINEMATIC.length + "  " + frame.title, 20, 25);
+    pop();
+  }
+
+  // Caption, typed out
+  let shown = floor(max(0, cinematicTimer - CINEMATIC_FADE_FRAMES) * CINEMATIC_CHARS_PER_FRAME);
+  push();
+  noStroke();
+  fill(235);
+  textAlign(CENTER, TOP);
+  textSize(30);
+  text(frame.caption.substring(0, shown), w * 0.14, h * 0.75, w * 0.72, h * 0.17);
+  pop();
+
+  // Fade in from black, fade out to black (except the last still's hard cut)
+  let fade = 0;
+  if (cinematicTimer < CINEMATIC_FADE_FRAMES) {
+    fade = 1 - cinematicTimer / CINEMATIC_FADE_FRAMES;
+  } else if (!lastFrame && cinematicTimer > endFrame - CINEMATIC_FADE_FRAMES) {
+    fade = (cinematicTimer - (endFrame - CINEMATIC_FADE_FRAMES)) / CINEMATIC_FADE_FRAMES;
+  }
+  if (fade > 0) {
+    noStroke();
+    fill(0, constrain(fade, 0, 1) * 255);
+    rect(0, 0, w, h);
+  }
+
+  push();
+  noStroke();
+  fill(120);
+  textAlign(RIGHT, BOTTOM);
+  textSize(16);
+  text("Enter / Click: next     Esc: skip", w - 24, h - 16);
+  pop();
+  endMenuScaling();
+
+  cinematicTimer++;
+  if (cinematicTimer >= endFrame) {
+    nextOpeningCinematicFrame();
+  }
+}
+
+// Title card: the word alone on black, slammed in exactly where it sits on the splash art,
+// then the flash reveals the rest of the splash around it
+const CINEMATIC_TITLE_FRAMES = 150;
+// Letter colors and title placement copied from img/antagonist-splashscreen.png (1400 x 1000)
+const CINEMATIC_TITLE_LETTERS = [
+  ["ANT", [80, 200, 50]],
+  ["ag", [140, 45, 45]],
+  ["on", [215, 35, 35]],
+  ["ist", [40, 100, 230]]
+];
+const SPLASH_TITLE_LEFT = 145;
+const SPLASH_TITLE_RIGHT = 1260;
+const SPLASH_TITLE_BASELINE = 300;
+
+function drawCinematicTitle() {
+  beginMenuScaling();
+  let w = getMenuWidth();
+  let h = getMenuHeight();
+  background(0);
+
+  // Map splash image pixels to menu space (the splash is drawn centered, h * 1.4 wide by h tall)
+  let left = w / 2 + (SPLASH_TITLE_LEFT - 700) / 1000 * h;
+  let right = w / 2 + (SPLASH_TITLE_RIGHT - 700) / 1000 * h;
+  let baseline = h / 2 + (SPLASH_TITLE_BASELINE - 500) / 1000 * h;
+
+  let word = CINEMATIC_TITLE_LETTERS.map(part => part[0]).join("");
+  textFont("Creepster,Impact,sans-serif");
+  textSize(100);
+  let size = min(100 * (right - left) / textWidth(word), h * 0.22);
+  textSize(size);
+  // Spread the letters so the word spans the same width as the hand-drawn title
+  let tracking = max(0, (right - left) - textWidth(word)) / (word.length - 1);
+  let wordW = textWidth(word) + tracking * (word.length - 1);
+
+  // Slam in over 10 frames, then a shake that settles
+  let t = cinematicTimer;
+  let slam = constrain(t / 10, 0, 1);
+  let zoom = lerp(1.6, 1, slam * slam);
+  let shake = t >= 10 ? max(0, 1 - (t - 10) / 20) * 10 : 0;
+  push();
+  translate((left + right) / 2 + random(-shake, shake), baseline - size * 0.35 + random(-shake, shake));
+  scale(zoom);
+  textAlign(LEFT, BASELINE);
+  noStroke();
+  let x = -wordW / 2;
+  for (let [letters, col] of CINEMATIC_TITLE_LETTERS) {
+    drawingContext.shadowBlur = 30;
+    drawingContext.shadowColor = "rgb(" + col.join(",") + ")";
+    fill(col[0], col[1], col[2], 255 * slam);
+    for (let ch of letters) {
+      text(ch, x, size * 0.35);
+      x += textWidth(ch) + tracking;
+    }
+  }
+  drawingContext.shadowBlur = 0;
+  pop();
+  textFont("sans-serif");
+  endMenuScaling();
+
+  cinematicTimer++;
+  if (cinematicTimer >= CINEMATIC_TITLE_FRAMES) {
+    endOpeningCinematic();
+  }
+}
+
+// Brief white flash as the cinematic cuts to the title
+function drawCinematicFlash() {
+  if (cinematicFlash <= 0) return;
+  push();
+  noStroke();
+  fill(255, (cinematicFlash / 20) * 255);
+  rect(0, 0, width, height);
+  pop();
+  cinematicFlash--;
+}
+
+// ---- Opening cinematic placeholder blockouts ----
+// Rough shape sketches of each still, drawn in the art frame's local space (w x h), t = frames on this still
+
+// Stable pseudo-random in [0, 1) so the blockouts don't flicker or touch the game's random() seed
+function cineRand(i) {
+  let x = sin(i * 12.9898) * 43758.5453;
+  return x - floor(x);
+}
+
+// Matches the in-game ant sprite: dark maroon body with acid green bands on the abdomen and head
+function drawCineAnt(x, y, s, angle, col) {
+  push();
+  translate(x, y);
+  rotate(angle);
+  stroke(col);
+  strokeWeight(max(1, s * 0.12));
+  for (let i = -1; i <= 1; i++) {
+    line(i * s * 0.35, 0, i * s * 0.5, -s * 0.55);
+    line(i * s * 0.35, 0, i * s * 0.5, s * 0.55);
+  }
+  noStroke();
+  fill(col);
+  ellipse(-s * 0.6, 0, s * 0.75, s * 0.6); // abdomen
+  ellipse(0, 0, s * 0.5, s * 0.38); // thorax
+  ellipse(s * 0.45, 0, s * 0.45, s * 0.45); // head
+  fill(130, 220, 40);
+  if (s >= 8) {
+    rect(-s * 0.72, -s * 0.24, s * 0.12, s * 0.48);
+    rect(s * 0.5, -s * 0.17, s * 0.08, s * 0.34);
+    ellipse(0, 0, s * 0.12, s * 0.12);
+  } else {
+    ellipse(-s * 0.6, 0, s * 0.25, s * 0.25);
+  }
+  pop();
+}
+
+function drawCineSpider(x, y, s, dead) {
+  push();
+  translate(x, y);
+  if (dead) rotate(PI);
+  stroke(30);
+  strokeWeight(s * 0.08);
+  noFill();
+  for (let side of [-1, 1]) {
+    for (let i = 0; i < 4; i++) {
+      let a = -0.9 + i * 0.6;
+      let kx = side * s * 0.6 * cos(a * 0.6);
+      let ky = s * 0.5 * sin(a);
+      line(0, 0, kx, ky - s * 0.3);
+      line(kx, ky - s * 0.3, side * s * 0.9 * cos(a * 0.6), ky + s * 0.2);
+    }
+  }
+  noStroke();
+  fill(30);
+  ellipse(0, s * 0.15, s * 0.55, s * 0.65);
+  ellipse(0, -s * 0.25, s * 0.35, s * 0.3);
+  if (dead) {
+    // X eyes
+    stroke(220);
+    strokeWeight(s * 0.04);
+    line(-s * 0.1, -s * 0.3, -s * 0.02, -s * 0.22);
+    line(-s * 0.02, -s * 0.3, -s * 0.1, -s * 0.22);
+    line(s * 0.02, -s * 0.3, s * 0.1, -s * 0.22);
+    line(s * 0.1, -s * 0.3, s * 0.02, -s * 0.22);
+  }
+  pop();
+}
+
+function drawCineMouse(x, y, s, angle) {
+  push();
+  translate(x, y);
+  rotate(angle);
+  stroke(150, 120, 120);
+  strokeWeight(s * 0.06);
+  noFill();
+  bezier(-s * 0.5, 0, -s * 0.9, -s * 0.1, -s * 1.0, s * 0.3, -s * 1.3, s * 0.2);
+  noStroke();
+  fill(140, 135, 130);
+  ellipse(0, 0, s, s * 0.6);
+  ellipse(s * 0.45, -s * 0.05, s * 0.45, s * 0.35);
+  ellipse(s * 0.35, -s * 0.25, s * 0.22, s * 0.22);
+  pop();
+}
+
+// Matches the in-game beetle sprite: navy blue shell, red head, black legs with red tips
+function drawCineBeetle(x, y, s, angle) {
+  push();
+  translate(x, y);
+  rotate(angle);
+  for (let i = -1; i <= 1; i++) {
+    for (let side of [-1, 1]) {
+      let tipX = i * s * 0.32;
+      let tipY = side * s * 0.62;
+      stroke(10);
+      strokeWeight(s * 0.07);
+      line(i * s * 0.25, 0, tipX, tipY);
+      noStroke();
+      fill(160, 20, 20);
+      ellipse(tipX, tipY, s * 0.1, s * 0.1);
+    }
+  }
+  stroke(0);
+  strokeWeight(s * 0.05);
+  fill(150, 20, 20);
+  ellipse(s * 0.66, 0, s * 0.42, s * 0.48); // head
+  fill(12, 18, 70);
+  ellipse(0, 0, s * 1.1, s * 0.9); // shell
+  line(-s * 0.55, 0, s * 0.55, 0);
+  noStroke();
+  fill(35, 70, 150);
+  ellipse(-s * 0.05, -s * 0.2, s * 0.12, s * 0.08);
+  fill(10);
+  ellipse(s * 0.76, -s * 0.14, s * 0.1, s * 0.1);
+  ellipse(s * 0.76, s * 0.14, s * 0.1, s * 0.1);
+  pop();
+}
+
+function drawCineForestFloor(w, h) {
+  noStroke();
+  fill(196, 108, 46); // same orange as the in-game ground
+  rect(0, 0, w, h);
+  for (let i = 0; i < 40; i++) {
+    fill(175 + cineRand(i) * 40, 95 + cineRand(i + 99) * 25, 40);
+    ellipse(cineRand(i + 7) * w, cineRand(i + 13) * h, 30 + cineRand(i + 3) * 60, 18 + cineRand(i + 5) * 30);
+  }
+  // Dry leaves, kept muted so the green on the ants and snake still pops
+  for (let i = 0; i < 18; i++) {
+    push();
+    translate(cineRand(i + 200) * w, cineRand(i + 300) * h);
+    rotate(cineRand(i + 400) * TWO_PI);
+    fill(150 + cineRand(i) * 40, 80 + cineRand(i + 1) * 30, 35);
+    ellipse(0, 0, 40, 16);
+    pop();
+  }
+}
+
+function drawBlockoutBalance(w, h, t) {
+  drawCineForestFloor(w, h);
+  // Web in the top-left corner
+  push();
+  stroke(225, 225, 225, 170);
+  strokeWeight(1.5);
+  noFill();
+  let cx = w * 0.04;
+  let cy = h * 0.05;
+  for (let i = 0; i < 7; i++) {
+    let a = i * (HALF_PI / 6);
+    line(cx, cy, cx + cos(a) * w * 0.32, cy + sin(a) * w * 0.32);
+  }
+  for (let r = 1; r <= 6; r++) {
+    beginShape();
+    for (let i = 0; i < 7; i++) {
+      let a = i * (HALF_PI / 6);
+      vertex(cx + cos(a) * r * w * 0.05, cy + sin(a) * r * w * 0.05);
+    }
+    endShape();
+  }
+  pop();
+  drawCineSpider(w * 0.17, h * 0.23 + sin(t * 0.05) * 3, 50, false);
+
+  // Snake eating a mouse in the bottom-right corner; mouse goes in head first, tail out
+  drawCineMouse(w * 0.7, h * 0.79, 60, 0.1);
+  push();
+  noFill();
+  strokeCap(ROUND);
+  stroke(70, 120, 50);
+  strokeWeight(34);
+  bezier(w * 1.05, h * 0.55, w * 0.85, h * 0.6, w * 0.95, h * 0.95, w * 0.78, h * 0.82);
+  stroke(95, 150, 65);
+  strokeWeight(10);
+  bezier(w * 1.05, h * 0.55, w * 0.85, h * 0.6, w * 0.95, h * 0.95, w * 0.78, h * 0.82);
+  noStroke();
+  fill(70, 120, 50);
+  ellipse(w * 0.75, h * 0.8, 80, 62);
+  fill(240, 210, 60);
+  ellipse(w * 0.76, h * 0.765, 10, 8);
+  pop();
+}
+
+function drawBlockoutArrival(w, h, t) {
+  noStroke();
+  // Sky
+  for (let i = 0; i < 6; i++) {
+    fill(70 + i * 22, 110 + i * 18, 160 + i * 12);
+    rect(0, i * h * 0.075, w, h * 0.08);
+  }
+  // Sea
+  fill(40, 80, 130);
+  rect(0, h * 0.45, w, h * 0.55);
+  stroke(120, 170, 210, 150);
+  strokeWeight(2);
+  for (let i = 0; i < 14; i++) {
+    let wx = cineRand(i + 50) * w * 0.7;
+    let wy = h * 0.5 + cineRand(i + 60) * h * 0.45;
+    let drift = sin(t * 0.03 + i) * 6;
+    line(wx + drift, wy, wx + 30 + drift, wy);
+  }
+  noStroke();
+  // Shore and dock
+  fill(205, 185, 135);
+  beginShape();
+  vertex(w * 0.62, h);
+  vertex(w * 0.78, h * 0.5);
+  vertex(w, h * 0.42);
+  vertex(w, h);
+  endShape(CLOSE);
+  fill(60, 110, 50);
+  ellipse(w * 0.95, h * 0.43, w * 0.2, h * 0.12);
+  fill(110, 80, 50);
+  rect(w * 0.55, h * 0.66, w * 0.24, h * 0.03);
+  for (let i = 0; i < 4; i++) rect(w * 0.56 + i * w * 0.07, h * 0.66, 8, h * 0.12);
+
+  // Ship, bobbing as it docks
+  push();
+  translate(w * 0.32, h * 0.62 + sin(t * 0.04) * 4);
+  fill(90, 50, 35);
+  beginShape();
+  vertex(-w * 0.24, -h * 0.06);
+  vertex(w * 0.24, -h * 0.06);
+  vertex(w * 0.18, h * 0.08);
+  vertex(-w * 0.2, h * 0.08);
+  endShape(CLOSE);
+  fill(170, 50, 40);
+  rect(-w * 0.24, -h * 0.06, w * 0.48, h * 0.02);
+  fill(70, 45, 30);
+  rect(-6, -h * 0.5, 12, h * 0.44);
+  rect(-w * 0.13, -h * 0.4, 9, h * 0.34);
+  fill(235, 230, 215);
+  triangle(10, -h * 0.47, 10, -h * 0.12, w * 0.15, -h * 0.14);
+  triangle(-w * 0.12, -h * 0.37, -w * 0.12, -h * 0.12, -w * 0.02, -h * 0.13);
+  fill(150, 110, 60);
+  rect(w * 0.08, -h * 0.12, w * 0.07, h * 0.06); // the crate
+  stroke(100, 70, 40);
+  strokeWeight(2);
+  line(w * 0.08, -h * 0.12, w * 0.15, -h * 0.06);
+  pop();
+}
+
+function drawBlockoutSpill(w, h, t) {
+  drawCineForestFloor(w, h);
+  // Crate with its lid knocked open
+  push();
+  translate(w * 0.3, h * 0.45);
+  noStroke();
+  fill(150, 110, 60);
+  rect(-w * 0.15, -h * 0.25, w * 0.3, h * 0.5);
+  stroke(100, 70, 40);
+  strokeWeight(4);
+  for (let i = 1; i < 4; i++) line(-w * 0.15, -h * 0.25 + i * h * 0.125, w * 0.15, -h * 0.25 + i * h * 0.125);
+  line(-w * 0.15, -h * 0.25, w * 0.15, h * 0.25);
+  noStroke();
+  fill(20);
+  rect(w * 0.11, -h * 0.2, w * 0.04, h * 0.4); // open side
+  fill(170, 125, 70);
+  push();
+  translate(w * 0.15, -h * 0.25);
+  rotate(0.9);
+  rect(0, -6, h * 0.45, 12);
+  pop();
+  pop();
+  // Ants pouring out the open side and fanning across the floor
+  for (let i = 0; i < 90; i++) {
+    let progress = (cineRand(i) + t * 0.004) % 1;
+    let spread = (cineRand(i + 500) - 0.5) * progress * h * 1.1;
+    let ax = w * 0.45 + progress * w * 0.6;
+    let ay = h * 0.45 + spread + sin(progress * 20 + i) * 6;
+    drawCineAnt(ax, ay, 14, atan2(spread, progress * w * 0.6 + 1) + sin(t * 0.2 + i) * 0.2, color(60, 18, 18));
+  }
+}
+
+function drawBlockoutWave(w, h, t) {
+  drawCineForestFloor(w, h);
+  let march = (t * 1.2) % 40;
+  // The ant tide, a dense band sweeping right
+  for (let i = 0; i < 260; i++) {
+    let ax = (cineRand(i) * w * 1.2 - w * 0.1 + march) % (w * 1.1);
+    let ay = h * 0.35 + cineRand(i + 900) * h * 0.55;
+    drawCineAnt(ax, ay, 13, sin(i) * 0.25, color(50 + cineRand(i + 1) * 30, 15, 15));
+  }
+  // Carried off on top of the tide, all dead
+  drawCineSpider(w * 0.25 + march, h * 0.5, 55, true);
+  push();
+  translate(march, 0);
+  noFill();
+  strokeCap(ROUND);
+  stroke(70, 120, 50);
+  strokeWeight(24);
+  bezier(w * 0.38, h * 0.62, w * 0.5, h * 0.48, w * 0.6, h * 0.78, w * 0.72, h * 0.6);
+  stroke(240);
+  strokeWeight(3);
+  line(w * 0.72 - 6, h * 0.6 - 6, w * 0.72 + 6, h * 0.6 + 6);
+  line(w * 0.72 + 6, h * 0.6 - 6, w * 0.72 - 6, h * 0.6 + 6);
+  pop();
+  drawCineMouse(w * 0.82 + march, h * 0.72, 45, PI * 0.9); // belly up
+  // A few ants in front so the bodies look carried, not floating
+  for (let i = 0; i < 40; i++) {
+    let ax = (cineRand(i + 40) * w + march) % w;
+    drawCineAnt(ax, h * 0.6 + cineRand(i + 70) * h * 0.2, 13, 0, color(65, 20, 18));
+  }
+}
+
+function drawBlockoutScale(w, h, t) {
+  noStroke();
+  fill(30, 25, 30);
+  rect(0, 0, w, h);
+  // Huge shadowy silhouette looming in the back
+  push();
+  translate(w * 0.5, h * 0.42 + sin(t * 0.02) * 4);
+  fill(12, 10, 14);
+  ellipse(-w * 0.22, h * 0.05, w * 0.45, h * 0.5);
+  ellipse(0, 0, w * 0.22, h * 0.28);
+  ellipse(w * 0.18, -h * 0.08, w * 0.22, h * 0.3);
+  stroke(12, 10, 14);
+  strokeWeight(16);
+  for (let i = -1; i <= 1; i++) {
+    line(i * w * 0.06, 0, i * w * 0.2, h * 0.5);
+  }
+  line(w * 0.24, -h * 0.18, w * 0.36, -h * 0.42);
+  line(w * 0.2, -h * 0.2, w * 0.26, -h * 0.48);
+  noStroke();
+  fill(200, 40, 30, 150 + sin(t * 0.06) * 80);
+  ellipse(w * 0.22, -h * 0.11, 16, 10);
+  pop();
+  // Ground and the swarm, bigger toward the front
+  fill(160, 85, 35); // in-game orange, dimmed under the looming shadow
+  rect(0, h * 0.6, w, h * 0.4);
+  for (let i = 0; i < 420; i++) {
+    let depth = cineRand(i + 1000);
+    let ay = h * 0.58 + depth * h * 0.42;
+    let ax = cineRand(i) * w + sin(t * 0.03 + i) * 3;
+    drawCineAnt(ax, ay, 5 + depth * 12, cineRand(i + 7) * TWO_PI, color(35 + depth * 30, 12, 12));
+  }
+  // The occasional queen, bigger and winged
+  for (let q = 0; q < 3; q++) {
+    let qx = w * (0.2 + q * 0.3);
+    let qy = h * (0.75 + cineRand(q + 77) * 0.15);
+    noStroke();
+    fill(200, 200, 220, 120);
+    ellipse(qx - 6, qy - 14, 34, 16);
+    ellipse(qx - 6, qy + 14, 34, 16);
+    drawCineAnt(qx, qy, 30, 0, color(95, 25, 25));
+  }
+}
+
+function drawBlockoutWatcher(w, h, t) {
+  drawCineForestFloor(w, h);
+  noStroke();
+  fill(0, 35);
+  rect(0, 0, w, h);
+  // Rock ledge up on the left
+  fill(105, 100, 95);
+  beginShape();
+  vertex(0, h * 0.25);
+  vertex(w * 0.38, h * 0.3);
+  vertex(w * 0.42, h * 0.38);
+  vertex(w * 0.3, h * 0.55);
+  vertex(w * 0.15, h * 0.8);
+  vertex(0, h * 0.85);
+  endShape(CLOSE);
+  fill(130, 125, 118);
+  quad(0, h * 0.25, w * 0.38, h * 0.3, w * 0.36, h * 0.33, 0, h * 0.3);
+  // Beetle on the edge, looking down at the scout
+  drawCineBeetle(w * 0.3, h * 0.22, 130, 0.55);
+  stroke(255, 255, 255, 60);
+  strokeWeight(2);
+  drawingContext.setLineDash([6, 10]);
+  line(w * 0.36, h * 0.28, w * 0.68, h * 0.72);
+  drawingContext.setLineDash([]);
+  // Lone scout wandering below in a pool of light
+  noStroke();
+  fill(255, 240, 200, 25);
+  ellipse(w * 0.7, h * 0.74, 160, 90);
+  drawCineAnt(w * 0.7 + sin(t * 0.03) * 20, h * 0.74, 22, sin(t * 0.03 + 1) * 0.6, color(60, 18, 18));
+}
+
+function drawBlockoutEyes(w, h, t) {
+  noStroke();
+  fill(10);
+  rect(0, 0, w, h);
+  // Slow push in on the face
+  let zoom = 1 + min(t, 300) * 0.0003;
+  push();
+  translate(w / 2, h / 2);
+  scale(zoom);
+  translate(-w / 2, -h / 2);
+  // Navy shell rising behind the red head
+  stroke(0);
+  strokeWeight(6);
+  fill(12, 18, 70);
+  ellipse(w / 2, -h * 0.15, w * 1.5, h * 0.9);
+  line(w / 2, -h * 0.6, w / 2, h * 0.3);
+  fill(150, 20, 20);
+  ellipse(w / 2, h * 0.78, w * 0.85, h * 1.2);
+  noStroke();
+  fill(185, 40, 35);
+  ellipse(w * 0.44, h * 0.42, w * 0.2, h * 0.12);
+  // Mandibles
+  fill(15);
+  triangle(w * 0.43, h * 0.95, w * 0.49, h * 0.93, w * 0.47, h * 1.05);
+  triangle(w * 0.57, h * 0.95, w * 0.51, h * 0.93, w * 0.53, h * 1.05);
+
+  // Compound eyes: glossy domes of facets, no pupils
+  for (let side of [-1, 1]) {
+    let ex = w / 2 + side * w * 0.28;
+    let ey = h * 0.55;
+    let ew = w * 0.25;
+    let eh = h * 0.55;
+    stroke(0);
+    strokeWeight(6);
+    fill(20, 8, 14);
+    ellipse(ex, ey, ew, eh);
+    noStroke();
+    let d = ew / 11;
+    // Light comes from the upper outer edge
+    let lightX = ex + side * ew * 0.18;
+    let lightY = ey - eh * 0.25;
+    for (let row = 0; row * d * 0.87 < eh; row++) {
+      let fy = ey - eh / 2 + row * d * 0.87;
+      for (let fx = ex - ew / 2 + (row % 2) * d / 2; fx < ex + ew / 2; fx += d) {
+        let nx = (fx - ex) / (ew / 2);
+        let ny = (fy - ey) / (eh / 2);
+        if (nx * nx + ny * ny > 0.85) continue;
+        let glow = constrain(1 - dist(fx, fy, lightX, lightY) / (ew * 0.75), 0, 1);
+        fill(40 + glow * 90, 15 + glow * 30, 30 + glow * 45);
+        ellipse(fx, fy, d * 0.85, d * 0.85);
+      }
+    }
+    // Wet highlight sliding across the dome
+    let shimmer = sin(t * 0.03) * ew * 0.04;
+    fill(255, 255, 255, 150);
+    ellipse(lightX + shimmer, lightY, ew * 0.18, eh * 0.08);
+    fill(255, 255, 255, 60);
+    ellipse(lightX + shimmer - side * ew * 0.05, lightY + eh * 0.1, ew * 0.08, eh * 0.04);
+  }
+  pop();
+}
+
 function drawStartScreen(){
 
   beginMenuScaling();
@@ -16506,10 +17233,10 @@ function drawStartScreen(){
       // Menu navigation with arrow keys, WASD, and gamepad
       if (menuNavigationCooldown === 0) {
         if (isUpPressed()) { // Up or W
-          startMenuSelection = (startMenuSelection - 1 + 4) % 4;
+          startMenuSelection = (startMenuSelection - 1 + 5) % 5;
           menuNavigationCooldown = 10;
         } else if (isDownPressed()) { // Down or S
-          startMenuSelection = (startMenuSelection + 1) % 4;
+          startMenuSelection = (startMenuSelection + 1) % 5;
           menuNavigationCooldown = 10;
         }
       }
@@ -16635,13 +17362,42 @@ function drawStartScreen(){
         textAlign(CENTER, CENTER);
         text("Queen Upgrades", option3X, option3Y);
       pop();
-      
+
+      // Menu option 4: Watch Intro - Card style
+      let option4Y = getMenuHeight() * 0.83;
+      let option4X = getMenuWidth() / 2;
+      let option4W = 340;
+      let option4H = 70;
+      push();
+        rectMode(CENTER);
+        if (startMenuSelection === 4) {
+          fill(255);  // White background for selected
+          stroke(200, 60, 60);  // Beetle red
+          strokeWeight(3);
+        } else {
+          fill(50, 50, 50);  // Dark grey for unselected
+          stroke(100, 100, 100);
+          strokeWeight(2);
+        }
+        rect(option4X, option4Y, option4W, option4H, 12);
+
+        // Text
+        if (startMenuSelection === 4) {
+          fill(10);  // Dark text on white
+        } else {
+          fill(255);  // White text on dark
+        }
+        textSize(32);
+        textAlign(CENTER, CENTER);
+        text("Watch Intro", option4X, option4Y);
+      pop();
+
       // Instructions with fade
       let fadeAlpha = map(sin(frameCount * 0.05), -1, 1, 30, 70);
       fill(200, fadeAlpha);
       textSize(18);
       textAlign(CENTER);
-      text('W/S or ↑/↓ or Left Stick  Navigate  |  Enter or A  Confirm', getMenuWidth() / 2, getMenuHeight() * 0.84);
+      text('W/S or ↑/↓ or Left Stick  Navigate  |  Enter or A  Confirm', getMenuWidth() / 2, getMenuHeight() * 0.94);
 
       // Mouse click detection
       if (mouseIsPressed) {
@@ -16685,6 +17441,13 @@ function drawStartScreen(){
             openQueenShop();
           }
         }
+        // Check option 4 (Watch Intro)
+        else if (mx > option4X - option4W/2 && mx < option4X + option4W/2 &&
+                 my > option4Y - option4H/2 && my < option4Y + option4H/2) {
+          if (menuNavigationCooldown === 0) {
+            startOpeningCinematic();
+          }
+        }
       }
 
       // Enter key to select
@@ -16705,6 +17468,8 @@ function drawStartScreen(){
           antdexReturnState = 'menu';
         } else if (startMenuSelection === 3) {
           openQueenShop();
+        } else if (startMenuSelection === 4) {
+          startOpeningCinematic();
         }
         menuNavigationCooldown = 20;
       }
@@ -17510,6 +18275,11 @@ function pointInRect(px, py, rect) {
 }
 
 function mousePressed() {
+  if (openingCinematic) {
+    advanceOpeningCinematic();
+    return;
+  }
+
   // Difficulty menu: clicking a button selects it
   if (difficultyMenu) {
     for (let i = 1; i <= 10; i++) {
