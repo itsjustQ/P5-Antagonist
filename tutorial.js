@@ -273,7 +273,7 @@ function setupTutorialStage() {
       spawnTutorialAnts(base, 3);
       T.steps = [
         { card: ['A Queen', [
-          'Get hit enough in a round and a queen shows up. She spawns ants, orders them around, and uses their abilities against you.',
+          'Sometimes a queen shows up. She spawns ants, orders them around, and uses their abilities against you.',
           'While she is out, the round only ends when she dies. Hit her with acid, dashes and shockwaves.']],
           start: () => startTutorialQueen(),
           prompt: 'Defeat the queen', done: () => !queen && T.queenStarted }
@@ -351,7 +351,8 @@ function updateTutorial() {
       antRapidFireActive[i] = false;
     }
   }
-  if (!T.finished && T.stage !== 5) timeCount = 99;
+  // Tutorial rounds end on what you do, not the clock (but never undo a round that just ended, like a queen's death)
+  if (!T.finished && T.stage !== 5 && timeCount >= 0) timeCount = 99;
 
   // A step that's only a card moves on as soon as the card is closed
   if (!T.card && !T.cardPending && (!step.done || step.done(c))) {
@@ -367,7 +368,7 @@ function advanceTutorialStep() {
   if (!step) {
     // Last thing done: the round ends
     T.finished = true;
-    if (T.stage !== 4) timeCount = -1;
+    timeCount = -1;
     return;
   }
   if (step.card) openTutorialCard(step.card[0], step.card[1], step.start || null);

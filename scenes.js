@@ -992,12 +992,29 @@ function resetRoundScenes() {
   sceneAbilitySeen = {};
 }
 
+// Ability combinations with their own scenes
+const EXOTIC_SCENE_KEYS = new Set(['ghostAnts', 'explodingAnts', 'hoverAnts', 'airStrike', 'hiddenLandmine']);
+
 function pickRoundScene() {
   const present = noteSceneAbilities();
   if (sceneForcedId) {
     const forced = ROUND_SCENES.find(s => s.id === sceneForcedId);
     sceneForcedId = null;
     if (forced) return forced;
+  }
+  // The final level's rounds before the Queen of Queens: every one opens with a scene about its ants' abilities,
+  // exotic combinations first
+  if (typeof isFinalLevel === 'function' && isFinalLevel() && finalLevel.phase === 'warmup') {
+    const antScenes = ROUND_SCENES.filter(s => s.need && !s.key.startsWith('beetle:') && s.need(present));
+    if (antScenes.length > 0) {
+      const weights = antScenes.map(s => EXOTIC_SCENE_KEYS.has(s.key) || (s.key === 'ghost' && present.has('ghostBeam')) ? 8 : 1);
+      let roll = Math.random() * weights.reduce((p, q) => p + q, 0);
+      for (let k = 0; k < antScenes.length; k++) {
+        roll -= weights[k];
+        if (roll <= 0) return antScenes[k];
+      }
+      return antScenes[antScenes.length - 1];
+    }
   }
   let abilityRound = false;
   if (level > 1) {

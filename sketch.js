@@ -752,7 +752,7 @@ let upgrade26Level = 0; // Shockwave Harvest (max 1, very rare): double points f
 let upgrade27Level = 0; // Bullet Harvest (max 1, very rare): double points for bullet kills
 let upgrade28Level = 0; // Spray Acid (max 1, requires Add Bullets): unlocks the spray shot mode (instant grey cone)
 let upgrade29Level = 0; // Spray Length (max 4, 100→200px, requires Spray Acid)
-let upgrade30Level = 0; // Spray Width (max 4, 20→100px, requires Spray Acid)
+let upgrade30Level = 0; // Spray Width (max 4, 40→200px, requires Spray Acid)
 let upgrade31Level = 0; // Piercing Acid (max 1, requires Add Bullets): unlocks the piercing shot mode (pierces 1 ant)
 let upgrade32Level = 0; // Piercing Depth (max 9, 1→10 ants pierced, requires Piercing Acid)
 let upgrade33Level = 0; // Impact Bomb (max 1, requires Add Bullets): unlocks the impact bomb shot mode
@@ -5490,7 +5490,7 @@ function getSprayLength(level = upgrade29Level) {
 }
 
 function getSprayWidth(level = upgrade30Level) {
-  return 20 + level * 20; // 20 → 100
+  return (20 + level * 20) * 2; // 40 → 200
 }
 
 function getPierceCount(depthLevel = upgrade32Level) {
@@ -14373,7 +14373,7 @@ function drawUpgradeScreen() {
     },
     {
       title: 'Spray Width',
-      description: 'Widen the spray cone. Each level adds 20 pixels (20→100). Requires Spray Acid.',
+      description: 'Widen the spray cone. Each level adds 40 pixels (40→200). Requires Spray Acid.',
       level: upgrade30Level,
       maxLevel: 4
     },
