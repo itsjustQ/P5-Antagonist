@@ -5750,7 +5750,7 @@ function firePlayerSpray(beetleX, beetleY, angle) {
     let along = dx * dirX + dy * dirY;
     let across = Math.abs(-dx * dirY + dy * dirX);
     let halfWidth = lerp(baseWidth, tipWidth, constrain(along, 0, len) / len) / 2;
-    if (along >= -QUEEN_BODY_RADIUS && along <= len + QUEEN_BODY_RADIUS && across <= halfWidth + QUEEN_BODY_RADIUS) {
+    if (along >= -getQueenBodyRadius() && along <= len + getQueenBodyRadius() && across <= halfWidth + getQueenBodyRadius()) {
       damageQueen(getPlayerBulletDamage());
     }
   }
@@ -8966,6 +8966,15 @@ let queenDamageIsOwn = false;    // True while damage is coming from one of the 
 let queenDeathBurst = null;      // Where the last queen died, for her explosion in the round outro
 let lastBeetleShotFrame = -9999;
 
+// The Queen of Queens is the size of a size 6 ant; every other queen is a size 4 ant
+function getQueenImageSize() {
+  return queen && queen.final ? 45 + 15 * QOQ_ANT_SIZE : QUEEN_IMAGE_SIZE;
+}
+
+function getQueenBodyRadius() {
+  return QUEEN_BODY_RADIUS * getQueenImageSize() / QUEEN_IMAGE_SIZE;
+}
+
 function isQueenFight() {
   return queen !== null;
 }
@@ -9553,19 +9562,23 @@ function updateQueenDecision() {
 
   queen.typeInfo = types;
   queen.bestType = best;
+  // The Queen of Queens takes dozens of hits (each one mutates her brain), so her offsets get a tighter leash: she
+  // keeps moving around the beetle instead of drifting into a corner, and her abilities land near it
+  const reach = queen.final ? QOQ_DECISION_REACH : 1;
+  const aimReach = queen.final ? QOQ_AIM_REACH : 1;
   queen.decision = {
     anchorX: anchorX,
     anchorY: anchorY,
-    moveX: Math.tanh(out[0]) * getGameplayWidth(),
-    moveY: Math.tanh(out[1]) * getGameplayHeight(),
+    moveX: Math.tanh(out[0]) * getGameplayWidth() * reach,
+    moveY: Math.tanh(out[1]) * getGameplayHeight() * reach,
     // Abilities aim at a point relative to the beetle (at first the beetle itself), and formations of planted things
     // (explosions, mines, turrets, mounds) turn by formationTurn from the aim direction
-    aimX: Math.tanh(out[QB_OUT_AIM]) * getGameplayWidth(),
-    aimY: Math.tanh(out[QB_OUT_AIM + 1]) * getGameplayHeight(),
+    aimX: Math.tanh(out[QB_OUT_AIM]) * getGameplayWidth() * aimReach,
+    aimY: Math.tanh(out[QB_OUT_AIM + 1]) * getGameplayHeight() * aimReach,
     formationTurn: Math.tanh(out[QB_OUT_AIM + 2]) * Math.PI,
     // Where an order to every ant goes, relative to the beetle: the spot she's heading for, shifted
-    allOrderX: anchorX + Math.tanh(out[QB_OUT_ALL_ORDER]) * getGameplayWidth(),
-    allOrderY: anchorY + Math.tanh(out[QB_OUT_ALL_ORDER + 1]) * getGameplayHeight(),
+    allOrderX: anchorX + Math.tanh(out[QB_OUT_ALL_ORDER]) * getGameplayWidth() * reach,
+    allOrderY: anchorY + Math.tanh(out[QB_OUT_ALL_ORDER + 1]) * getGameplayHeight() * reach,
     params: params,
     abilityLogits: out.slice(QB_OUT_ABILITIES)
   };
@@ -9691,7 +9704,7 @@ function damageQueen(amount) {
 // True if a point is within pad px of the queen's body (and she can be hit)
 function isQueenHitAt(x, y, pad = 0) {
   if (isQueenImmune()) return false;
-  return dist(x, y, queen.x, queen.y) < QUEEN_BODY_RADIUS + pad;
+  return dist(x, y, queen.x, queen.y) < getQueenBodyRadius() + pad;
 }
 
 function killQueen() {
@@ -10004,7 +10017,7 @@ function releaseQueenSpawns(count) {
     const rec = pickQueenSpawnType(penalties);
     if (!rec) break;
     const a = ringStart + (k / count) * Math.PI * 2;
-    const r = QUEEN_BODY_RADIUS + 18 + 6 * Math.floor(k / 8);
+    const r = getQueenBodyRadius() + 18 + 6 * Math.floor(k / 8);
     queenSpawnAnt(rec.type, queen.x + Math.cos(a) * r, queen.y + Math.sin(a) * r);
   }
 }
@@ -10059,7 +10072,7 @@ function updateQueenStatus() {
     const dx = queen.x - playerX;
     const dy = queen.y - playerY;
     const d = Math.sqrt(dx * dx + dy * dy);
-    const contact = QUEEN_BODY_RADIUS + PLAYER_WALL_RADIUS;
+    const contact = getQueenBodyRadius() + PLAYER_WALL_RADIUS;
     if (d > contact) {
       const step = Math.min(6, d - contact);
       playerX += dx / d * step;
@@ -10083,7 +10096,7 @@ function updateQueenContact() {
   const dx = playerX - queen.x;
   const dy = playerY - queen.y;
   const d = Math.sqrt(dx * dx + dy * dy);
-  const reach = QUEEN_BODY_RADIUS + PLAYER_WALL_RADIUS;
+  const reach = getQueenBodyRadius() + PLAYER_WALL_RADIUS;
   if (dash && !queen.dashHit && d < reach + 6) {
     queen.dashHit = true;
     if (!damageQueen(1 + (upgrade12Level * 0.2))) return; // Same damage as a dash hit on an ant (Horns)
@@ -10295,7 +10308,7 @@ function castQueenAbilityUnscaled(key, src) {
   const tracker = createQueenAttackTracker(key);
   // Close-range abilities used with the beetle out of her stream's reach
   if (QUEEN_CLOSE_RANGE_ABILITIES.has(key) &&
-      dist(qx, qy, playerX, playerY) > QUEEN_STREAM_RANGE + QUEEN_BODY_RADIUS * 0.8) {
+      dist(qx, qy, playerX, playerY) > QUEEN_STREAM_RANGE + getQueenBodyRadius() * 0.8) {
     queen.segmentScore += QUEEN_SCORE_OUT_OF_RANGE;
   }
   switch (key) {
@@ -10337,8 +10350,8 @@ function castQueenAbilityUnscaled(key, src) {
         const rec = pickQueenSpawnType(penalties);
         if (!rec) break;
         addQueenAttackPart(tracker);
-        queenProjectiles.push({ kind: 'ant', mode: 'spiral', type: rec.type, angle: aim + side, radius: QUEEN_BODY_RADIUS,
-          life: 0, x: qx + Math.cos(aim + side) * QUEEN_BODY_RADIUS, y: qy + Math.sin(aim + side) * QUEEN_BODY_RADIUS, tracker: tracker });
+        queenProjectiles.push({ kind: 'ant', mode: 'spiral', type: rec.type, angle: aim + side, radius: getQueenBodyRadius(),
+          life: 0, x: qx + Math.cos(aim + side) * getQueenBodyRadius(), y: qy + Math.sin(aim + side) * getQueenBodyRadius(), tracker: tracker });
       }
       break;
     }
@@ -10460,7 +10473,7 @@ function castQueenAbilityUnscaled(key, src) {
       break;
     }
     case 'bunker': {
-      const wall = makeQueenWall(qx, qy, QUEEN_BODY_RADIUS, true, 2, 540);
+      const wall = makeQueenWall(qx, qy, getQueenBodyRadius(), true, 2, 540);
       enemyWalls.push(wall);
       queen.bunker = wall;
       break;
@@ -10879,8 +10892,8 @@ function updateQueenStream(e, hidden) {
   e.angle += constrain(diff, -0.035, 0.035);
   const dirX = Math.cos(e.angle);
   const dirY = Math.sin(e.angle);
-  const ox = queen.x + dirX * QUEEN_BODY_RADIUS * 0.8;
-  const oy = queen.y + dirY * QUEEN_BODY_RADIUS * 0.8;
+  const ox = queen.x + dirX * getQueenBodyRadius() * 0.8;
+  const oy = queen.y + dirY * getQueenBodyRadius() * 0.8;
   const grow = Math.min(1, e.life / 20);
   const range = e.range * grow;
   const baseW = e.width * 0.2;
@@ -10987,7 +11000,7 @@ function updateQueenBeam(e, hidden) {
 // Order shout: three arcs bursting out of her in a fan toward the ants she's ordering
 function drawQueenShout(e) {
   const t = e.life / e.frames;
-  const mouth = QUEEN_IMAGE_SIZE * 0.35;
+  const mouth = getQueenImageSize() * 0.35;
   const ox = queen.x + Math.cos(e.angle) * mouth;
   const oy = queen.y - queen.airHeight + Math.sin(e.angle) * mouth;
   const deg = e.angle * 180 / Math.PI;
@@ -11067,7 +11080,7 @@ function drawQueen() {
   if (!queen) return;
   const faded = tigerBeetleActive && tigerBeetleMoving;
   const alpha = faded ? 70 : 255;
-  const crownY = queen.y - queen.airHeight - QUEEN_IMAGE_SIZE * 0.45;
+  const crownY = queen.y - queen.airHeight - getQueenImageSize() * 0.45;
 
   if (queen.bunker) {
     // Hidden in her bunker: only her crown peeks out
@@ -11076,7 +11089,7 @@ function drawQueen() {
     return;
   }
 
-  const shadowScale = QUEEN_IMAGE_SIZE * map(constrain(queen.airHeight, 0, 60), 0, 60, 1, 0.7);
+  const shadowScale = getQueenImageSize() * map(constrain(queen.airHeight, 0, 60), 0, 60, 1, 0.7);
   drawGroundShadow(queen.x, queen.y, shadowScale * 0.6, shadowScale * 0.26, 0, 80 * alpha / 255);
 
   push();
@@ -11087,13 +11100,13 @@ function drawQueen() {
   if (queen.adaptFlash > 0) {
     noStroke();
     fill(190, 90, 255, 6 * queen.adaptFlash);
-    ellipse(0, 0, QUEEN_IMAGE_SIZE * (1.4 - queen.adaptFlash / 100));
+    ellipse(0, 0, getQueenImageSize() * (1.4 - queen.adaptFlash / 100));
   }
   if (queen.alarmFrames > 0 && getQueenPace() > 1) {
     noFill();
     stroke(255, getQueenPace() >= 3 ? 60 : 170, 40, 200);
     strokeWeight(3);
-    ellipse(0, 0, QUEEN_IMAGE_SIZE * (0.95 + 0.08 * Math.sin(frameCount * 0.5)));
+    ellipse(0, 0, getQueenImageSize() * (0.95 + 0.08 * Math.sin(frameCount * 0.5)));
   }
   if (queen.vacuumFrames > 0) {
     noFill();
@@ -11101,22 +11114,22 @@ function drawQueen() {
     strokeWeight(2);
     for (let r = 0; r < 3; r++) {
       const phase = ((frameCount * 4 + r * 40) % 120) / 120;
-      ellipse(0, 0, QUEEN_IMAGE_SIZE * (2.6 - 1.6 * phase));
+      ellipse(0, 0, getQueenImageSize() * (2.6 - 1.6 * phase));
     }
   }
   rotate(angleToBeetle(queen.x, queen.y) * 180 / Math.PI);
   tint(220, 160, 255, alpha);
-  image(ant, 0, 0, QUEEN_IMAGE_SIZE, QUEEN_IMAGE_SIZE);
+  image(ant, 0, 0, getQueenImageSize(), getQueenImageSize());
   if (queen.hitFlash > 0) {
     noTint();
     noStroke();
     fill(255, 255, 255, 25 * queen.hitFlash);
-    ellipse(0, 0, QUEEN_IMAGE_SIZE * 0.8);
+    ellipse(0, 0, getQueenImageSize() * 0.8);
   }
   pop();
 
-  drawQueenCrown(queen.x, crownY, 1, alpha);
-  drawHitHealthBar(queen.x, queen.y - queen.airHeight + QUEEN_IMAGE_SIZE * 0.4, queen.health, queen.maxHealth, queen.lastHitTime);
+  drawQueenCrown(queen.x, crownY, getQueenImageSize() / QUEEN_IMAGE_SIZE, alpha);
+  drawHitHealthBar(queen.x, queen.y - queen.airHeight + getQueenImageSize() * 0.4, queen.health, queen.maxHealth, queen.lastHitTime);
   drawQueenLabel(alpha);
 }
 
@@ -11147,7 +11160,7 @@ function drawQueenLabel(alpha) {
   stroke(0, alpha);
   strokeWeight(3);
   fill(230, 180, 255, alpha * Math.min(1, queen.labelFrames / 20));
-  text(queen.label, queen.x, queen.y - queen.airHeight - QUEEN_IMAGE_SIZE * 0.68);
+  text(queen.label, queen.x, queen.y - queen.airHeight - getQueenImageSize() * 0.68);
   pop();
 }
 
@@ -11230,7 +11243,7 @@ function drawQueenDeathBurst(burst, age) {
   pop();
   // Her crown pops up and tumbles back down
   if (age < 90) {
-    const cy = burst.y - QUEEN_IMAGE_SIZE * 0.45 - age * 3.2 + 0.045 * age * age;
+    const cy = burst.y - getQueenImageSize() * 0.45 - age * 3.2 + 0.045 * age * age;
     push();
     translate(burst.x + age * 0.6, cy);
     angleMode(DEGREES);

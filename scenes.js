@@ -72,7 +72,7 @@ class SceneActor {
 
   imageSize() {
     if (this.kind === 'beetle') return 130;
-    if (this.kind === 'queen') return QUEEN_IMAGE_SIZE;
+    if (this.kind === 'queen') return 45 + 15 * QOQ_ANT_SIZE; // Only the Queen of Queens appears in scenes
     return 45 + 15 * this.size;
   }
 

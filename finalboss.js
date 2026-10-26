@@ -51,6 +51,10 @@ let screenShake = { frames: 0, amp: 0 };
 const FINAL_WARMUP_SECONDS = 60;
 const FINAL_GROUP_SIZE = 10;
 const QOQ_HEALTH = 50;
+const QOQ_ANT_SIZE = 6;                // She's the size of a size 6 ant
+const QOQ_DECISION_REACH = 0.25;       // Her brain can only move her / her orders this far off its plan (fraction of the arena)
+const QOQ_AIM_REACH = 0.1;             // ...and only aim this far off the beetle
+const QOQ_STUCK_FRAMES = 240;          // Sitting still this long (outside a bunker) resets her strategy
 const QOQ_SPAWN_FRAMES = 300;          // 10 ants every 5 seconds...
 const QOQ_ANTS_PER_SPAWN = 10;
 const QOQ_HIT_SPAWNS = 5;              // ...and 5 more every time she's hit
@@ -750,6 +754,21 @@ function updateFinalStage() {
     queen.label = phase === 1 ? 'FRENZY: ATTACKS 2x FASTER' : 'FURY: ATTACKS 1.5x STRONGER';
     queen.labelFrames = 150;
     shakeScreen(30, 8);
+  }
+
+  // Safety net: if she's been pinned against the edge of the arena for 4 seconds, she gets a fresh strategy
+  if (!queen.bunker && queen.vacuumFrames <= 0 && !isInPlayArea(queen.x, queen.y, 70)) {
+    if (!S.stillFrom || dist(queen.x, queen.y, S.stillFrom.x, S.stillFrom.y) > 40) {
+      S.stillFrom = { x: queen.x, y: queen.y, frame: frameCount };
+    } else if (frameCount - S.stillFrom.frame > QOQ_STUCK_FRAMES) {
+      queen.brain = createQueenBrain();
+      queen.bestBrain = null;
+      queen.bestFitness = -Infinity;
+      updateQueenDecision();
+      S.stillFrom = null;
+    }
+  } else {
+    S.stillFrom = null;
   }
 
   for (let k = S.pending.length - 1; k >= 0; k--) {
