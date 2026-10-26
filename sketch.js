@@ -6,8 +6,7 @@ let ty;
 let start = false;
 let startMenu = false;
 let difficultyMenu = false;
-let difficultySelection = 5; // 1-10 button carousel
-let difficultyScroll = 5; // Smoothed carousel position (follows difficultySelection)
+let difficultySelection = 5; // Stop picked on the difficulty map (1-10, 11 = the nest)
 let difficulty = 5; // 1-10: 1-3=easy, 4-5=medium, 6-7=hard, 8-10=insane
 // Opening cinematic: plays on first launch only, then the splash screen takes over
 let openingCinematic = false;
@@ -19,6 +18,7 @@ let preGameUpgradeMenu = false; // For difficulty 8-10
 let antdex = false;
 let antdexReturnState = 'menu';
 let antdexOpenCooldown = 0;
+let antdexInputBlocked = false; // A tutorial card is over the Antdex (or Esc is still held from it)
 let intermissionMenu = false;
 let intermissionMenuCooldown = 0;
 let gameOverMenu = false;
@@ -59,7 +59,7 @@ function getDifficultyRecord(value) {
 }
 
 function updateDifficultyRecord(runScore, roundReached) {
-  if (multiplayerMode) return;
+  if (multiplayerMode || isFinalLevel() || isTutorialRun()) return;
   let record = getDifficultyRecord(difficulty);
   if (runScore > record.score) storeItem('highScore_difficulty' + difficulty, runScore);
   if (roundReached > record.round) storeItem('highestRound_difficulty' + difficulty, roundReached);
@@ -73,7 +73,7 @@ function getDifficultyCompletedRound(value) {
 }
 
 function updateDifficultyCompletedRound(roundCompleted) {
-  if (multiplayerMode) return;
+  if (multiplayerMode || isFinalLevel() || isTutorialRun()) return;
   if (roundCompleted > getDifficultyCompletedRound(difficulty)) {
     storeItem('completedRound_difficulty' + difficulty, roundCompleted);
   }
@@ -94,7 +94,6 @@ function openDifficultyMenu() {
     difficultySelection = 1;
     while (difficultySelection < 10 && isDifficultyUnlocked(difficultySelection + 1)) difficultySelection++;
   }
-  difficultyScroll = difficultySelection;
 }
 
 // Small padlock centered at (x, y), roughly `s` pixels tall
@@ -113,19 +112,10 @@ function drawLockIcon(x, y, s, alpha) {
   pop();
 }
 
-// Difficulty menu button layout: a horizontal row that scrolls so the selection is centered
-const DIFFICULTY_BUTTON_SIZE = 150;
-const DIFFICULTY_BUTTON_GAP = 30;
 
+// Stops on the difficulty map (see map.js)
 function getDifficultyButtonRect(value) {
-  let centerX = getMenuWidth() / 2 + (value - difficultyScroll) * (DIFFICULTY_BUTTON_SIZE + DIFFICULTY_BUTTON_GAP);
-  let centerY = getMenuHeight() * 0.36;
-  return {
-    x: centerX - DIFFICULTY_BUTTON_SIZE / 2,
-    y: centerY - DIFFICULTY_BUTTON_SIZE / 2,
-    w: DIFFICULTY_BUTTON_SIZE,
-    h: DIFFICULTY_BUTTON_SIZE
-  };
+  return getMapStopRect(value);
 }
 
 function applyHardModeRandomInitialAbility(antIndex) {
@@ -747,7 +737,7 @@ let upgrade11Level = 0; // Oogpister Beetle (max 1, requires Bullet Reload 3+)
 let upgrade12Level = 0; // Horns (max 4, increases dash damage)
 let upgrade13Level = 0; // Potent Acid (max 4, increases bullet damage, requires Add Bullets)
 let upgrade14Level = 0; // Shockwave Unlock (max 1, unlocks shockwave attack)
-let upgrade15Level = 0; // Shockwave Radius (max 5, 60→150)
+let upgrade15Level = 0; // Shockwave Radius (max 5, 90→225)
 let upgrade16Level = 0; // Shockwave Damage (max 5, 0.5→1.2)
 let upgrade17Level = 0; // Shockwave Cooldown (max 5, 2.25s→0.375s)
 let upgrade18Level = 0; // Shockwave Knockback (max 3, 4→10)
@@ -1228,7 +1218,9 @@ function startNextDiscoveryPopup() {
 
 // Discovery card: the entry's picture and name, sliding up in the bottom right corner
 function drawDiscoveryPopup() {
-  if (!discoveryPopupEntry && discoveryQueue.length > 0) startNextDiscoveryPopup();
+  // New discoveries wait until the round's intro scene and countdown are over (and any tutorial card is closed)
+  const introPlaying = start && (roundScene || roundScenePending || roundIntroTimer > 0 || isTutorialPaused());
+  if (!discoveryPopupEntry && discoveryQueue.length > 0 && !introPlaying) startNextDiscoveryPopup();
   const entry = discoveryPopupEntry;
   if (!entry) return;
 
@@ -1425,8 +1417,23 @@ function draw() {
   }
 
   if (antdex) {
+    // The tutorial's Antdex card holds the Antdex's own input until it's closed
+    const tutorialCard = updateTutorialMenus();
+    if (tutorialCard) {
+      antdexInputBlocked = true;
+      dexTabSwitchCooldown = Math.max(dexTabSwitchCooldown, 2);
+    } else if (!isBackPressed()) {
+      antdexInputBlocked = false;
+    }
     updateAntDexEntries();
     antdexScreen();
+    drawTutorialMenuCard();
+    return;
+  }
+
+  // Beating the Queen of Queens: the ending (finalboss.js)
+  if (finalEnding) {
+    drawFinalEnding();
     return;
   }
 
@@ -1479,7 +1486,13 @@ function draw() {
     return;  // Don't show other screens while pre-game menu is active
   }
 
-  if (start == true && roundIntroTimer > 0 && roundIntroSnapshot) {
+  if (start == true && isTutorialPaused()) {
+    // A tutorial card over the frozen game
+    drawTutorialPausedFrame();
+  } else if (start == true && (roundScene || roundScenePending)) {
+    // Round scene: the beetle hunting down the next batch of ants, before the countdown
+    drawRoundSceneFrame();
+  } else if (start == true && roundIntroTimer > 0 && roundIntroSnapshot) {
     // Round intro: everything stays frozen until the countdown finishes
     drawRoundIntro();
   } else if (start == true && roundOutroTimer > 0 && roundOutroSnapshot) {
@@ -1605,6 +1618,8 @@ function draw() {
       updateAphids();
       drawEnemy();
       updateQueen();
+      updateFinalStage(); // Queen of Queens tunnel attacks (finalboss.js)
+      updateTutorial();
       drawBeetleShadow();
       // A flying beetle is drawn later, over the bullets (decided once so it's drawn exactly once this frame)
       const beetleDrawnOnTop = isPlayerFlying();
@@ -1642,6 +1657,7 @@ function draw() {
       drawSpeedRings();
       updateComboSparks();
       drawQueenOverlays();
+      drawFinalStageOverlays();
       endGameplayScaling();
       
       // Draw damage flash effects AFTER gameplay (not scaled)
@@ -1703,6 +1719,7 @@ function draw() {
         roundIntroSnapshot = get();
       }
       drawRoundGo();
+      drawTutorialOverlay();
       if (frameCount % 1000 === 0 && end === false) {  // roughly every 5 seconds at 60fps
         printLiveAntRankings();
       }
@@ -1710,8 +1727,11 @@ function draw() {
   } else if (openingCinematic) {
     drawOpeningCinematic();
   } else {
+    // A tutorial card over a menu reads input before the menu can
+    if (updateTutorialMenus()) menuNavigationCooldown = Math.max(menuNavigationCooldown, 2);
     drawStartScreen();
     drawCinematicFlash();
+    drawTutorialMenuCard();
   }
   if (start && /Android|iPhone|iPad/i.test(navigator.userAgent)) {
     drawMobileControls();
@@ -1847,9 +1867,21 @@ function resetRunState() {
   queensDefeatedThisRun = 0;
   queenInheritedBrain = null;
   lastBeetleShotFrame = -9999;
+  resetRoundScenes();
+  leaveFinalLevel();
+  leaveTutorialRun();
 }
 
 function restartGame() {
+  // The final level and the tutorial restart themselves
+  if (isFinalLevel()) {
+    startFinalLevel();
+    return;
+  }
+  if (isTutorialRun()) {
+    restartTutorialRun();
+    return;
+  }
   resetRunState();
   if (!multiplayerMode) applyPermanentUpgrades();
   
@@ -1947,132 +1979,215 @@ function applyCustomAntsToInitialPopulation() {
   // Now apply custom stats to all ants
   for (let i = 1; i <= enemyCount; i++) {
     debugLog(`Setting ant ${i} to custom stats`);
-    bulletSpeed[i] = s.bulletSpeed;
-    bulletCooldown[i] = Math.floor(s.bulletCooldown);
-    antSpeed[i] = s.antSpeed;
-    shotOffsetX[i] = s.shotOffsetX;
-    shotOffsetY[i] = s.shotOffsetY;
-    standingPointX[i] = s.standingPointX;
-    standingPointY[i] = s.standingPointY;
-    followValue[i] = s.followValue;
-    autonomy[i] = s.autonomy;
-    distanceFromAnchor[i] = s.distanceFromAnchor;
-    anchorOffsetX[i] = s.anchorOffsetX;
-    anchorOffsetY[i] = s.anchorOffsetY;
-    // Special category (mutation-based)
-    specialExplosion[i] = s.specialExplosion;
-    specialKnockback[i] = s.specialKnockback;
-    specialCamo[i] = s.specialCamo;
-    specialRecoil[i] = s.specialRecoil || 0;
-    specialPotential[i] = s.specialPotential;
-    bulletKnockbackMultiplier[i] = s.bulletKnockbackMultiplier;
-    bulletCamoFlashRate[i] = s.bulletCamoFlashRate;
-    // Fire category (mutation-based)
-    fireBurst[i] = s.fireBurst;
-    fireRapid[i] = s.fireRapid;
-    fireAlternating[i] = s.fireAlternating;
-    fireAlarm[i] = s.fireAlarm || 0;
-    alarmInnerRadius[i] = s.alarmInnerRadius ?? ALARM_DEFAULT_INNER_RADIUS;
-    firePotential[i] = s.firePotential;
-    bulletBurstCount[i] = s.bulletBurstCount;
-    bulletBurstSpread[i] = s.bulletBurstSpread;
-    bulletBurstDelay[i] = s.bulletBurstDelay ?? 40;
-    bulletCooldownMultiplier[i] = s.bulletCooldownMultiplier;
-    // Death category (mutation-based)
-    deathLandmine[i] = s.deathLandmine;
-    deathRefire[i] = s.deathRefire || 0;
-    deathTerritory[i] = s.deathTerritory || 0;
-    deathMound[i] = s.deathMound || 0;
-    bunkerRange[i] = s.bunkerRange ?? BUNKER_DEFAULT_RANGE;
-    deathPotential[i] = s.deathPotential;
-    // Path category (mutation-based)
-    pathHighArc[i] = s.pathHighArc;
-    pathCurve[i] = s.pathCurve;
-    pathAccelerate[i] = s.pathAccelerate;
-    pathBlink[i] = s.pathBlink || 0;
-    blinkDelay[i] = s.blinkDelay ?? BLINK_DEFAULT_DELAY;
-    bulletAccelerateDelay[i] = s.bulletAccelerateDelay;
-    pathPotential[i] = s.pathPotential;
-    bulletArcDuration[i] = Math.max(s.bulletArcDuration ?? 200, HIGH_ARC_MIN_DURATION);
-    bulletCurveStrength[i] = s.bulletCurveStrength;
-    explosionProximity[i] = s.explosionProximity;
-    angleFromSpawn[i] = s.angleFromSpawn;
-    bulletSize[i] = s.bulletSize;
-    radiusMultiplier[i] = s.radiusMultiplier;
-    residueMultiplier[i] = s.residueMultiplier;
-    bulletExplodeAfter[i] = s.bulletExplodeAfter;
-    antSize[i] = s.antSize;
-    // Gene tokens: use the custom ant's investments so its trait tokens and tier caps actually apply
-    geneTokenInvestments[i] = JSON.parse(JSON.stringify(s.geneTokenInvestments || []));
-    if (s.geneTokens !== undefined) geneTokens[i] = s.geneTokens;
-    
-    // Apply ant speed cap based on ant size (small ants = faster, large ants = slower)
-    let maxAntSpeedCap = 4.5 - antSize[i];
-    antSpeed[i] = min(antSpeed[i], maxAntSpeedCap);
-    
-    // Cap bullet size based on ant size (small ants can't have huge bullets)
-    let maxBulletSize = min(3, antSize[i] + 1.0);
-    bulletSize[i] = min(bulletSize[i], maxBulletSize);
-    
-    antMaxHealth[i] = antSize[i];
-    antHealth[i] = antMaxHealth[i];
-    
-    // Set derived boolean values
-    if (Math.round(autonomy[i]) === 0){
-      followTarget[i] = true;
-      keepDistance[i] = false;
-    } else if (Math.round(autonomy[i]) === 1){
-      followTarget[i] = false;
-      keepDistance[i] = true;
-    }
-    // Set explosion flags based on genetics
-    const specialType = getSpecialType(i);
-    if (specialType === 0){
-      // No special bullet behavior
-      explodeOnTermination[i] = false;
-      triggerExplodeViaProximity[i] = false;
-    } else if (specialType === 1){
-      // Type 1 = Explosions - check trigger type via specialExplosion value
-      if (specialExplosion[i] < 1){
-        // Time-based explosion (specialExplosion < 1)
-        explodeOnTermination[i] = true;
-        triggerExplodeViaProximity[i] = false;
-      } else {
-        // Proximity-based explosion (specialExplosion >= 1)
-        explodeOnTermination[i] = false;
-        triggerExplodeViaProximity[i] = true;
-      }
-    } else {
-      // Knockback (-1), Camouflage (2), Ghost (-2), Recoil (3), or Launch (-3): no explosions
-      explodeOnTermination[i] = false;
-      triggerExplodeViaProximity[i] = false;
-    }
-    if (Math.round(followValue[i]) === 0){
-      followAnt[i] = false;
-      followBeetle[i] = true;
-      findLocation[i] = false;
-      standStill[i] = false;
-    } else if (Math.round(followValue[i]) === 1) {
-      followAnt[i] = true;
-      followBeetle[i] = false;
-      findLocation[i] = false;
-      standStill[i] = false;
-    } else if (Math.round(followValue[i]) === 2) {
-      followAnt[i] = false;
-      followBeetle[i] = false;
-      findLocation[i] = true;
-      standStill[i] = false;
-    } else if (Math.round(followValue[i]) === 3) {
-      followAnt[i] = false;
-      followBeetle[i] = false;
-      findLocation[i] = false;
-      standStill[i] = true;
-    }
-    
-    debugLog(`Ant ${i} final stats: speed=${bulletSpeed[i]}, cooldown=${bulletCooldown[i]}, antSpeed=${antSpeed[i]}`);
+    applyStatsToAnt(i, s);
   }
   
   debugLog("Custom ant stats applied successfully to all ants");
+}
+
+// Give ant i everything in a stats object (snapshotAntStats / customAntStats shape), plus its derived flags
+function applyStatsToAnt(i, s) {
+  bulletSpeed[i] = s.bulletSpeed;
+  bulletCooldown[i] = Math.floor(s.bulletCooldown);
+  antSpeed[i] = s.antSpeed;
+  shotOffsetX[i] = s.shotOffsetX;
+  shotOffsetY[i] = s.shotOffsetY;
+  standingPointX[i] = s.standingPointX;
+  standingPointY[i] = s.standingPointY;
+  followValue[i] = s.followValue;
+  autonomy[i] = s.autonomy;
+  distanceFromAnchor[i] = s.distanceFromAnchor;
+  anchorOffsetX[i] = s.anchorOffsetX;
+  anchorOffsetY[i] = s.anchorOffsetY;
+  // Special category (mutation-based)
+  specialExplosion[i] = s.specialExplosion;
+  specialKnockback[i] = s.specialKnockback;
+  specialCamo[i] = s.specialCamo;
+  specialRecoil[i] = s.specialRecoil || 0;
+  specialPotential[i] = s.specialPotential;
+  bulletKnockbackMultiplier[i] = s.bulletKnockbackMultiplier;
+  bulletCamoFlashRate[i] = s.bulletCamoFlashRate;
+  // Fire category (mutation-based)
+  fireBurst[i] = s.fireBurst;
+  fireRapid[i] = s.fireRapid;
+  fireAlternating[i] = s.fireAlternating;
+  fireAlarm[i] = s.fireAlarm || 0;
+  alarmInnerRadius[i] = s.alarmInnerRadius ?? ALARM_DEFAULT_INNER_RADIUS;
+  firePotential[i] = s.firePotential;
+  bulletBurstCount[i] = s.bulletBurstCount;
+  bulletBurstSpread[i] = s.bulletBurstSpread;
+  bulletBurstDelay[i] = s.bulletBurstDelay ?? 40;
+  bulletCooldownMultiplier[i] = s.bulletCooldownMultiplier;
+  // Death category (mutation-based)
+  deathLandmine[i] = s.deathLandmine;
+  deathRefire[i] = s.deathRefire || 0;
+  deathTerritory[i] = s.deathTerritory || 0;
+  deathMound[i] = s.deathMound || 0;
+  bunkerRange[i] = s.bunkerRange ?? BUNKER_DEFAULT_RANGE;
+  deathPotential[i] = s.deathPotential;
+  // Path category (mutation-based)
+  pathHighArc[i] = s.pathHighArc;
+  pathCurve[i] = s.pathCurve;
+  pathAccelerate[i] = s.pathAccelerate;
+  pathBlink[i] = s.pathBlink || 0;
+  blinkDelay[i] = s.blinkDelay ?? BLINK_DEFAULT_DELAY;
+  bulletAccelerateDelay[i] = s.bulletAccelerateDelay;
+  pathPotential[i] = s.pathPotential;
+  bulletArcDuration[i] = Math.max(s.bulletArcDuration ?? 200, HIGH_ARC_MIN_DURATION);
+  bulletCurveStrength[i] = s.bulletCurveStrength;
+  explosionProximity[i] = s.explosionProximity;
+  angleFromSpawn[i] = s.angleFromSpawn;
+  bulletSize[i] = s.bulletSize;
+  radiusMultiplier[i] = s.radiusMultiplier;
+  residueMultiplier[i] = s.residueMultiplier;
+  bulletExplodeAfter[i] = s.bulletExplodeAfter;
+  antSize[i] = s.antSize;
+  // Gene tokens: use the custom ant's investments so its trait tokens and tier caps actually apply
+  geneTokenInvestments[i] = JSON.parse(JSON.stringify(s.geneTokenInvestments || []));
+  if (s.geneTokens !== undefined) geneTokens[i] = s.geneTokens;
+  
+  // Apply ant speed cap based on ant size (small ants = faster, large ants = slower)
+  let maxAntSpeedCap = 4.5 - antSize[i];
+  antSpeed[i] = min(antSpeed[i], maxAntSpeedCap);
+  
+  // Cap bullet size based on ant size (small ants can't have huge bullets)
+  let maxBulletSize = min(3, antSize[i] + 1.0);
+  bulletSize[i] = min(bulletSize[i], maxBulletSize);
+  
+  antMaxHealth[i] = antSize[i];
+  antHealth[i] = antMaxHealth[i];
+  
+  // Set derived boolean values
+  if (Math.round(autonomy[i]) === 0){
+    followTarget[i] = true;
+    keepDistance[i] = false;
+  } else if (Math.round(autonomy[i]) === 1){
+    followTarget[i] = false;
+    keepDistance[i] = true;
+  }
+  // Set explosion flags based on genetics
+  const specialType = getSpecialType(i);
+  if (specialType === 0){
+    // No special bullet behavior
+    explodeOnTermination[i] = false;
+    triggerExplodeViaProximity[i] = false;
+  } else if (specialType === 1){
+    // Type 1 = Explosions - check trigger type via specialExplosion value
+    if (specialExplosion[i] < 1){
+      // Time-based explosion (specialExplosion < 1)
+      explodeOnTermination[i] = true;
+      triggerExplodeViaProximity[i] = false;
+    } else {
+      // Proximity-based explosion (specialExplosion >= 1)
+      explodeOnTermination[i] = false;
+      triggerExplodeViaProximity[i] = true;
+    }
+  } else {
+    // Knockback (-1), Camouflage (2), Ghost (-2), Recoil (3), or Launch (-3): no explosions
+    explodeOnTermination[i] = false;
+    triggerExplodeViaProximity[i] = false;
+  }
+  if (Math.round(followValue[i]) === 0){
+    followAnt[i] = false;
+    followBeetle[i] = true;
+    findLocation[i] = false;
+    standStill[i] = false;
+  } else if (Math.round(followValue[i]) === 1) {
+    followAnt[i] = true;
+    followBeetle[i] = false;
+    findLocation[i] = false;
+    standStill[i] = false;
+  } else if (Math.round(followValue[i]) === 2) {
+    followAnt[i] = false;
+    followBeetle[i] = false;
+    findLocation[i] = true;
+    standStill[i] = false;
+  } else if (Math.round(followValue[i]) === 3) {
+    followAnt[i] = false;
+    followBeetle[i] = false;
+    findLocation[i] = false;
+    standStill[i] = true;
+  }
+  
+  debugLog(`Ant ${i} final stats: speed=${bulletSpeed[i]}, cooldown=${bulletCooldown[i]}, antSpeed=${antSpeed[i]}`);
+}
+
+// The genes and state every ant starts a run with (the same values setup() gives the first ants)
+function resetAntToStartingGenes(i) {
+  bulletSpeed[i] = 260; // Above first cap (250) for inverse stat
+  bulletCooldown[i] = 160; // Above first cap (150) for inverse stat
+  antSpeed[i] = 1.95;
+  bulletSize[i] = 1;
+  shotOffsetX[i] = 0;
+  shotOffsetY[i] = 0;
+  standingPointX[i] = width / 2;
+  standingPointY[i] = height / 2;
+  distanceFromAnchor[i] = 200;
+  anchorOffsetX[i] = 0;
+  anchorOffsetY[i] = 0;
+  angleFromSpawn[i] = PI;
+  bulletSplitCount[i] = 1;
+  bulletSpread[i] = 0;
+  bulletExplodeAfter[i] = 200;
+  radiusMultiplier[i] = 1;
+  residueMultiplier[i] = 1;
+  explosionProximity[i] = 200;
+  specialExplosion[i] = 0.2;
+  specialKnockback[i] = 0.2;
+  specialCamo[i] = 0.2;
+  specialRecoil[i] = 0.2;
+  specialPotential[i] = 0.3;
+  bulletKnockbackMultiplier[i] = 2;
+  bulletCamoFlashRate[i] = 2.5;
+  fireBurst[i] = 0.1;
+  fireRapid[i] = 0.1;
+  fireAlternating[i] = 0.1;
+  fireAlarm[i] = 0.1;
+  alarmInnerRadius[i] = ALARM_DEFAULT_INNER_RADIUS;
+  firePotential[i] = 0.3;
+  bulletBurstCount[i] = 2;
+  bulletBurstSpread[i] = 1.5; // Below first cap (2.0)
+  bulletBurstDelay[i] = 40;
+  bulletCooldownMultiplier[i] = 2;
+  deathLandmine[i] = 0.3;
+  deathRefire[i] = 0.2;
+  deathTerritory[i] = 0.2;
+  deathMound[i] = 0.2;
+  bunkerRange[i] = BUNKER_DEFAULT_RANGE;
+  deathPotential[i] = 0.3;
+  pathHighArc[i] = 0.1;
+  pathCurve[i] = 0.1;
+  pathAccelerate[i] = 0.1;
+  pathBlink[i] = 0.1;
+  blinkDelay[i] = BLINK_DEFAULT_DELAY;
+  bulletAccelerateDelay[i] = 200;
+  pathPotential[i] = 0.3;
+  bulletArcDuration[i] = 200;
+  bulletCurveStrength[i] = 0.015;
+  explodeOnTermination[i] = false;
+  triggerExplodeViaProximity[i] = false;
+  // Fresh runtime state
+  enemyBullets[i] = [];
+  antPoints[i] = 0;
+  antLives[i] = 1;
+  antKnockedBack[i] = false;
+  antKnockbackTimer[i] = 0;
+  antKnockbackVelX[i] = 0;
+  antKnockbackVelY[i] = 0;
+  antStunned[i] = false;
+  antStunTimer[i] = 0;
+  antLastShotFrame[i] = 0;
+  antAlternatingCooldownState[i] = 0;
+  antRapidFireActive[i] = false;
+  antRapidFireCount[i] = 0;
+  antRapidFireNextFrame[i] = 0;
+  antAirHeight[i] = 0;
+  antRecoilVelX[i] = 0;
+  antRecoilVelY[i] = 0;
+  antRecoilAirTimer[i] = 0;
+  antShield[i] = 0;
+  antInBunker[i] = null;
+  antDormant[i] = false;
 }
 
 function applyDifficultyToInitialPopulation() {
@@ -2127,75 +2242,8 @@ function applyDifficultyToInitialPopulation() {
   playerSpeed = movementSpeed / enemyCount;
 
   for (let i = 1; i <= enemyCount; i++) {
-    // Ensure all core stats exist for ants created by difficulty expansion.
-    if (bulletSpeed[i] === undefined) bulletSpeed[i] = 260;
-    if (bulletCooldown[i] === undefined) bulletCooldown[i] = 160;
-    if (antSpeed[i] === undefined) antSpeed[i] = 1.95;
-    if (bulletSize[i] === undefined) bulletSize[i] = 1;
-    if (shotOffsetX[i] === undefined) shotOffsetX[i] = 0;
-    if (shotOffsetY[i] === undefined) shotOffsetY[i] = 0;
-    if (standingPointX[i] === undefined) standingPointX[i] = width / 2;
-    if (standingPointY[i] === undefined) standingPointY[i] = height / 2;
-    if (distanceFromAnchor[i] === undefined) distanceFromAnchor[i] = 200;
-    if (anchorOffsetX[i] === undefined) anchorOffsetX[i] = 0;
-    if (anchorOffsetY[i] === undefined) anchorOffsetY[i] = 0;
-    if (angleFromSpawn[i] === undefined) angleFromSpawn[i] = PI;
-    if (enemyBullets[i] === undefined) enemyBullets[i] = [];
-    if (antPoints[i] === undefined) antPoints[i] = 0;
-    if (antLives[i] === undefined) antLives[i] = 1;
-    if (antKnockedBack[i] === undefined) antKnockedBack[i] = false;
-    if (antKnockbackTimer[i] === undefined) antKnockbackTimer[i] = 0;
-    if (antKnockbackVelX[i] === undefined) antKnockbackVelX[i] = 0;
-    if (antKnockbackVelY[i] === undefined) antKnockbackVelY[i] = 0;
-    if (antStunned[i] === undefined) antStunned[i] = false;
-    if (antStunTimer[i] === undefined) antStunTimer[i] = 0;
-    if (antLastShotFrame[i] === undefined) antLastShotFrame[i] = 0;
-    if (antAlternatingCooldownState[i] === undefined) antAlternatingCooldownState[i] = 0;
-    if (antRapidFireActive[i] === undefined) antRapidFireActive[i] = false;
-    if (antAirHeight[i] === undefined) antAirHeight[i] = 0;
-    if (antRecoilVelX[i] === undefined) antRecoilVelX[i] = 0;
-    if (antRecoilVelY[i] === undefined) antRecoilVelY[i] = 0;
-    if (antRecoilAirTimer[i] === undefined) antRecoilAirTimer[i] = 0;
-    if (explosionProximity[i] === undefined) explosionProximity[i] = 200;
-    if (bulletExplodeAfter[i] === undefined) bulletExplodeAfter[i] = 200;
-    if (bulletBurstCount[i] === undefined) bulletBurstCount[i] = 2;
-    if (bulletBurstSpread[i] === undefined) bulletBurstSpread[i] = 1.5;
-    if (bulletBurstDelay[i] === undefined) bulletBurstDelay[i] = 40;
-    if (bulletCooldownMultiplier[i] === undefined) bulletCooldownMultiplier[i] = 2;
-    if (bulletArcDuration[i] === undefined) bulletArcDuration[i] = 200;
-    if (bulletCurveStrength[i] === undefined) bulletCurveStrength[i] = 0.015;
-    if (bulletAccelerateDelay[i] === undefined) bulletAccelerateDelay[i] = 200;
-    if (specialExplosion[i] === undefined) specialExplosion[i] = 0.2;
-    if (specialKnockback[i] === undefined) specialKnockback[i] = 0.2;
-    if (specialCamo[i] === undefined) specialCamo[i] = 0.2;
-    if (specialRecoil[i] === undefined) specialRecoil[i] = 0.2;
-    if (specialPotential[i] === undefined) specialPotential[i] = 0.3;
-    if (fireBurst[i] === undefined) fireBurst[i] = 0.1;
-    if (fireRapid[i] === undefined) fireRapid[i] = 0.1;
-    if (fireAlternating[i] === undefined) fireAlternating[i] = 0.1;
-    if (fireAlarm[i] === undefined) fireAlarm[i] = 0.1;
-    if (alarmInnerRadius[i] === undefined) alarmInnerRadius[i] = ALARM_DEFAULT_INNER_RADIUS;
-    if (firePotential[i] === undefined) firePotential[i] = 0.3;
-    if (deathLandmine[i] === undefined) deathLandmine[i] = 0.3;
-    if (deathRefire[i] === undefined) deathRefire[i] = 0.2;
-    if (deathTerritory[i] === undefined) deathTerritory[i] = 0.2;
-    if (deathMound[i] === undefined) deathMound[i] = 0.2;
-    if (bunkerRange[i] === undefined) bunkerRange[i] = BUNKER_DEFAULT_RANGE;
-    if (deathPotential[i] === undefined) deathPotential[i] = 0.3;
-    if (pathHighArc[i] === undefined) pathHighArc[i] = 0.1;
-    if (pathCurve[i] === undefined) pathCurve[i] = 0.1;
-    if (pathAccelerate[i] === undefined) pathAccelerate[i] = 0.1;
-    if (pathBlink[i] === undefined) pathBlink[i] = 0.1;
-    if (blinkDelay[i] === undefined) blinkDelay[i] = BLINK_DEFAULT_DELAY;
-    if (pathPotential[i] === undefined) pathPotential[i] = 0.3;
-    if (bulletKnockbackMultiplier[i] === undefined) bulletKnockbackMultiplier[i] = 2;
-    if (bulletCamoFlashRate[i] === undefined) bulletCamoFlashRate[i] = 2.5;
-    if (radiusMultiplier[i] === undefined) radiusMultiplier[i] = 1;
-    if (residueMultiplier[i] === undefined) residueMultiplier[i] = 1;
-    if (bulletSpread[i] === undefined) bulletSpread[i] = 0;
-    if (bulletSplitCount[i] === undefined) bulletSplitCount[i] = 1;
-    if (antRapidFireCount[i] === undefined) antRapidFireCount[i] = 0;
-    if (antRapidFireNextFrame[i] === undefined) antRapidFireNextFrame[i] = 0;
+    // Every run starts from the same fresh ants, whatever the last run (or the tutorial) left behind
+    resetAntToStartingGenes(i);
 
     antSize[i] = sizeValue;
     followValue[i] = followValueSetting;
@@ -2269,7 +2317,15 @@ function syncActualWinnersToCustomStats(topAnts) {
   for (let i = 0; i < Math.min(3, topAnts.length); i++) {
     let antId = topAnts[i].id;
     if (antId >= 1 && antId <= enemyCount) {
-      customAntStats[i] = {
+      customAntStats[i] = snapshotAntStats(antId);
+    }
+  }
+  debugLog("Synced actual winners to custom ant stats for viewing");
+}
+
+// Everything that makes ant `antId` what it is, as a plain object (the same shape as customAntStats)
+function snapshotAntStats(antId) {
+  return {
         bulletSpeed: bulletSpeed[antId],
         bulletCooldown: bulletCooldown[antId],
         antSpeed: antSpeed[antId],
@@ -2329,10 +2385,7 @@ function syncActualWinnersToCustomStats(topAnts) {
         geneTokens: geneTokens[antId],
         geneTokenInvestments: JSON.parse(JSON.stringify(geneTokenInvestments[antId] || [])), // Deep copy
         geneTokenLastRoundGained: geneTokenLastRoundGained[antId]
-      };
-    }
-  }
-  debugLog("Synced actual winners to custom ant stats for viewing");
+  };
 }
 
 function returnToMainMenu() {
@@ -2389,6 +2442,7 @@ function getMenuMouseY() {
 
 // Gameplay scaling helpers - reference size changes based on level
 function getGameplayReferenceWidth() {
+  if (isFinalLevel()) return 1280; // The nest is always the full-size arena
   if (level <= 3) {
     return 853;
   } else if (level <= 7) {
@@ -2399,6 +2453,7 @@ function getGameplayReferenceWidth() {
 }
 
 function getGameplayReferenceHeight() {
+  if (isFinalLevel()) return 652;
   if (level <= 3) {
     return 435;
   } else if (level <= 7) {
@@ -2415,6 +2470,8 @@ function beginGameplayScaling() {
   let scaleX = windowWidth / refWidth;
   let scaleY = windowHeight / refHeight;
   scale(scaleX, scaleY);
+  const shake = getScreenShake();
+  if (shake.x !== 0 || shake.y !== 0) translate(shake.x, shake.y);
 }
 
 function endGameplayScaling() {
@@ -2455,7 +2512,10 @@ function getGameplayMouseY() {
 // Solid clay-soil orange. Deep enough to read as dirt, but its mid brightness
 // still separates it from the bright reds, blues and greens drawn on top.
 function drawBackground() {
-  background(196, 108, 46);
+  // Orange at the forest's edge, darker and more purple the deeper into ant territory (see map.js)
+  const c = getGroundColor();
+  background(c[0], c[1], c[2]);
+  if (typeof drawFinalArenaBackground === 'function') drawFinalArenaBackground();
 }
 
 // Track the high score and count down the round timer (the on-screen scoreboard is gone)
@@ -2490,6 +2550,7 @@ function updateScoreAndTimer() {
 
 // Round timer in the upper left corner; turns red for the last 3 seconds
 function drawRoundTimer() {
+  if (isTutorialRun() && tutorial.stage < TUTORIAL_LAST_ROUND && !isQueenFight()) return; // Tutorial rounds end on what you do
   let secondsLeft = max(0, round(timeCount));
   push();
   textAlign(LEFT, TOP);
@@ -2539,6 +2600,7 @@ function addKillScore(basePoints, size, source) {
   if (source === 'bullet' && upgrade27Level > 0) multiplier *= 2;
   let points = Math.round(basePoints * sizeFactor * multiplier);
   score += points;
+  onTutorialKill(source);
   addExp(isPlayerAphidActive('exp') ? points * 2 : points); // Experience aphid: double EXP (not score)
   return points;
 }
@@ -3208,7 +3270,7 @@ function drawBeetle(){
 // Freeze the next gameplay frame and count down 3-2-1 before play starts
 // Round outro: when a round is won (timer ran out or the queen died) the screen freezes and darkens like the
 // countdown and says so, then the round-over screen and upgrades slide up over it
-const ROUND_OUTRO_FRAMES = 120;
+const ROUND_OUTRO_FRAMES = 150;     // Long enough for the ants to retreat
 const QUEEN_OUTRO_FRAMES = 170;     // Longer, to fit her explosion before the words
 const QUEEN_OUTRO_TEXT_DELAY = 35;
 const INTERMISSION_SLIDE_FRAMES = 24;
@@ -3219,6 +3281,12 @@ let roundOutroStartFrame = 0;
 let roundOutroSnapshot = null;      // Frozen image of the frame after the round ended
 let intermissionSlideFrame = INTERMISSION_SLIDE_FRAMES;
 let menuSlideY = 0;                 // beginMenuScaling shifts menus down this far (reset every frame)
+
+// "ROUND 4", or the final level's / tutorial's own names for their rounds
+function getRoundTitle(sentenceCase = false) {
+  const title = getFinalRoundTitle() || getTutorialRoundTitle() || `ROUND ${level}`;
+  return sentenceCase ? title.charAt(0) + title.slice(1).toLowerCase() : title;
+}
 
 function startRoundOutro() {
   roundOutroQueen = queenDefeatedThisRound;
@@ -3238,9 +3306,10 @@ function clearRoundOutro() {
 
 function drawRoundOutro() {
   const age = roundOutroFrames - roundOutroTimer;
-  image(roundOutroSnapshot, 0, 0, windowWidth, windowHeight);
+  // No freeze: the game keeps running while the ants retreat
+  drawRoundRetreatFrame(age);
   noStroke();
-  fill(0, 0, 0, 120 * Math.min(1, age / 20));
+  fill(0, 0, 0, 50 * Math.min(1, age / 20));
   rectMode(CORNER);
   rect(0, 0, windowWidth, windowHeight);
 
@@ -3262,11 +3331,11 @@ function drawRoundOutro() {
     textSize(titleSize * popScale);
     if (roundOutroQueen) fill(220, 150, 255, alpha);
     else fill(120, 255, 120, alpha);
-    text(roundOutroQueen ? 'QUEEN DEFEATED!' : 'VICTORY!', windowWidth / 2, windowHeight * 0.42);
+    text(roundOutroQueen ? 'QUEEN DEFEATED!' : 'ROUND CLEARED!', windowWidth / 2, windowHeight * 0.42);
     textSize(titleSize * 0.3);
     strokeWeight(titleSize * 0.04);
     fill(255, alpha);
-    text(`Round ${level} complete`, windowWidth / 2, windowHeight * 0.42 + titleSize * 0.85);
+    text(`${getRoundTitle(true)} complete`, windowWidth / 2, windowHeight * 0.42 + titleSize * 0.85);
     pop();
   }
 
@@ -3278,9 +3347,16 @@ function drawRoundOutro() {
 }
 
 function startRoundIntro() {
-  roundIntroTimer = ROUND_INTRO_FRAMES;
   roundIntroSnapshot = null;
   roundGoTimer = 0;
+  if (shouldPlayRoundScenes()) {
+    // The scene is built once this round's ants exist; the countdown starts when it ends (see scenes.js)
+    roundScene = null;
+    roundScenePending = true;
+    roundIntroTimer = 0;
+  } else {
+    roundIntroTimer = ROUND_INTRO_FRAMES;
+  }
 }
 
 // Frozen round snapshot with the round number and countdown over it
@@ -3301,7 +3377,14 @@ function drawRoundIntro() {
   strokeWeight(titleSize * 0.1);
   fill(255);
   textSize(titleSize);
-  text(`ROUND ${level}`, windowWidth / 2, windowHeight * 0.38);
+  text(getRoundTitle(), windowWidth / 2, windowHeight * 0.38);
+  const subtitle = getFinalRoundSubtitle();
+  if (subtitle) {
+    textSize(titleSize * 0.28);
+    strokeWeight(titleSize * 0.04);
+    fill(230, 200, 255);
+    text(subtitle, windowWidth / 2, windowHeight * 0.38 + titleSize * 0.72);
+  }
 
   // Each number pops in large and settles, fading near the end of its second
   let numSize = titleSize * 1.6 * map(countProgress, 0, 0.2, 1.5, 1, true);
@@ -5973,7 +6056,7 @@ let flightShootLock = false;              // The fire button that ended a flight
 let shrapnelPieces = [];
 
 function getShockwaveRadius(level = upgrade15Level) {
-  return 60 + level * 18; // 60 → 150
+  return (60 + level * 18) * 1.5; // 90 → 225
 }
 
 function getShockwaveDamage(level = upgrade16Level) {
@@ -8354,8 +8437,16 @@ function updateAntCooldownBoosts() {
       territoryBoost = TERRITORY_BOOST; // Overlapping areas give the same flat boost
       if (area.nest) shieldGain = Math.max(shieldGain, getAreaLifeTimePercentage(area) / NEST_SHIELD_RATE_DIVISOR);
     }
+    // Queen of Queens tunnel sections can be territory (a bigger boost) or nest (a bigger shield)
+    const stageArea = getStageAreaBoost(i);
+    let shieldCap = 1;
+    if (stageArea) {
+      territoryBoost = Math.max(territoryBoost, stageArea.boost);
+      shieldGain = Math.max(shieldGain, stageArea.shieldGain);
+      shieldCap = stageArea.shieldCap;
+    }
     const aphidRegen = isAntAphidActive(i, 'regen') ? 2 : 1; // Regeneration aphid: shields and cooldowns twice as fast
-    if (shieldGain > 0) antShield[i] = Math.min(1, (antShield[i] || 0) + shieldGain * aphidRegen);
+    if (shieldGain > 0) antShield[i] = Math.min(shieldCap, (antShield[i] || 0) + shieldGain * aphidRegen);
 
     const boost = Math.min(MAX_COOLDOWN_BOOST, getAlarmBoost(i) * territoryBoost) * aphidRegen;
     antCooldownBoost[i] = boost;
@@ -9062,6 +9153,7 @@ function placeSpawnedAnt(i, x, y) {
 // Spawn one of the round's ants (type = its index when the queen arrived). A dormant copy of it comes back first;
 // otherwise a new copy is made in a new ant slot. Returns the ant's index, or -1 if there's no room.
 function queenSpawnAnt(type, x, y) {
+  if (queen && queen.maxAlive && countAliveAnts() >= queen.maxAlive) return -1;
   let i = -1;
   for (let k = 1; k <= enemyCount; k++) {
     if (antDormant[k] && antQueenType[k] === type) {
@@ -9086,9 +9178,16 @@ function queenSpawnAnt(type, x, y) {
   return i;
 }
 
+function countAliveAnts() {
+  let n = 0;
+  for (let i = 1; i <= enemyCount; i++) if (!antDormant[i]) n++;
+  return n;
+}
+
 // Every ant death comes through here (from onAntDied) while a queen is out
 function onQueenAntDied(i) {
   antDormant[i] = true;
+  onFinalAntDied(i);
   queen.segmentScore += QUEEN_SCORE_PER_ANT_LOST;
   if (queen.avengeFrames > 0) queen.avengeDeaths.push({ i: i, x: antX[i], y: antY[i] });
 }
@@ -9579,7 +9678,7 @@ function damageQueen(amount) {
   queen.hitFlash = 10;
   queen.lastHitTime = millis();
   queen.segmentScore += amount * QUEEN_SCORE_PER_QUEEN_DAMAGE;
-  queen.spawnCharges += QUEEN_HIT_SPAWNS;
+  queen.spawnCharges += queen.hitSpawns || QUEEN_HIT_SPAWNS;
   if (!sHit1.isPlaying()) sHit1.play();
   if (queen.health <= 0) {
     killQueen();
@@ -9602,8 +9701,10 @@ function killQueen() {
   // Her last strategy goes to the next queen of this run
   queenInheritedBrain = cloneQueenBrain(queen.brain);
   queensDefeatedThisRun++;
-  awardQueen();
+  if (queen.final) onQueenOfQueensDefeated(); // The last queen pays out her own reward (finalboss.js)
+  else awardQueen();
   queenDefeatedThisRound = true;
+  abilitySceneAfterQueen = true; // The next round opens with an ability scene
   queen = null;
   queenProjectiles = [];
   queenEffects = [];
@@ -9643,7 +9744,7 @@ function getQueenAreaBoosts() {
 // Called every frame from draw()
 function updateQueen() {
   if (!queen) {
-    if (!end && start && !multiplayerMode && roundIntroTimer === 0 && queenHitCount >= getQueenHitsRequired()) {
+    if (!end && start && !multiplayerMode && !isFinalLevel() && !isTutorialRun() && roundIntroTimer === 0 && queenHitCount >= getQueenHitsRequired()) {
       startQueenFight();
     }
     if (!queen) return;
@@ -9673,7 +9774,7 @@ function updateQueen() {
   updateQueenOrders();
 
   if (!queen.abilityReady) {
-    queen.abilityTimer = Math.min(QUEEN_ABILITY_FRAMES, queen.abilityTimer + cooldownRate);
+    queen.abilityTimer = Math.min(QUEEN_ABILITY_FRAMES, queen.abilityTimer + cooldownRate * (queen.attackSpeed || 1));
     if (queen.abilityTimer >= QUEEN_ABILITY_FRAMES) queen.abilityReady = true;
   }
   if (queen.abilityReady) {
@@ -9912,8 +10013,8 @@ function updateQueenSpawning(spawnRate) {
   queen.spawnTimer += spawnRate;
   while (queen.spawnTimer >= queen.spawnFrames) {
     queen.spawnTimer -= queen.spawnFrames;
-    queen.spawnFrames = QUEEN_SPAWN_FRAMES; // Alternating fire's longer wait only lasts one spawn
-    queen.spawnCharges += QUEEN_ANTS_PER_SPAWN;
+    queen.spawnFrames = queen.baseSpawnFrames || QUEEN_SPAWN_FRAMES; // Alternating fire's longer wait only lasts one spawn
+    queen.spawnCharges += queen.antsPerSpawn || QUEEN_ANTS_PER_SPAWN;
   }
   if (queen.spawnCharges <= 0) return;
 
@@ -10002,7 +10103,7 @@ function updateQueenContact() {
 function queenHitPlayer(damage, silent = false, vel = null) {
   if (end) return;
   if (interceptPlayerDamage(damage, false)) return; // Flying over it, or the bunker takes it
-  damage *= getPlayerDamageTakenMultiplier();
+  damage *= getPlayerDamageTakenMultiplier() * (queen && queen.strength ? queen.strength : 1);
   if (shield > 0) {
     const shieldBefore = shield;
     shield -= damage;
@@ -10060,15 +10161,21 @@ function getQueenAvailableAbilities() {
   return { available: available, bestAntAbilities: bestAnt === -1 ? [] : getAntQueenAbilities(bestAnt) };
 }
 
+// Abilities that don't hurt the beetle by themselves (they spawn, move, hide, shove or buff)
+const QUEEN_HARMLESS_ABILITIES = new Set(['alternating', 'alarm', 'avenge', 'blink', 'portal', 'camo', 'ghost', 'knockback',
+  'vacuum', 'recoil', 'launch', 'refire', 'territory', 'nest', 'mound', 'bunker']);
+
 function useQueenAbility() {
   const { available, bestAntAbilities } = getQueenAvailableAbilities();
+  // The Queen of Queens always has her own acid to fall back on, whatever her ants can do
+  if (queen.final) available.add(QA.generic);
   let ability = QA.generic;
   if (available.size > 0) {
     const logits = queen.decision.abilityLogits;
     const bias = queen.decision.params.bestAntBias;
     let bestValue = -Infinity;
     for (const a of available) {
-      const value = logits[a] + (bestAntAbilities.includes(a) ? bias : 0) + Math.random() * 0.01;
+      const value = (logits[a] || 0) + (bestAntAbilities.includes(a) ? bias : 0) + Math.random() * 0.01;
       if (value > bestValue) {
         bestValue = value;
         ability = a;
@@ -10078,7 +10185,10 @@ function useQueenAbility() {
   const src = ability === QA.generic ? -1 : getQueenAbilitySource(ability);
   queen.label = QUEEN_ABILITIES[ability].name;
   queen.labelFrames = 90;
-  castQueenAbility(QUEEN_ABILITIES[ability].key, src);
+  const key = QUEEN_ABILITIES[ability].key;
+  castQueenAbility(key, src);
+  // ...and never spends a whole attack doing nothing that can hurt the beetle
+  if (queen && queen.final && QUEEN_HARMLESS_ABILITIES.has(key)) castQueenAbility('generic', -1);
 }
 
 // Where her abilities aim: a point the network picks relative to the beetle (starts on the beetle)
@@ -10141,7 +10251,42 @@ function endQueenAttackPart(tracker) {
 }
 
 // The abilities themselves are fixed; the network only picks the aim point and which way formations face
+// At 150% strength (the Queen of Queens under 15 health) her attacks are 150% the size too
+function getQueenAttackScale() {
+  return queen && queen.strength > 1 ? queen.strength : 1;
+}
+
+// Grow whatever an ability just fired: bullets, blasts, beams, streams and planted bombs
+function scaleNewQueenAttacks(projectilesBefore, effectsBefore) {
+  const scale = getQueenAttackScale();
+  if (scale === 1) return;
+  for (let k = projectilesBefore; k < queenProjectiles.length; k++) {
+    const p = queenProjectiles[k];
+    if (p.kind !== 'acid' || p.sizeScale) continue;
+    p.size *= scale;
+    p.splitSize *= scale;
+    p.sizeScale = scale;
+    if (p.prox) p.prox = Object.assign({}, p.prox, { radius: p.prox.radius * scale, trigger: p.prox.trigger * scale });
+  }
+  for (let k = effectsBefore; k < queenEffects.length; k++) {
+    const e = queenEffects[k];
+    if (e.scaled) continue;
+    e.scaled = true;
+    if (e.width) e.width *= scale;
+    if (e.range) e.range *= scale;
+    if (e.radius) e.radius *= scale;
+    if (e.kind === 'volley' && e.size) e.size *= scale;
+  }
+}
+
 function castQueenAbility(key, src) {
+  const projectilesBefore = queenProjectiles.length;
+  const effectsBefore = queenEffects.length;
+  castQueenAbilityUnscaled(key, src);
+  if (queen) scaleNewQueenAttacks(projectilesBefore, effectsBefore);
+}
+
+function castQueenAbilityUnscaled(key, src) {
   const qx = queen.x;
   const qy = queen.y;
   const aimPoint = getQueenAimPoint();
@@ -10460,6 +10605,7 @@ function fireQueenAcid(x, y, angle, size, speed, opts = {}) {
     splitSize: opts.splitSize || 0,
     prox: opts.prox || null,
     refired: !!opts.refired,
+    sizeScale: opts.sizeScale || 0,
     tracker: opts.tracker || null
   });
   addQueenAttackPart(opts.tracker);
@@ -10483,11 +10629,12 @@ function explodeQueenBomb(p) {
   const owner = p.prox.owner;
   if (owner >= 1) {
     // Radius is fixed for the queen's version, whatever the ant's radius gene is
-    const base = (20 + 40 * (p.size - 1)) * (radiusMultiplier[owner] || 1);
-    spawnQueenExplosion(p.x, p.y, p.size, owner, p.prox.radius / base);
+    const size = p.size / (p.sizeScale || 1);
+    const base = (20 + 40 * (size - 1)) * (radiusMultiplier[owner] || 1);
+    spawnQueenExplosion(p.x, p.y, size, owner, p.prox.radius / base);
   } else {
     spawnSmokeImpact(p.x, p.y, p.prox.radius);
-    if (dist(playerX, playerY, p.x, p.y) < p.prox.radius) queenHitPlayer(p.size);
+    if (dist(playerX, playerY, p.x, p.y) < p.prox.radius) queenHitPlayer(p.size / (p.sizeScale || 1));
   }
 }
 
@@ -10539,7 +10686,7 @@ function updateQueenProjectiles() {
       // Delayed burst: a firework of small bullets in every direction
       for (let s = 0; s < p.splitCount; s++) {
         const a = (s / p.splitCount) * Math.PI * 2 + Math.random() * 0.2;
-        fireQueenAcid(p.x, p.y, a, p.splitSize, 5, { dmgSpeed: 5, tracker: p.tracker });
+        fireQueenAcid(p.x, p.y, a, p.splitSize, 5, { dmgSpeed: 5, tracker: p.tracker, sizeScale: p.sizeScale });
       }
       spawnSmokeImpact(p.x, p.y, 30, 3);
       removeQueenProjectile(k);
@@ -10569,11 +10716,11 @@ function updateQueenProjectiles() {
         removeQueenProjectile(k);
         continue;
       }
-      queenHitPlayer(p.size * getBulletSpeedTier(p.dmgSpeed).damageMultiplier, false, { vx: p.vx, vy: p.vy });
+      queenHitPlayer(p.size / (p.sizeScale || 1) * getBulletSpeedTier(p.dmgSpeed).damageMultiplier, false, { vx: p.vx, vy: p.vy });
       if (p.hitReload && queen) {
         // Hit reload: every hit earns another ant to spawn and another shot
         queen.spawnCharges++;
-        fireQueenAcid(queen.x, queen.y, getQueenAimAngle(queen.x, queen.y), p.size, QUEEN_BULLET_SPEED, { hitReload: true, tracker: p.tracker });
+        fireQueenAcid(queen.x, queen.y, getQueenAimAngle(queen.x, queen.y), p.size, QUEEN_BULLET_SPEED, { hitReload: true, tracker: p.tracker, sizeScale: p.sizeScale });
       }
       removeQueenProjectile(k);
       continue;
@@ -10687,7 +10834,7 @@ function updateQueenEffects() {
     if (e.kind === 'volley') {
       if (e.life >= (e.next || 0)) {
         const a = getQueenAimAngle(queen.x, queen.y) + random(-e.spread, e.spread);
-        fireQueenAcid(queen.x, queen.y, a, e.size, e.speed, { accel: e.accel, dmgSpeed: QUEEN_BULLET_SPEED, tracker: e.tracker });
+        fireQueenAcid(queen.x, queen.y, a, e.size, e.speed, { accel: e.accel, dmgSpeed: QUEEN_BULLET_SPEED, tracker: e.tracker, sizeScale: e.scaled ? getQueenAttackScale() : 0 });
         e.left--;
         e.next = e.life + e.every;
       }
@@ -11025,7 +11172,8 @@ function drawQueenOverlays() {
   ctx.arc(queen.x, queen.y, radius, 0, Math.PI * 2);
   ctx.moveTo(playerX + hole, playerY);
   ctx.arc(playerX, playerY, hole, 0, Math.PI * 2);
-  ctx.fillStyle = `rgba(196, 108, 46, ${coverAlpha})`;
+  const ground = getGroundColor();
+  ctx.fillStyle = `rgba(${ground[0]}, ${ground[1]}, ${ground[2]}, ${coverAlpha})`;
   ctx.fill('evenodd');
   ctx.restore();
   push();
@@ -11107,7 +11255,7 @@ function drawQueenHud() {
     stroke(0);
     strokeWeight(4);
     fill(230, 180, 255);
-    text(`QUEEN ${queen.number}`, windowWidth / 2, y - 4);
+    text(queen.title || `QUEEN ${queen.number}`, windowWidth / 2, y - 4);
     noStroke();
     fill(0, 0, 0, 160);
     rect(x - 3, y - 3, barW + 6, barH + 6, 5);
@@ -11129,11 +11277,11 @@ function drawQueenHud() {
       stroke(0, a);
       strokeWeight(6);
       fill(220, 150, 255, a);
-      text('THE QUEEN HAS ARRIVED', windowWidth / 2, windowHeight * 0.4);
+      text(queen.final ? 'THE QUEEN OF QUEENS' : 'THE QUEEN HAS ARRIVED', windowWidth / 2, windowHeight * 0.4);
       textSize(Math.min(windowWidth, windowHeight) * 0.03);
       strokeWeight(4);
       fill(255, a);
-      text('Kill her to end the round', windowWidth / 2, windowHeight * 0.4 + Math.min(windowWidth, windowHeight) * 0.07);
+      text(queen.final ? 'End this, once and for all' : 'Kill her to end the round', windowWidth / 2, windowHeight * 0.4 + Math.min(windowWidth, windowHeight) * 0.07);
     }
   }
   pop();
@@ -11142,7 +11290,7 @@ function drawQueenHud() {
 // ========== QUEEN CURRENCY, PROGRESSION & PERMANENT UPGRADES ==========
 // Two separate counts: total queens collected (lifetime, never goes down; unlocks difficulties) and queens
 // available to spend on permanent upgrades. Bought upgrades are applied at the start of every single player run.
-const QUEENS_REQUIRED_TO_ADVANCE = [5, 10, 20, 30, 40, 60, 80, 100, 120]; // Total queens to move on from difficulty 1-9
+const QUEENS_REQUIRED_TO_ADVANCE = [5, 10, 20, 30, 40, 60, 80, 100, 120, 150]; // Total queens to move on from difficulty 1-10 (10: the nest)
 const UPGRADE_NAMES = ['Walking Speed', 'Dash Speed', 'Dash Cooldown', 'Add Shield', 'Add Bullets', 'Shield Regeneration',
   'Bullet Reload', 'Bullet Speed', 'Free-Angle Aiming', 'Tiger Beetle', 'Oogpister Beetle', 'Horns', 'Potent Acid',
   'Shockwave', 'Shockwave Radius', 'Shockwave Damage', 'Shockwave Cooldown', 'Shockwave Knockback', 'Bullet Deflection',
@@ -13209,6 +13357,7 @@ function drawSpeedRings() {
 
 
 function endGame(){
+  if (health < 0 && tutorialHandlesDeath()) return; // The tutorial's hard round is meant to be lost
   if (health < 0){
     // Multiplayer mode: mark player as dead and advance
     if (multiplayerMode && players.length > 0) {
@@ -13268,6 +13417,7 @@ function endGame(){
       totalScore = totalScore + score;
       score = 0;  // Reset score to prevent double-counting in updateScoreAndTimer
       levelEnd = 1;
+      recordBestAnts(); // The ants that took the beetle down count toward the final level's ten
     }
     highScore = getItem('newHighScore');
     if (highScore == null) {
@@ -13507,14 +13657,23 @@ if (timeCount < 0) {
     if (liveRankingsPrinted === false){
       printLiveAntRankings();
       printWinningAntStats();
+      recordBestAnts(); // The all-time best ants the final level is built from (finalboss.js)
+      onFinalRoundEnded();
       liveRankingsPrinted = true;
     }
 
     end = true;
 
-    // Outro first: let one more frame draw (so a killed queen is gone from it), freeze that frame, and wait it out
+    // Outro first: let one more frame draw (so a killed queen is gone from it), then the ants retreat while it plays
     if (roundOutroTimer > 0) {
-      if (frameCount > roundOutroStartFrame && !roundOutroSnapshot) roundOutroSnapshot = get();
+      if (frameCount > roundOutroStartFrame && !roundOutroSnapshot) {
+        roundOutroSnapshot = true;
+        startRoundRetreat();
+      }
+      return;
+    }
+    if (isFinalEndingDue()) {
+      startFinalEnding(); // Beating the Queen of Queens ends the game
       return;
     }
     // Then the round-over screen (and upgrades) slide up into place
@@ -13570,7 +13729,7 @@ if (timeCount < 0) {
         fill(255, 210, 120);
         text(`Round ${intermissionRound} cleared  ·  +1 queen (${getQueensAvailable()} to spend)`, getMenuWidth() / 2, getMenuHeight() * 0.335);
       } else {
-        text(`Round ${intermissionRound} Cleared`, getMenuWidth() / 2, getMenuHeight() * 0.30);
+        text(`${getRoundTitle(true)} Cleared`, getMenuWidth() / 2, getMenuHeight() * 0.30);
       }
 
       textSize(28);
@@ -13986,7 +14145,7 @@ function drawUpgradeScreen() {
     },
     {
       title: 'Shockwave Radius',
-      description: 'Increase shockwave radius. Each level adds 18 pixels (60→150). Requires Shockwave.',
+      description: 'Increase shockwave radius. Each level adds 27 pixels (90→225). Requires Shockwave.',
       level: upgrade15Level,
       maxLevel: 5
     },
@@ -14747,6 +14906,12 @@ function isUpgradeUnlocked(i) {
 // Fill displayedUpgrades with up to 3 unmaxed, unlocked upgrades, weighted by rarity.
 // Upgrades in `exclude` are only offered once nothing else is left.
 function pickUpgradeOptions(exclude = []) {
+  // The tutorial hands out specific upgrades (tutorial.js)
+  const forced = getTutorialForcedUpgrades(exclude);
+  if (forced) {
+    displayedUpgrades = forced;
+    return;
+  }
   let upgradeLevels = [upgrade1Level, upgrade2Level, upgrade3Level, upgrade4Level, upgrade5Level, upgrade6Level, upgrade7Level, upgrade8Level, upgrade9Level, upgrade10Level, upgrade11Level, upgrade12Level, upgrade13Level, upgrade14Level, upgrade15Level, upgrade16Level, upgrade17Level, upgrade18Level, upgrade19Level, upgrade20Level, upgrade21Level, upgrade22Level, upgrade23Level, upgrade24Level, upgrade25Level, upgrade26Level, upgrade27Level, upgrade28Level, upgrade29Level, upgrade30Level, upgrade31Level, upgrade32Level, upgrade33Level, upgrade34Level, upgrade35Level, upgrade36Level, upgrade37Level, upgrade38Level, upgrade39Level, upgrade40Level, upgrade41Level, upgrade42Level, upgrade43Level, upgrade44Level, upgrade45Level, upgrade46Level, upgrade47Level, upgrade48Level, upgrade49Level, upgrade50Level, upgrade51Level, upgrade52Level, upgrade53Level, upgrade54Level];
   let availableUpgrades = [];
   for (let i = 0; i < UPGRADE_COUNT; i++) {
@@ -14777,6 +14942,7 @@ function pickUpgradeOptions(exclude = []) {
 // Whether rerolling could show at least one upgrade that isn't on screen now
 function canRerollUpgrades() {
   if (upgradeRerolls <= 0) return false;
+  if (isTutorialRun() && !tutorialAllowsReroll()) return false;
   let upgradeLevels = [upgrade1Level, upgrade2Level, upgrade3Level, upgrade4Level, upgrade5Level, upgrade6Level, upgrade7Level, upgrade8Level, upgrade9Level, upgrade10Level, upgrade11Level, upgrade12Level, upgrade13Level, upgrade14Level, upgrade15Level, upgrade16Level, upgrade17Level, upgrade18Level, upgrade19Level, upgrade20Level, upgrade21Level, upgrade22Level, upgrade23Level, upgrade24Level, upgrade25Level, upgrade26Level, upgrade27Level, upgrade28Level, upgrade29Level, upgrade30Level, upgrade31Level, upgrade32Level, upgrade33Level, upgrade34Level, upgrade35Level, upgrade36Level, upgrade37Level, upgrade38Level, upgrade39Level, upgrade40Level, upgrade41Level, upgrade42Level, upgrade43Level, upgrade44Level, upgrade45Level, upgrade46Level, upgrade47Level, upgrade48Level, upgrade49Level, upgrade50Level, upgrade51Level, upgrade52Level, upgrade53Level, upgrade54Level];
   for (let i = 0; i < UPGRADE_COUNT; i++) {
     if (upgradeLevels[i] < UPGRADE_MAX_LEVELS[i] && isUpgradeUnlocked(i) && !displayedUpgrades.includes(i)) return true;
@@ -14792,6 +14958,7 @@ function isRerollPressed() {
 }
 
 function applyUpgrade(upgradeIndex) {
+  if (!tutorialAllowsUpgradePick()) return; // The tutorial's reroll lesson: reroll first
   // Get the actual upgrade ID from the displayed upgrades
   let actualUpgradeId = displayedUpgrades[upgradeIndex];
   let upgradeMaxLevels = UPGRADE_MAX_LEVELS;
@@ -15241,6 +15408,11 @@ function clearRoundEffects() {
 }
 
 function nextRound(){
+  if (isFinalLevel()) {
+    finalLevelNextRound(); // Warm-up groups and the Queen of Queens instead of evolving (finalboss.js)
+    return;
+  }
+  if (isTutorialRun() && tutorialNextRound()) return; // The tutorial sets up its own rounds (tutorial.js)
   clearRoundEffects();
   beamHealthFlashFrames = 0;
   beamShieldFlashFrames = 0;
@@ -16974,6 +17146,35 @@ function drawBlockoutEyes(w, h, t) {
   pop();
 }
 
+// Main menu entries, top to bottom
+function getMainMenuOptions() {
+  return [
+    { label: 'Single Player', color: [255, 255, 100], action: () => {
+      // The first time, Single Player starts (or picks the tutorial back up where it was left)
+      if (shouldAutoStartTutorial()) {
+        startTutorial(false);
+        return;
+      }
+      pendingGameMode = 'single';
+      openDifficultyMenu();
+      startMenu = false;
+    } },
+    { label: 'Multiplayer', color: [100, 255, 100], action: () => {
+      pendingGameMode = 'multiplayer';
+      openDifficultyMenu();
+      startMenu = false;
+    } },
+    { label: 'Tutorial', note: getTutorialMenuNote(), color: [120, 200, 255], action: () => openTutorialMenu() },
+    { label: 'Antdex', color: [160, 120, 255], action: () => {
+      antdex = true;
+      startMenu = false;
+      antdexReturnState = 'menu';
+    } },
+    { label: 'Queen Upgrades', color: [230, 180, 255], action: () => openQueenShop() },
+    { label: 'Watch Intro', color: [200, 60, 60], action: () => startOpeningCinematic() }
+  ];
+}
+
 function drawStartScreen(){
 
   beginMenuScaling();
@@ -17079,8 +17280,10 @@ function drawStartScreen(){
         titlemusic.play();
       }
       if (isConfirmPressed()) {
-        startMenu = true;
         menuNavigationCooldown = 20; // Prevent immediate menu selection
+        // The very first time, the tutorial starts right away instead of the main menu
+        if (isFirstTutorialLaunch()) startTutorial(true);
+        else startMenu = true;
       }
     }
     if (startMenu === true && !difficultyMenu){
@@ -17094,13 +17297,16 @@ function drawStartScreen(){
       fill(20);
       rect(0, 0, getMenuWidth(), getMenuHeight());
       
-      // Menu navigation with arrow keys, WASD, and gamepad
-      if (menuNavigationCooldown === 0) {
+      const menuOptions = getMainMenuOptions();
+      startMenuSelection = constrain(startMenuSelection, 0, menuOptions.length - 1);
+
+      // Menu navigation with arrow keys, WASD, and gamepad (the tutorial's own menu takes over while it's open)
+      if (menuNavigationCooldown === 0 && !tutorialMenuOpen) {
         if (isUpPressed()) { // Up or W
-          startMenuSelection = (startMenuSelection - 1 + 5) % 5;
+          startMenuSelection = (startMenuSelection - 1 + menuOptions.length) % menuOptions.length;
           menuNavigationCooldown = 10;
         } else if (isDownPressed()) { // Down or S
-          startMenuSelection = (startMenuSelection + 1) % 5;
+          startMenuSelection = (startMenuSelection + 1) % menuOptions.length;
           menuNavigationCooldown = 10;
         }
       }
@@ -17109,233 +17315,68 @@ function drawStartScreen(){
       fill(255);
       textAlign(CENTER);
       textSize(70);
-      text("Main Menu", getMenuWidth() / 2, getMenuHeight() * 0.20);
-      
-      // Menu option 0: Single Player - Card style
-      let option0Y = getMenuHeight() * 0.35;
-      let option0X = getMenuWidth() / 2;
-      let option0W = 340;
-      let option0H = 70;
-      push();
-        rectMode(CENTER);
-        if (startMenuSelection === 0) {
-          fill(255);  // White background for selected
-          stroke(255, 255, 100);
-          strokeWeight(3);
-        } else {
-          fill(50, 50, 50);  // Dark grey for unselected
-          stroke(100, 100, 100);
-          strokeWeight(2);
-        }
-        rect(option0X, option0Y, option0W, option0H, 12);
-        
-        // Text
-        if (startMenuSelection === 0) {
-          fill(10);  // Dark text on white
-        } else {
-          fill(255);  // White text on dark
-        }
-        textSize(32);
-        textAlign(CENTER, CENTER);
-        text("Single Player", option0X, option0Y);
-      pop();
-      
-      // Menu option 1: Multiplayer - Card style
-      let option1Y = getMenuHeight() * 0.47;
-      let option1X = getMenuWidth() / 2;
-      let option1W = 340;
-      let option1H = 80;
-      push();
-        rectMode(CENTER);
-        if (startMenuSelection === 1) {
-          fill(255);  // White background for selected
-          stroke(100, 255, 100);  // Green stroke
-          strokeWeight(3);
-        } else {
-          fill(50, 50, 50);  // Dark grey for unselected
-          stroke(100, 100, 100);
-          strokeWeight(2);
-        }
-        rect(option1X, option1Y, option1W, option1H, 12);
-        
-        // Text
-        if (startMenuSelection === 1) {
-          fill(10);  // Dark text on white
-        } else {
-          fill(255);  // White text on dark
-        }
-        textSize(32);
-        textAlign(CENTER, CENTER);
-        text("Multiplayer", option1X, option1Y);
-      pop();
-      
-      // Menu option 2: Antdex - Card style
-      let option2Y = getMenuHeight() * 0.59;
-      let option2X = getMenuWidth() / 2;
-      let option2W = 340;
-      let option2H = 70;
-      push();
-        rectMode(CENTER);
-        if (startMenuSelection === 2) {
-          fill(255);  // White background for selected
-          stroke(160, 120, 255);  // Purple stroke like exotic tab
-          strokeWeight(3);
-        } else {
-          fill(50, 50, 50);  // Dark grey for unselected
-          stroke(100, 100, 100);
-          strokeWeight(2);
-        }
-        rect(option2X, option2Y, option2W, option2H, 12);
-        
-        // Text
-        if (startMenuSelection === 2) {
-          fill(10);  // Dark text on white
-        } else {
-          fill(255);  // White text on dark
-        }
-        textSize(32);
-        textAlign(CENTER, CENTER);
-        text("Antdex", option2X, option2Y);
-      pop();
+      text("Main Menu", getMenuWidth() / 2, getMenuHeight() * 0.16);
 
-      // Menu option 3: Queen Upgrades - Card style
-      let option3Y = getMenuHeight() * 0.71;
-      let option3X = getMenuWidth() / 2;
-      let option3W = 340;
-      let option3H = 70;
-      push();
-        rectMode(CENTER);
-        if (startMenuSelection === 3) {
-          fill(255);  // White background for selected
-          stroke(230, 180, 255);  // Queen purple
-          strokeWeight(3);
-        } else {
-          fill(50, 50, 50);  // Dark grey for unselected
-          stroke(100, 100, 100);
-          strokeWeight(2);
-        }
-        rect(option3X, option3Y, option3W, option3H, 12);
-
-        // Text
-        if (startMenuSelection === 3) {
-          fill(10);  // Dark text on white
-        } else {
-          fill(255);  // White text on dark
-        }
-        textSize(32);
-        textAlign(CENTER, CENTER);
-        text("Queen Upgrades", option3X, option3Y);
-      pop();
-
-      // Menu option 4: Watch Intro - Card style
-      let option4Y = getMenuHeight() * 0.83;
-      let option4X = getMenuWidth() / 2;
-      let option4W = 340;
-      let option4H = 70;
-      push();
-        rectMode(CENTER);
-        if (startMenuSelection === 4) {
-          fill(255);  // White background for selected
-          stroke(200, 60, 60);  // Beetle red
-          strokeWeight(3);
-        } else {
-          fill(50, 50, 50);  // Dark grey for unselected
-          stroke(100, 100, 100);
-          strokeWeight(2);
-        }
-        rect(option4X, option4Y, option4W, option4H, 12);
-
-        // Text
-        if (startMenuSelection === 4) {
-          fill(10);  // Dark text on white
-        } else {
-          fill(255);  // White text on dark
-        }
-        textSize(32);
-        textAlign(CENTER, CENTER);
-        text("Watch Intro", option4X, option4Y);
-      pop();
+      // Options as cards: white with a colored outline when selected
+      const optionW = 340;
+      const optionH = 58;
+      const optionX = getMenuWidth() / 2;
+      const optionY = k => getMenuHeight() * (0.28 + 0.108 * k);
+      menuOptions.forEach((option, k) => {
+        const selected = startMenuSelection === k;
+        push();
+          rectMode(CENTER);
+          if (selected) {
+            fill(255);
+            stroke(option.color[0], option.color[1], option.color[2]);
+            strokeWeight(3);
+          } else {
+            fill(50, 50, 50);
+            stroke(100, 100, 100);
+            strokeWeight(2);
+          }
+          rect(optionX, optionY(k), optionW, optionH, 12);
+          noStroke();
+          fill(selected ? 10 : 255);
+          textSize(30);
+          textAlign(CENTER, CENTER);
+          text(option.label, optionX, optionY(k) - (option.note ? 6 : 0));
+          if (option.note) {
+            textSize(13);
+            fill(selected ? 90 : 170);
+            text(option.note, optionX, optionY(k) + 17);
+          }
+        pop();
+      });
 
       // Instructions with fade
       let fadeAlpha = map(sin(frameCount * 0.05), -1, 1, 30, 70);
       fill(200, fadeAlpha);
       textSize(18);
       textAlign(CENTER);
-      text('W/S or ↑/↓ or Left Stick  Navigate  |  Enter or A  Confirm', getMenuWidth() / 2, getMenuHeight() * 0.94);
+      text('W/S or ↑/↓ or Left Stick  Navigate  |  Enter or A  Confirm', getMenuWidth() / 2, getMenuHeight() * 0.95);
 
-      // Mouse click detection
-      if (mouseIsPressed) {
-        let mx = getMenuMouseX();
-        let my = getMenuMouseY();
-        
-        // Check option 0 (Single Player)
-        if (mx > option0X - option0W/2 && mx < option0X + option0W/2 &&
-            my > option0Y - option0H/2 && my < option0Y + option0H/2) {
-          if (menuNavigationCooldown === 0) {
-            pendingGameMode = 'single';
-            openDifficultyMenu();
-            startMenu = false;
-            menuNavigationCooldown = 20;
-          }
-        } 
-        // Check option 1 (Multiplayer)
-        else if (mx > option1X - option1W/2 && mx < option1X + option1W/2 &&
-                 my > option1Y - option1H/2 && my < option1Y + option1H/2) {
-          if (menuNavigationCooldown === 0) {
-            pendingGameMode = 'multiplayer';
-            openDifficultyMenu();
-            startMenu = false;
-            menuNavigationCooldown = 20;
-          }
+      if (tutorialMenuOpen) {
+        drawTutorialMenu();
+      } else {
+        // Mouse click detection
+        if (mouseIsPressed && menuNavigationCooldown === 0) {
+          const mx = getMenuMouseX();
+          const my = getMenuMouseY();
+          menuOptions.forEach((option, k) => {
+            if (abs(mx - optionX) < optionW / 2 && abs(my - optionY(k)) < optionH / 2 && menuNavigationCooldown === 0) {
+              startMenuSelection = k;
+              menuNavigationCooldown = 20;
+              option.action();
+            }
+          });
         }
-        // Check option 2 (Antdex)
-        else if (mx > option2X - option2W/2 && mx < option2X + option2W/2 &&
-                 my > option2Y - option2H/2 && my < option2Y + option2H/2) {
-          if (menuNavigationCooldown === 0) {
-            antdex = true;
-            startMenu = false;
-            antdexReturnState = 'menu';
-            menuNavigationCooldown = 20;
-          }
-        }
-        // Check option 3 (Queen Upgrades)
-        else if (mx > option3X - option3W/2 && mx < option3X + option3W/2 &&
-                 my > option3Y - option3H/2 && my < option3Y + option3H/2) {
-          if (menuNavigationCooldown === 0) {
-            openQueenShop();
-          }
-        }
-        // Check option 4 (Watch Intro)
-        else if (mx > option4X - option4W/2 && mx < option4X + option4W/2 &&
-                 my > option4Y - option4H/2 && my < option4Y + option4H/2) {
-          if (menuNavigationCooldown === 0) {
-            startOpeningCinematic();
-          }
-        }
-      }
 
-      // Enter key to select
-      if (isConfirmPressed() && menuNavigationCooldown === 0) {
-        if (startMenuSelection === 0) {
-          // Single Player - go to difficulty menu
-          pendingGameMode = 'single';
-          openDifficultyMenu();
-          startMenu = false;
-        } else if (startMenuSelection === 1) {
-          // Multiplayer - go to difficulty menu
-          pendingGameMode = 'multiplayer';
-          openDifficultyMenu();
-          startMenu = false;
-        } else if (startMenuSelection === 2) {
-          antdex = true;
-          startMenu = false;
-          antdexReturnState = 'menu';
-        } else if (startMenuSelection === 3) {
-          openQueenShop();
-        } else if (startMenuSelection === 4) {
-          startOpeningCinematic();
+        // Enter key to select
+        if (isConfirmPressed() && menuNavigationCooldown === 0) {
+          menuNavigationCooldown = 20;
+          menuOptions[startMenuSelection].action();
         }
-        menuNavigationCooldown = 20;
       }
 
     }
@@ -17350,23 +17391,17 @@ function drawStartScreen(){
       // Menu navigation - left/right to adjust slider
       if (menuNavigationCooldown === 0) {
         if (isLeftPressed() || isUpPressed()) {
-          difficultySelection = constrain(difficultySelection - 1, 1, 10);
+          difficultySelection = constrain(difficultySelection - 1, 1, getMapStopCount());
           menuNavigationCooldown = 8;
         } else if (isRightPressed() || isDownPressed()) {
-          difficultySelection = constrain(difficultySelection + 1, 1, 10);
+          difficultySelection = constrain(difficultySelection + 1, 1, getMapStopCount());
           menuNavigationCooldown = 8;
         }
       }
       
-      // Title
-      fill(255);
-      textAlign(CENTER);
-      textSize(60);
-      text("Select Difficulty", getMenuWidth() / 2, getMenuHeight() * 0.12);
-      
-      // Hovering a button with the mouse selects it
+      // Hovering a stop on the map with the mouse selects it
       if (movedX !== 0 || movedY !== 0) {
-        for (let i = 1; i <= 10; i++) {
+        for (let i = 1; i <= getMapStopCount(); i++) {
           if (pointInRect(getMenuMouseX(), getMenuMouseY(), getDifficultyButtonRect(i))) {
             difficultySelection = i;
             break;
@@ -17374,61 +17409,8 @@ function drawStartScreen(){
         }
       }
 
-      // Difficulty buttons 1-10 in a row that scrolls to keep the selection centered
-      difficultyScroll = lerp(difficultyScroll, difficultySelection, 0.2);
-      if (abs(difficultyScroll - difficultySelection) < 0.01) difficultyScroll = difficultySelection;
-
-      push();
-        rectMode(CORNER);
-        textAlign(CENTER, CENTER);
-        for (let i = 1; i <= 10; i++) {
-          let r = getDifficultyButtonRect(i);
-          if (r.x + r.w < 0 || r.x > getMenuWidth()) continue;
-
-          let info = getDifficultyTierInfo(i);
-          let selected = (i === difficultySelection);
-          let locked = !isDifficultyUnlocked(i);
-          // Fade buttons out toward the screen edges
-          let distFromCenter = abs((r.x + r.w / 2) - getMenuWidth() / 2);
-          let edgeAlpha = constrain(map(distFromCenter, getMenuWidth() * 0.3, getMenuWidth() * 0.5, 255, 40), 40, 255);
-
-          if (locked) {
-            fill(selected ? 70 : 30, edgeAlpha);
-            stroke(selected ? 255 : 90, edgeAlpha);
-            strokeWeight(selected ? 4 : 2);
-          } else if (selected) {
-            fill(info.color[0], info.color[1], info.color[2], edgeAlpha);
-            stroke(255, edgeAlpha);
-            strokeWeight(4);
-          } else {
-            fill(45, edgeAlpha);
-            stroke(info.color[0], info.color[1], info.color[2], edgeAlpha);
-            strokeWeight(2);
-          }
-          rect(r.x, r.y, r.w, r.h, 16);
-
-          noStroke();
-          if (locked) {
-            fill(110, edgeAlpha);
-            textSize(64);
-            text(i, r.x + r.w / 2, r.y + r.h * 0.42);
-            drawLockIcon(r.x + r.w / 2, r.y + r.h * 0.8, 22, edgeAlpha);
-          } else {
-            fill(selected ? 20 : 230, edgeAlpha);
-            textSize(64);
-            text(i, r.x + r.w / 2, r.y + r.h * 0.42);
-            textSize(20);
-            text(info.name, r.x + r.w / 2, r.y + r.h * 0.8);
-          }
-        }
-
-        // Scroll hints when more buttons are off-screen
-        noStroke();
-        fill(200, 160);
-        textSize(40);
-        if (getDifficultyButtonRect(1).x < 0) text('‹', 25, getMenuHeight() * 0.36);
-        if (getDifficultyButtonRect(10).x + DIFFICULTY_BUTTON_SIZE > getMenuWidth()) text('›', getMenuWidth() - 25, getMenuHeight() * 0.36);
-      pop();
+      // The map: a dirt path into ant territory, one stop per difficulty (see map.js)
+      drawDifficultyMap();
 
       // Details panel for the selected difficulty: its attributes and your records on it
       let sel = difficultySelection;
@@ -17457,11 +17439,15 @@ function drawStartScreen(){
       }
 
       let panelX = getMenuWidth() * 0.12;
-      let panelY = getMenuHeight() * 0.54;
+      let panelY = getMenuHeight() * 0.62;
       let panelW = getMenuWidth() * 0.76;
-      let panelH = getMenuHeight() * 0.33;
+      let panelH = getMenuHeight() * 0.3;
       let lineH = 24;
 
+      if (sel === 11) {
+        // The nest gets its own panel (see finalboss.js)
+        drawFinalLevelPanel(panelX, panelY, panelW, panelH);
+      } else {
       push();
         rectMode(CORNER);
         fill(35);
@@ -17526,13 +17512,14 @@ function drawStartScreen(){
           text(`${Math.min(getQueensCollectedOnDifficulty(sel - 1), queensNeededHere)} / ${queensNeededHere}`, colRightX + 150, headerY + 146);
         }
       pop();
+      }
 
       // Instructions
       let fadeAlpha = map(sin(frameCount * 0.05), -1, 1, 30, 70);
       fill(200, fadeAlpha);
       textSize(18);
       textAlign(CENTER);
-      text('←/→ or ↑/↓ or Click  Select  |  Enter or A  Confirm  |  Esc  Back', getMenuWidth() / 2, getMenuHeight() * 0.93);
+      text('←/→ or ↑/↓ or Click  Select  |  Enter or A  Confirm  |  Esc  Back', getMenuWidth() / 2, getMenuHeight() * 0.975);
       
       // Back to main menu
       if (keyIsDown(ESCAPE) && menuNavigationCooldown === 0) {
@@ -17545,6 +17532,10 @@ function drawStartScreen(){
       // isConfirmPressed() only fires once per press, so read it a single time
       let confirmPressed = isConfirmPressed() && menuNavigationCooldown === 0;
       if (confirmPressed && !isDifficultyUnlocked(difficultySelection)) {
+        menuNavigationCooldown = 20;
+      } else if (confirmPressed && difficultySelection === 11) {
+        // The nest: single player only
+        if (pendingGameMode === 'single') startFinalLevel();
         menuNavigationCooldown = 20;
       } else if (confirmPressed) {
         // Set difficulty
@@ -18008,7 +17999,7 @@ function antdexScreen() {
   textSize(22);
   text("Esc or B  Back", getMenuWidth() / 2, getMenuHeight() - 16);
 
-  if (isBackPressed()) {
+  if (isBackPressed() && !antdexInputBlocked) {
     antdex = false;
     if (antdexReturnState === 'menu') {
       startMenu = true;
@@ -18059,7 +18050,7 @@ function mousePressed() {
 
   // Difficulty menu: clicking a button selects it
   if (difficultyMenu) {
-    for (let i = 1; i <= 10; i++) {
+    for (let i = 1; i <= getMapStopCount(); i++) {
       if (pointInRect(getMenuMouseX(), getMenuMouseY(), getDifficultyButtonRect(i))) {
         difficultySelection = i;
         return;
