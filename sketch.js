@@ -262,7 +262,7 @@ specialPotential: 0.3,
     bulletSize: 1,
     radiusMultiplier: 1,
     residueMultiplier: 1,
-    bulletExplodeAfter: 400,
+    bulletExplodeAfter: 200,
     antSize: 1,
     // Gene Token System
     geneTokens: 2,
@@ -324,7 +324,7 @@ specialPotential: 0.3,
     bulletSize: 1,
     radiusMultiplier: 1,
     residueMultiplier: 1,
-    bulletExplodeAfter: 400,
+    bulletExplodeAfter: 200,
     antSize: 1,
     // Gene Token System
     geneTokens: 2,
@@ -386,7 +386,7 @@ specialPotential: 0.3,
     bulletSize: 1,
     radiusMultiplier: 1,
     residueMultiplier: 1,
-    bulletExplodeAfter: 400,
+    bulletExplodeAfter: 200,
     antSize: 1,
     // Gene Token System
     geneTokens: 2,
@@ -421,183 +421,27 @@ let gamepadConnected = false;
 let previousGamepadButtons = {};
 let leftStickDeadzone = 0.15;
 
-let antDexEntries = [];   // array of objects {name, desc, stats}
+let antDexEntries = [];      // Built by buildAntDexEntries(): {id, section, name, desc, stats, scene, check, discovered}
+let antDexDiscovered = null;  // {entry id: true}, loaded from storage when the entries are built
 let dexScrollY = 0;       // current scroll offset
 let dexTargetScroll = 0;  // for smooth scrolling
 let dexScrollSpeed = 20;  // scroll sensitivity
-let selectedDexIndex = -1;// highlight
-let dexCategory = 'normal';
-let progressDisplayNormal = 0;
-let progressTargetNormal = 0;
-let progressDisplayExotic = 0;
-let progressTargetExotic = 0;
+const DEX_SECTIONS = ['stats', 'abilities', 'exotic'];
+let dexCategory = 'stats';
+let dexProgressDisplay = { stats: 0, abilities: 0, exotic: 0 }; // Eased progress bar fill per section
 let dexTabSwitchCooldown = 0;
 let dexTabRegions = {
-  normal: { x: 0, y: 0, w: 0, h: 0 },
+  stats: { x: 0, y: 0, w: 0, h: 0 },
+  abilities: { x: 0, y: 0, w: 0, h: 0 },
   exotic: { x: 0, y: 0, w: 0, h: 0 }
 };
 
-// Movement behavior discoveries
-let movementType1Discovered = false;  // Follow Beetle
-let movementType2Discovered = false;  // Follow Ants
-let movementType3Discovered = false;  // Find Location
-let movementType4Discovered = false;  // Stand Still
-let movementType5Discovered = false;  // Keep Distance From Beetle
-let movementType6Discovered = false;  // Keep Distance From Ants
-let movementType7Discovered = false;  // Keep Distance From Location
-let movementType8Discovered = false;  // Keep Distance From Spawn
-
-// Ant Speed discoveries (0.9-3.5)
-let antSpeedMinDiscovered = false;     // 0.9-1.2
-let antSpeedLowDiscovered = false;     // 1.3-1.7
-let antSpeedMedDiscovered = false;     // 1.8-2.3
-let antSpeedHighDiscovered = false;    // 2.4-3.0
-let antSpeedMaxDiscovered = false;     // 3.1-3.5
-
-// Bullet Speed discoveries (60-300)
-let bulletSpeedMinDiscovered = false;  // 60-90 (fastest)
-let bulletSpeedLowDiscovered = false;  // 91-140
-let bulletSpeedMedDiscovered = false;  // 141-220
-let bulletSpeedHighDiscovered = false; // 221-270
-let bulletSpeedMaxDiscovered = false;  // 271-300 (slowest)
-
-// Bullet Cooldown discoveries (79-200)
-let cooldownMinDiscovered = false;     // 79-95 (rapid fire)
-let cooldownLowDiscovered = false;     // 96-120
-let cooldownMedDiscovered = false;     // 121-150
-let cooldownHighDiscovered = false;    // 151-180
-let cooldownMaxDiscovered = false;     // 181-200 (slow fire)
-
-// Shot Offset discoveries (0-500)
-let offsetMinDiscovered = false;       // 0-50
-let offsetLowDiscovered = false;       // 51-150
-let offsetMedDiscovered = false;       // 151-300
-let offsetHighDiscovered = false;      // 301-450
-let offsetMaxDiscovered = false;       // 451-500
-
-// Bullet Size discoveries (1-3)
-let bulletSizeMinDiscovered = false;   // 1.0
-let bulletSizeLowDiscovered = false;   // 1.1-1.4
-let bulletSizeMedDiscovered = false;   // 1.5-2.0
-let bulletSizeHighDiscovered = false;  // 2.1-2.4
-let bulletSizeMaxDiscovered = false;   // 2.5-3.0
-
-// Ant Size discoveries (exact values + categories)
-let antSizeMinDiscovered = false;      // 0.3
-let antSizeLowDiscovered = false;      // 0.7
-let antSizeMedDiscovered = false;      // 1.0
-let antSizeHighDiscovered = false;     // 2.0
-let antSizeMaxDiscovered = false;      // 3.0
-let smallAntsDiscovered = false;       // Any < 1.0
-let largeAntsDiscovered = false;       // Any > 1.0
-
-// Distance From Anchor discoveries (0.1-1000, Keep Distance mode only)
-let distanceMinDiscovered = false;     // 0.1-100
-let distanceLowDiscovered = false;     // 101-250
-let distanceMedDiscovered = false;     // 251-500
-let distanceHighDiscovered = false;    // 501-750
-let distanceMaxDiscovered = false;     // 751-1000
-
-// Special ability discoveries
-let noSpecialDiscovered = false;       // No special
-let timeExplosionDiscovered = false;   // Time-based explosion
-let proximityExplosionDiscovered = false; // Proximity explosion
-let knockbackDiscovered = false;       // Knockback bullets
-let vacuumDiscovered = false;          // Vacuum bullets (pull the beetle in at close range)
-let camouflageDiscovered = false;      // Camouflage bullets (flashing opacity)
-let ghostBulletDiscovered = false;     // Ghost bullets (invisible until near the beetle)
-let recoilDiscovered = false;          // Recoil (firing pushes the ant back)
-let launchDiscovered = false;          // Launch (recoil plus a hop into the air)
-
-// Fire type discoveries
-let normalFireDiscovered = false;      // Normal fire mode
-let burstFireDiscovered = false;       // Burst fire mode
-let rapidFireDiscovered = false;       // Rapid fire mode
-let streamFireDiscovered = false;      // Stream fire mode (a continuous spray of acid instead of bullets)
-let alternatingFireDiscovered = false; // Alternating cooldown fire mode
-let hitReloadFireDiscovered = false;   // Hit reload fire mode (long cooldown, resets on hit)
-let delayedBurstFireDiscovered = false; // Delayed burst fire mode (one bullet that splits into a burst)
-let alarmFireDiscovered = false;       // Alarm fire mode (fires faster while the beetle is close)
-let avengeFireDiscovered = false;      // Avenge fire mode (fires again when a nearby ant dies)
-
-// Explosion Fuse discoveries (40-800, Time Explosion only)
-let fuseMinDiscovered = false;         // 40-250
-let fuseLowDiscovered = false;         // 251-400
-let fuseMedDiscovered = false;         // 401-550
-let fuseHighDiscovered = false;        // 551-700
-let fuseMaxDiscovered = false;         // 701-800
-
-// Explosion Proximity discoveries (0.1-1000, Proximity Explosion only)
-let proxMinDiscovered = false;         // 0.1-150
-let proxLowDiscovered = false;         // 151-300
-let proxMedDiscovered = false;         // 301-550
-let proxHighDiscovered = false;        // 551-800
-let proxMaxDiscovered = false;         // 801-1000
-
-// Explosion Radius discoveries (0.5-3, Explosions only)
-let radiusMinDiscovered = false;       // 0.5-1.0
-let radiusLowDiscovered = false;       // 1.1-1.5
-let radiusMedDiscovered = false;       // 1.6-2.0
-let radiusHighDiscovered = false;      // 2.1-2.5
-let radiusMaxDiscovered = false;       // 2.6-3.0
-
-// Explosion Residue discoveries (0.5-3, Explosions only)
-let residueMinDiscovered = false;      // 0.5-1.0
-let residueLowDiscovered = false;      // 1.1-1.5
-let residueMedDiscovered = false;      // 1.6-2.0
-let residueHighDiscovered = false;     // 2.1-2.5
-let residueMaxDiscovered = false;      // 2.6-3.0
-
-// Knockback Multiplier discoveries (2-5, Knockback only)
-let knockbackMinDiscovered = false;    // 2.0-2.5
-let knockbackLowDiscovered = false;    // 2.6-3.1
-let knockbackMedDiscovered = false;    // 3.2-3.8
-let knockbackHighDiscovered = false;   // 3.9-4.5
-let knockbackMaxDiscovered = false;    // 4.6-5.0
-
-// Bullet Burst Count discoveries (1.5-5.5)
-let burstCountMinDiscovered = false;   // 1.5-2.3
-let burstCountLowDiscovered = false;   // 2.4-3.2
-let burstCountMedDiscovered = false;   // 3.3-4.1
-let burstCountHighDiscovered = false;  // 4.2-4.9
-let burstCountMaxDiscovered = false;   // 5.0-5.5 (exotic)
-
-// Cooldown Multiplier discoveries (0.5-5.5)
-let cooldownMultiplierMinDiscovered = false; // 0.5-1.4
-let cooldownMultiplierLowDiscovered = false; // 1.5-2.4
-let cooldownMultiplierMedDiscovered = false; // 2.5-3.4
-let cooldownMultiplierHighDiscovered = false; // 3.5-4.4
-let cooldownMultiplierMaxDiscovered = false; // 4.5-5.5 (exotic)
-
-// Bullet Death Type discovery
-let landmineConversionDiscovered = false;  // Bullets convert to landmines (deathType === 1)
-let smearDeathDiscovered = false;          // Bullets leave a damaging smear when they fade (deathType === -1)
-let refireDeathDiscovered = false;         // Bullets fire again from where they die (deathType === 2)
-let turretDeathDiscovered = false;         // Bullets become a turret that fires 3 times (deathType === 3)
-let territoryDeathDiscovered = false;      // Bullets leave an area that speeds up ant cooldowns (deathType === 4)
-let nestDeathDiscovered = false;           // Bullets leave an area that also grows ant shields (deathType === 5)
-let moundDeathDiscovered = false;          // Bullets leave a short-lived wall (deathType === 6)
-let bunkerDeathDiscovered = false;         // Bullets leave a hole ants can hide in (deathType === 7)
-
-// Bullet Path Type discoveries
-let clockwiseCurveDiscovered = false;      // Bullets curve clockwise (pathType === -1)
-let homingCurveDiscovered = false;         // Bullets curve toward player (pathType === -2)
-let highArcDiscovered = false;             // Bullets arc high and land (pathType === 1)
-let splitArcDiscovered = false;            // High arc bullets split into 3 at their peak
-let beamDiscovered = false;                // Accelerating bullets fire a beam instead of speeding up
-let blinkDiscovered = false;               // Bullets jump ahead once (pathType === 3)
-let portalDiscovered = false;              // Bullets jump ahead once and turn toward the target (pathType === 3, portal)
-
-// Burst Spread discoveries (PI/3 to PI = 60° to 180°, Burst Fire only)
-let burstSpreadMinDiscovered = false;     // 60-84°
-let burstSpreadLowDiscovered = false;     // 85-109°
-let burstSpreadMedDiscovered = false;     // 110-134°
-let burstSpreadHighDiscovered = false;    // 135-159°
-let burstSpreadMaxDiscovered = false;     // 160-180°
-
-let showDiscoveryPopup = false;
+// Discovery pop-up card: each newly discovered entry gets a turn, oldest first
+let discoveryQueue = [];
+let discoveryPopupEntry = null;
 let discoveryPopupTimer = 0;
-let discoveryPopupDuration = 240; // frames (~4 seconds)
+const DISCOVERY_POPUP_FRAMES = 240;        // ~4 seconds
+const DISCOVERY_POPUP_QUEUED_FRAMES = 150; // Shorter while more cards are waiting
 let discoveryPopupY = 0;          // for smooth slide
 let discoveryPopupTargetY = 0;    // target Y position
 
@@ -1177,7 +1021,7 @@ function setup() {
     antRecoilAirTimer[i] = 0;
     bulletSplitCount[i] = 1;          // no split by default
     bulletSpread[i] = 0;              // 0° spread (all bullets same direction)
-    bulletExplodeAfter[i] = 400; 
+    bulletExplodeAfter[i] = 200;
     radiusMultiplier[i] = 1;
     residueMultiplier[i] = 1;
     shotOffsetX[i] = 0;
@@ -1371,11 +1215,62 @@ function windowResized() {
   initSpatialGrid();
 }
 
-function triggerDiscoveryPopup() {
-  showDiscoveryPopup = true;
-  discoveryPopupTimer = discoveryPopupDuration;
+function triggerDiscoveryPopup(entry) {
+  discoveryQueue.push(entry);
+}
+
+function startNextDiscoveryPopup() {
+  discoveryPopupEntry = discoveryQueue.shift();
+  discoveryPopupTimer = discoveryQueue.length > 0 ? DISCOVERY_POPUP_QUEUED_FRAMES : DISCOVERY_POPUP_FRAMES;
   discoveryPopupY = windowHeight + 100;          // start off-screen
-  discoveryPopupTargetY = windowHeight - 50;    // where it should slide to
+  discoveryPopupTargetY = windowHeight - 90;     // where it should slide to
+}
+
+// Discovery card: the entry's picture and name, sliding up in the bottom right corner
+function drawDiscoveryPopup() {
+  if (!discoveryPopupEntry && discoveryQueue.length > 0) startNextDiscoveryPopup();
+  const entry = discoveryPopupEntry;
+  if (!entry) return;
+
+  const popupWidth = 420;
+  const popupHeight = 130;
+  const popupX = windowWidth - popupWidth - 20;
+  discoveryPopupY = lerp(discoveryPopupY, discoveryPopupTargetY, 0.1);
+  const top = discoveryPopupY - popupHeight / 2;
+
+  // fade out near the end of its timer
+  const fadeOutStart = 60; // last 1 second
+  const alpha = map(discoveryPopupTimer, 0, fadeOutStart, 0, 255, true);
+  const style = DEX_SECTION_STYLES[entry.section];
+
+  push();
+  rectMode(CORNER);
+  noStroke();
+  fill(0, 0, 0, alpha * 0.8);
+  stroke(...style.stroke, alpha * 0.7);
+  strokeWeight(2);
+  rect(popupX, top, popupWidth, popupHeight, 18);
+  noStroke();
+  const pic = popupHeight - 20;
+  drawDexPicture(entry, popupX + 10, top + 10, pic, pic, alpha);
+
+  const tx = popupX + pic + 24;
+  const tw = popupWidth - pic - 36;
+  textAlign(LEFT, TOP);
+  textSize(13);
+  fill(...style.stroke, alpha);
+  text(`New ${style.tab === 'Stats' ? 'Stat' : style.tab === 'Abilities' ? 'Ability' : 'Exotic'} Discovered!`, tx, top + 14);
+  fill(255, 255, 255, alpha);
+  textSize(entry.name.length > 24 ? 18 : 21);
+  text(entry.name, tx, top + 32, tw, 50);
+  fill(200, 200, 200, alpha);
+  textSize(12);
+  text(entry.stats, tx, top + popupHeight - 44, tw, 34);
+  pop();
+
+  // Countdown
+  discoveryPopupTimer--;
+  if (discoveryPopupTimer <= 0) discoveryPopupEntry = null;
 }
 
 // ===== SPATIAL PARTITIONING FUNCTIONS =====
@@ -1823,35 +1718,7 @@ function draw() {
   }
   updateAntDexEntries();
   
-  if (showDiscoveryPopup) {
-    const popupWidth = 300;
-    const popupHeight = 100;
-    const popupX = windowWidth - 150;
-
-    discoveryPopupY = lerp(discoveryPopupY, discoveryPopupTargetY, 0.1);
-
-    // fade out near the end of its timer
-    const fadeOutStart = 60; // last 1 second
-    const alpha = map(discoveryPopupTimer, 0, fadeOutStart, 0, 180, true);
-
-    push();
-    noStroke();
-    fill(0, 0, 0, alpha);
-    rectMode(CENTER);
-    rect(popupX, discoveryPopupY, popupWidth, popupHeight, 20);
-
-    fill(255, 255, 255, alpha + 75);
-    textSize(24);
-    textAlign(CENTER, CENTER);
-    text("New Ant Discovered!", popupX, discoveryPopupY);
-    pop();
-
-    // Countdown
-    discoveryPopupTimer--;
-    if (discoveryPopupTimer <= 0) {
-      showDiscoveryPopup = false;
-    }
-  }
+  drawDiscoveryPopup();
 }
 
 function resetRunState() {
@@ -2290,7 +2157,7 @@ function applyDifficultyToInitialPopulation() {
     if (antRecoilVelY[i] === undefined) antRecoilVelY[i] = 0;
     if (antRecoilAirTimer[i] === undefined) antRecoilAirTimer[i] = 0;
     if (explosionProximity[i] === undefined) explosionProximity[i] = 200;
-    if (bulletExplodeAfter[i] === undefined) bulletExplodeAfter[i] = 400;
+    if (bulletExplodeAfter[i] === undefined) bulletExplodeAfter[i] = 200;
     if (bulletBurstCount[i] === undefined) bulletBurstCount[i] = 2;
     if (bulletBurstSpread[i] === undefined) bulletBurstSpread[i] = 1.5;
     if (bulletBurstDelay[i] === undefined) bulletBurstDelay[i] = 40;
@@ -6954,6 +6821,7 @@ const DELAYED_BURST_MAX_DELAY = 60;       // Delayed burst fire type: longest bu
 // High arc bullets peak at arcDuration / 2, so this minimum keeps split arcs from splitting in the same
 // window as a delayed burst (130 / 2 = 65 frames > DELAYED_BURST_MAX_DELAY)
 const HIGH_ARC_MIN_DURATION = 130;
+const HIGH_ARC_MAX_DURATION = 600;        // High arc duration range; uncapped, mutates freely
 const EXPLODE_AFTER_MIN = 40;             // Timed explosion fuse range (frames); uncapped, mutates freely
 const EXPLODE_AFTER_MAX = 800;
 const SPLIT_ARC_COUNT = 3;                // Split arc path type: bullets a lofted shot splits into at its peak
@@ -11605,7 +11473,6 @@ bulletKnockbackMultiplier: { caps: [2, 3, 4, 5], inverse: false },
   bulletCooldownMultiplier: { caps: [3, 4, 5, 5.5], inverse: false },
   
   // Path category mutation stats (can be capped)
-  bulletArcDuration: { caps: [300, 400, 500, 600], inverse: false },
   bulletCurveStrength: { caps: [0.05, 0.075, 0.1], inverse: false },
   pathCurve: { caps: [1.0, 2.0], inverse: false },  // <1 = curved, >=1 = homing
   deathLandmine: { caps: [1.0, 2.0], inverse: false },  // <1 = smear, >=1 = landmine
@@ -11623,7 +11490,6 @@ bulletKnockbackMultiplier: { caps: [2, 3, 4, 5], inverse: false },
   bulletAccelerateDelay: { caps: [150, 100, 60, 30], inverse: true, start: 200 },  // Frames before acceleration (inverse: lower=better)
   
   // Explosion stats
-  explosionProximity: { caps: [400, 600, 800, 1000], inverse: false },
   bulletSize: { caps: [1.5, 2.0, 2.5, 3.0], inverse: false },
   radiusMultiplier: { caps: [1.5, 2.0, 2.5, 3.0], inverse: false },
   residueMultiplier: { caps: [1.5, 2.0, 2.5, 3.0], inverse: false },
@@ -11924,7 +11790,6 @@ bulletKnockbackMultiplier: { caps: [2, 3, 4, 5], inverse: false },
     bulletCooldownMultiplier: { caps: [3, 4, 5, 5.5], inverse: false },
     
     // Path category mutation stats (can be capped)
-    bulletArcDuration: { caps: [300, 400, 500, 600], inverse: false },
     bulletCurveStrength: { caps: [0.05, 0.075, 0.1], inverse: false },
     pathCurve: { caps: [1.0, 2.0], inverse: false },  // <1 = curved, >=1 = homing
 
@@ -11945,7 +11810,6 @@ bulletKnockbackMultiplier: { caps: [2, 3, 4, 5], inverse: false },
     deathMound: { caps: [1.0, 2.0], inverse: false },  // <1 = mound, >=1 = bunker
     
     // Explosion stats
-    explosionProximity: { caps: [400, 600, 800, 1000], inverse: false },
     bulletSize: { caps: [1.5, 2.0, 2.5, 3.0], inverse: false },
     radiusMultiplier: { caps: [1.5, 2.0, 2.5, 3.0], inverse: false },
     residueMultiplier: { caps: [1.5, 2.0, 2.5, 3.0], inverse: false },
@@ -12332,7 +12196,6 @@ bulletKnockbackMultiplier: { caps: [2, 3, 4, 5], inverse: false },
     bulletCooldownMultiplier: { caps: [3, 4, 5, 5.5], inverse: false },
     
     // Path category mutation stats (can be capped)
-    bulletArcDuration: { caps: [300, 400, 500, 600], inverse: false },
     bulletCurveStrength: { caps: [0.05, 0.075, 0.1], inverse: false },
     pathCurve: { caps: [1.0, 2.0], inverse: false },  // <1 = curved, >=1 = homing
 
@@ -12353,7 +12216,6 @@ bulletKnockbackMultiplier: { caps: [2, 3, 4, 5], inverse: false },
     deathMound: { caps: [1.0, 2.0], inverse: false },  // <1 = mound, >=1 = bunker
     
     // Explosion stats
-    explosionProximity: { caps: [400, 600, 800, 1000], inverse: false },
     bulletSize: { caps: [1.5, 2.0, 2.5, 3.0], inverse: false },
     radiusMultiplier: { caps: [1.5, 2.0, 2.5, 3.0], inverse: false },
     residueMultiplier: { caps: [1.5, 2.0, 2.5, 3.0], inverse: false },
@@ -13041,8 +12903,10 @@ function getAntAphidStatOptions(i) {
 }
 
 // The best value a stat can reach (inverse stats get better as they go down)
+const APHID_UNCAPPED_STAT_BEST = { explosionProximity: 1000, bulletArcDuration: HIGH_ARC_MAX_DURATION }; // Stats with no gene caps
 function getAphidMaxedStat(stat, value) {
   const tier = moduleStatCapTiers[stat];
+  if (!tier) return Math.max(value, APHID_UNCAPPED_STAT_BEST[stat]);
   const best = tier.caps[tier.caps.length - 1];
   return tier.inverse ? Math.min(value, best) : Math.max(value, best);
 }
@@ -15644,7 +15508,7 @@ function nextRound(){
         let pathBlinkVal = s.pathBlink || 0;
         // Only mutate arc duration if parent uses high arc
         if (s.pathPotential > 0.5 && pathHighArcVal >= pathCurveVal && pathHighArcVal >= pathAccelerateVal && pathHighArcVal >= pathBlinkVal) {
-          bulletArcDuration[i] = constrain(s.bulletArcDuration + random(-50, 50), HIGH_ARC_MIN_DURATION, getMaxAllowedValue('bulletArcDuration', i, s.geneTokenInvestments || []));
+          bulletArcDuration[i] = constrain(s.bulletArcDuration + random(-50, 50), HIGH_ARC_MIN_DURATION, HIGH_ARC_MAX_DURATION);
         } else {
           bulletArcDuration[i] = s.bulletArcDuration;
         }
@@ -15822,7 +15686,7 @@ function nextRound(){
         let pathBlinkVal = pathBlink[parent.id];
         // Only mutate arc duration if parent uses high arc
         if (pathPotential[parent.id] > 0.5 && pathHighArcVal >= pathCurveVal && pathHighArcVal >= pathAccelerateVal && pathHighArcVal >= pathBlinkVal) {
-          bulletArcDuration[i] = constrain(bulletArcDuration[parent.id] + random(-50, 50), HIGH_ARC_MIN_DURATION, getMaxAllowedValue('bulletArcDuration', parent.id));
+          bulletArcDuration[i] = constrain(bulletArcDuration[parent.id] + random(-50, 50), HIGH_ARC_MIN_DURATION, HIGH_ARC_MAX_DURATION);
         } else {
           bulletArcDuration[i] = bulletArcDuration[parent.id];
         }
@@ -16144,11 +16008,11 @@ function nextRound(){
       
       // Only mutate arc duration if winner uses high arc
       if (winner && pathPotential[winner.id] > 0.5 && pathHighArcVal >= pathCurveVal && pathHighArcVal >= pathAccelerateVal && pathHighArcVal >= pathBlinkVal) {
-        bulletArcDuration[i] = constrain(bulletArcDuration[winner.id] + random(-50, 50), HIGH_ARC_MIN_DURATION, getMaxAllowedValue('bulletArcDuration', winner.id));
+        bulletArcDuration[i] = constrain(bulletArcDuration[winner.id] + random(-50, 50), HIGH_ARC_MIN_DURATION, HIGH_ARC_MAX_DURATION);
       } else if (winner) {
         bulletArcDuration[i] = bulletArcDuration[winner.id];
       } else {
-        bulletArcDuration[i] = random(HIGH_ARC_MIN_DURATION, 600);
+        bulletArcDuration[i] = random(HIGH_ARC_MIN_DURATION, HIGH_ARC_MAX_DURATION);
       }
       
       // Only mutate curve strength if winner uses curve/homing path
@@ -17938,297 +17802,211 @@ function skipPreGameUpgrade() {
   }
 }
 
+// Tab names, colors and progress bar gradients for each Antdex section
+const DEX_SECTION_STYLES = {
+  stats: {
+    tab: 'Stats', stroke: [255, 255, 255], fill: [90, 90, 90], dim: [45, 45, 45], card: [235, 235, 235], bar: [60, 60, 60],
+    gradient: [[255, 0, 0], [0, 255, 0], [160, 32, 240], [255, 255, 255], [255, 215, 0]], glow: [255, 215, 0]
+  },
+  abilities: {
+    tab: 'Abilities', stroke: [110, 190, 255], fill: [40, 80, 130], dim: [25, 40, 60], card: [205, 228, 255], bar: [30, 45, 70],
+    gradient: [[60, 110, 255], [35, 200, 255], [120, 255, 200], [255, 255, 255], [255, 215, 0]], glow: [120, 220, 255]
+  },
+  exotic: {
+    tab: 'Exotic', stroke: [160, 120, 255], fill: [70, 40, 110], dim: [35, 25, 55], card: [255, 204, 0], bar: [45, 35, 70],
+    gradient: [[160, 32, 240], [60, 110, 255], [35, 200, 255], [255, 140, 0], [255, 80, 200]], glow: [255, 80, 200]
+  }
+};
+const DEX_CARD_HEIGHT = 175;
+const DEX_ROW_HEIGHT = 190;
+const DEX_LIST_TOP = 250;
+const DEX_LIST_BOTTOM = MENU_REFERENCE_HEIGHT - 48;
+
+function getDexProgressColor(style, progress) {
+  const stops = style.gradient;
+  const seg = Math.min(3, Math.floor(progress / 0.25));
+  // The last segment only turns to the final color right at 100%
+  const t = seg === 3 ? map(progress, 0.99, 1, 0, 1, true) : (progress - seg * 0.25) / 0.25;
+  return lerpColor(color(...stops[seg]), color(...stops[seg + 1]), constrain(t, 0, 1));
+}
+
+function drawDexCard(entry, x, top, w) {
+  const style = DEX_SECTION_STYLES[entry.section];
+  const locked = !entry.discovered;
+  noStroke();
+  fill(locked ? color(40) : color(...style.card));
+  rect(x, top, w, DEX_CARD_HEIGHT, 20);
+
+  const pic = DEX_CARD_HEIGHT - 28;
+  drawDexPicture(entry, x + 14, top + 14, pic, pic, 255, locked);
+
+  const tx = x + pic + 30;
+  const tw = w - pic - 46;
+  textAlign(LEFT, BASELINE);
+  if (locked) {
+    fill(180);
+    textSize(26);
+    text('???', tx, top + 40);
+    textSize(16);
+    text('?????????????????', tx, top + 70);
+    textSize(14);
+    text('????????????', tx, top + DEX_CARD_HEIGHT - 22);
+    return;
+  }
+  fill(10);
+  textSize(entry.name.length > 26 ? 21 : 24);
+  text(entry.name, tx, top + 38);
+  textAlign(LEFT, TOP);
+  textSize(15);
+  fill(20);
+  text(entry.desc, tx, top + 50, tw, 84);
+  textSize(13);
+  fill(0, 0, 0, 170);
+  text(entry.stats, tx, top + DEX_CARD_HEIGHT - 40, tw, 34);
+}
+
 function antdexScreen() {
   if (!antdex) return;
 
   beginMenuScaling();
 
+  const sectionIndex = DEX_SECTIONS.indexOf(dexCategory);
   if (dexTabSwitchCooldown === 0) {
-    if (isLeftPressed()) {
-      setDexCategory('normal');
+    if (isLeftPressed() && sectionIndex > 0) {
+      setDexCategory(DEX_SECTIONS[sectionIndex - 1]);
       dexTabSwitchCooldown = 10;
-    } else if (isRightPressed()) {
-      setDexCategory('exotic');
+    } else if (isRightPressed() && sectionIndex < DEX_SECTIONS.length - 1) {
+      setDexCategory(DEX_SECTIONS[sectionIndex + 1]);
       dexTabSwitchCooldown = 10;
     }
   }
 
-  const normalEntries = antDexEntries.filter(entry => entry.category === 'normal');
-  const exoticEntries = antDexEntries.filter(entry => entry.category === 'exotic');
-  const visibleEntries = dexCategory === 'normal' ? normalEntries : exoticEntries;
-
-  const normalDiscovered = normalEntries.filter(entry => entry.discovered).length;
-  const exoticDiscovered = exoticEntries.filter(entry => entry.discovered).length;
-
-  progressTargetNormal = normalEntries.length === 0 ? 0 : normalDiscovered / normalEntries.length;
-  progressTargetExotic = exoticEntries.length === 0 ? 0 : exoticDiscovered / exoticEntries.length;
-
-  if (dexCategory === 'normal') {
-    const diffNormal = abs(progressTargetNormal - progressDisplayNormal);
-    const easingNormal = map(diffNormal, 0, 1, 0.01, 0.05, true);
-    progressDisplayNormal += (progressTargetNormal - progressDisplayNormal) * easingNormal;
-  }
-
-  if (dexCategory === 'exotic') {
-    const diffExotic = abs(progressTargetExotic - progressDisplayExotic);
-    const easingExotic = map(diffExotic, 0, 1, 0.01, 0.05, true);
-    progressDisplayExotic += (progressTargetExotic - progressDisplayExotic) * easingExotic;
-  }
+  const style = DEX_SECTION_STYLES[dexCategory];
+  const visibleEntries = antDexEntries.filter(entry => entry.section === dexCategory);
+  const discoveredCount = visibleEntries.filter(entry => entry.discovered).length;
+  const progressTarget = visibleEntries.length === 0 ? 0 : discoveredCount / visibleEntries.length;
+  const diff = abs(progressTarget - dexProgressDisplay[dexCategory]);
+  dexProgressDisplay[dexCategory] += (progressTarget - dexProgressDisplay[dexCategory]) * map(diff, 0, 1, 0.01, 0.05, true);
+  const progress = dexProgressDisplay[dexCategory];
 
   imageMode(CORNER);
+  rectMode(CORNER);
+  noStroke();
   fill(20);
   rect(0, 0, getMenuWidth(), getMenuHeight());
 
-  fill(255);
-  textAlign(CENTER);
-  textSize(70);
-  text("Antdex", getMenuWidth() / 2, 90);
-
-  const tabWidth = 220;
-  const tabHeight = 44;
-  const tabSpacing = 24;
-  const tabY = 150;
-  const normalTabX = getMenuWidth() / 2 - tabWidth - tabSpacing / 2;
-  const exoticTabX = getMenuWidth() / 2 + tabSpacing / 2;
-
-  dexTabRegions.normal = { x: normalTabX, y: tabY - tabHeight / 2, w: tabWidth, h: tabHeight };
-  dexTabRegions.exotic = { x: exoticTabX, y: tabY - tabHeight / 2, w: tabWidth, h: tabHeight };
-
-  rectMode(CORNER);
-  strokeWeight(2);
-
-  stroke(255, 255, 255, dexCategory === 'normal' ? 180 : 80);
-  fill(dexCategory === 'normal' ? color(90, 90, 90) : color(45, 45, 45));
-  rect(dexTabRegions.normal.x, dexTabRegions.normal.y, tabWidth, tabHeight, 12);
-
-  stroke(160, 120, 255, dexCategory === 'exotic' ? 200 : 80);
-  fill(dexCategory === 'exotic' ? color(70, 40, 110) : color(35, 25, 55));
-  rect(dexTabRegions.exotic.x, dexTabRegions.exotic.y, tabWidth, tabHeight, 12);
-
-  noStroke();
-  textAlign(CENTER, CENTER);
-  textSize(26);
-  fill(255);
-  text("Normal Types", dexTabRegions.normal.x + tabWidth / 2, tabY);
-  text("Exotic Types", dexTabRegions.exotic.x + tabWidth / 2, tabY);
-
-  let fadeAlpha = map(sin(frameCount * 0.05), -1, 1, 30, 70);
-  textSize(18);
-  fill(200, fadeAlpha);
-  text("← or A or click for Normal • → or D or click for Exotic", getMenuWidth() / 2, tabY + 50);
-
-  const barWidth = 360;
-  const barHeight = 18;
-  const barY = tabY + 110;
-
-  rectMode(CENTER);
-  textAlign(CENTER);
-  textSize(24);
-
-  if (dexCategory === 'normal') {
-    fill(255);
-    text(`Normal Discoveries: ${normalDiscovered} / ${normalEntries.length}`, getMenuWidth() / 2, barY - 38);
-    fill(60);
-    rect(getMenuWidth() / 2, barY, barWidth, barHeight, 8);
-
-    let normalColorStart;
-    let normalColorEnd;
-    let normalT;
-    if (progressDisplayNormal < 0.25) {
-      normalColorStart = color(255, 0, 0);
-      normalColorEnd = color(0, 255, 0);
-      normalT = progressDisplayNormal / 0.25;
-    } else if (progressDisplayNormal < 0.5) {
-      normalColorStart = color(0, 255, 0);
-      normalColorEnd = color(160, 32, 240);
-      normalT = (progressDisplayNormal - 0.25) / 0.25;
-    } else if (progressDisplayNormal < 0.75) {
-      normalColorStart = color(160, 32, 240);
-      normalColorEnd = color(255, 255, 255);
-      normalT = (progressDisplayNormal - 0.5) / 0.25;
-    } else {
-      normalColorStart = color(255, 255, 255);
-      normalColorEnd = color(255, 215, 0);
-      normalT = map(progressDisplayNormal, 0.99, 1, 0, 1, true);
-    }
-    const normalFillColor = lerpColor(normalColorStart, normalColorEnd, constrain(normalT, 0, 1));
-
-    let normalShakeX = 0;
-    let normalShakeY = 0;
-    if (progressDisplayNormal > 0.85 && progressDisplayNormal < 0.999) {
-      normalShakeX = random(-3 * progressDisplayNormal, 3 * progressDisplayNormal);
-      normalShakeY = random(-3 * progressDisplayNormal, 3 * progressDisplayNormal);
-    }
-
-    push();
-    translate(normalShakeX, normalShakeY);
-    fill(normalFillColor);
-    noStroke();
-    const normalWidth = barWidth * constrain(progressDisplayNormal, 0, 1);
-    rect(getMenuWidth() / 2 - barWidth / 2 + normalWidth / 2, barY, normalWidth, barHeight, 8);
-    pop();
-
-    if (progressDisplayNormal > 0.999) {
-      const normalGlow = map(sin(frameCount * 0.05), -1, 1, 50, 180);
-      noFill();
-      stroke(255, 215, 0, normalGlow);
-      strokeWeight(10);
-      rect(getMenuWidth() / 2, barY, barWidth + 9, barHeight + 6, 10);
-      noStroke();
-    }
-  } else {
-    fill(255);
-    text(`Exotic Discoveries: ${exoticDiscovered} / ${exoticEntries.length}`, getMenuWidth() / 2, barY - 38);
-    fill(45, 35, 70);
-    rect(getMenuWidth() / 2, barY, barWidth, barHeight, 8);
-
-    let exoticColorStart;
-    let exoticColorEnd;
-    let exoticT;
-    if (progressDisplayExotic < 0.25) {
-      exoticColorStart = color(160, 32, 240);
-      exoticColorEnd = color(60, 110, 255);
-      exoticT = progressDisplayExotic / 0.25;
-    } else if (progressDisplayExotic < 0.5) {
-      exoticColorStart = color(60, 110, 255);
-      exoticColorEnd = color(35, 200, 255);
-      exoticT = (progressDisplayExotic - 0.25) / 0.25;
-    } else if (progressDisplayExotic < 0.75) {
-      exoticColorStart = color(35, 200, 255);
-      exoticColorEnd = color(255, 140, 0);
-      exoticT = (progressDisplayExotic - 0.5) / 0.25;
-    } else {
-      exoticColorStart = color(255, 140, 0);
-      exoticColorEnd = color(255, 80, 200);
-      exoticT = map(progressDisplayExotic, 0.99, 1, 0, 1, true);
-    }
-    const exoticFillColor = lerpColor(exoticColorStart, exoticColorEnd, constrain(exoticT, 0, 1));
-
-    let exoticShakeX = 0;
-    let exoticShakeY = 0;
-    if (progressDisplayExotic > 0.85 && progressDisplayExotic < 0.999) {
-      exoticShakeX = random(-4 * progressDisplayExotic, 4 * progressDisplayExotic);
-      exoticShakeY = random(-4 * progressDisplayExotic, 4 * progressDisplayExotic);
-    }
-
-    push();
-    translate(exoticShakeX, exoticShakeY);
-    fill(exoticFillColor);
-    noStroke();
-    const exoticWidth = barWidth * constrain(progressDisplayExotic, 0, 1);
-    rect(getMenuWidth() / 2 - barWidth / 2 + exoticWidth / 2, barY, exoticWidth, barHeight, 8);
-    pop();
-
-    if (progressDisplayExotic > 0.999) {
-      const exoticGlow = map(sin(frameCount * 0.07), -1, 1, 80, 200);
-      noFill();
-      stroke(255, 80, 200, exoticGlow);
-      strokeWeight(10);
-      rect(getMenuWidth() / 2, barY, barWidth + 10, barHeight + 9, 12);
-      noStroke();
-    }
-  }
-
-  rectMode(CORNER);
-
+  // ----- Entry list (drawn first, clipped to the area under the header) -----
   if (isUpPressed()) dexTargetScroll += dexScrollSpeed;
   if (isDownPressed()) dexTargetScroll -= dexScrollSpeed;
 
-  const rowHeight = 220;
-  const listTop = barY + 80;
-  const viewHeight = getMenuHeight() - listTop - 80;
+  const viewHeight = DEX_LIST_BOTTOM - DEX_LIST_TOP;
   const totalRows = Math.ceil(visibleEntries.length / 2);
-  const contentHeight = totalRows * rowHeight;
+  const contentHeight = totalRows * DEX_ROW_HEIGHT;
   const maxOffset = max(0, contentHeight - viewHeight);
-  const minScroll = -maxOffset;
-
-  dexTargetScroll = constrain(dexTargetScroll, minScroll, 0);
+  dexTargetScroll = constrain(dexTargetScroll, -maxOffset, 0);
   dexScrollY = lerp(dexScrollY, dexTargetScroll, 0.2);
 
   const colWidth = getMenuWidth() / 2.3;
   const leftColX = getMenuWidth() / 2 - colWidth - 30;
   const rightColX = getMenuWidth() / 2 + 30;
-  const baseY = listTop + dexScrollY;
 
-  textAlign(LEFT);
-  textSize(32);
+  push();
+  drawingContext.save();
+  drawingContext.beginPath();
+  drawingContext.rect(0, DEX_LIST_TOP - 10, getMenuWidth(), viewHeight + 10);
+  drawingContext.clip();
+  for (let i = 0; i < visibleEntries.length; i++) {
+    const top = DEX_LIST_TOP + dexScrollY + Math.floor(i / 2) * DEX_ROW_HEIGHT;
+    if (top > DEX_LIST_BOTTOM || top + DEX_CARD_HEIGHT < DEX_LIST_TOP - 10) continue;
+    drawDexCard(visibleEntries[i], i % 2 === 0 ? leftColX : rightColX, top, colWidth);
+  }
+  drawingContext.restore();
+  pop();
+
+  if (maxOffset > 0) {
+    const barH = max(60, viewHeight * (viewHeight / contentHeight));
+    const scrollProgress = (-dexTargetScroll) / maxOffset;
+    noStroke();
+    fill(100, 100, 100, 150);
+    rect(getMenuWidth() - 30, DEX_LIST_TOP + scrollProgress * (viewHeight - barH), 10, barH, 5);
+  }
+
+  // ----- Header -----
+  fill(255);
+  textAlign(CENTER, BASELINE);
+  textSize(56);
+  text("Antdex", getMenuWidth() / 2, 62);
+
+  const tabWidth = 200;
+  const tabHeight = 40;
+  const tabSpacing = 20;
+  const tabY = 105;
+  const tabsLeft = getMenuWidth() / 2 - (tabWidth * 3 + tabSpacing * 2) / 2;
+  strokeWeight(2);
+  for (let k = 0; k < DEX_SECTIONS.length; k++) {
+    const section = DEX_SECTIONS[k];
+    const tabStyle = DEX_SECTION_STYLES[section];
+    const selected = section === dexCategory;
+    dexTabRegions[section] = { x: tabsLeft + k * (tabWidth + tabSpacing), y: tabY - tabHeight / 2, w: tabWidth, h: tabHeight };
+    stroke(...tabStyle.stroke, selected ? 200 : 80);
+    fill(...(selected ? tabStyle.fill : tabStyle.dim));
+    rect(dexTabRegions[section].x, dexTabRegions[section].y, tabWidth, tabHeight, 12);
+    noStroke();
+    fill(255, selected ? 255 : 170);
+    textAlign(CENTER, CENTER);
+    textSize(24);
+    text(tabStyle.tab, dexTabRegions[section].x + tabWidth / 2, tabY);
+  }
+
+  let fadeAlpha = map(sin(frameCount * 0.05), -1, 1, 30, 70);
+  textSize(16);
+  fill(200, fadeAlpha);
+  text("← / → or A / D or click to switch tabs", getMenuWidth() / 2, tabY + 36);
+
+  const barWidth = 360;
+  const barHeight = 16;
+  const barY = 205;
+  textAlign(CENTER, BASELINE);
+  textSize(22);
+  fill(255);
+  text(`${style.tab} Discoveries: ${discoveredCount} / ${visibleEntries.length}`, getMenuWidth() / 2, barY - 16);
+  rectMode(CENTER);
+  fill(...style.bar);
+  rect(getMenuWidth() / 2, barY, barWidth, barHeight, 8);
+
+  let shakeX = 0;
+  let shakeY = 0;
+  if (progress > 0.85 && progress < 0.999) {
+    shakeX = random(-3 * progress, 3 * progress);
+    shakeY = random(-3 * progress, 3 * progress);
+  }
+  push();
+  translate(shakeX, shakeY);
+  fill(getDexProgressColor(style, progress));
+  const fillWidth = barWidth * constrain(progress, 0, 1);
+  rect(getMenuWidth() / 2 - barWidth / 2 + fillWidth / 2, barY, fillWidth, barHeight, 8);
+  pop();
+  if (progress > 0.999) {
+    noFill();
+    stroke(...style.glow, map(sin(frameCount * 0.05), -1, 1, 50, 180));
+    strokeWeight(10);
+    rect(getMenuWidth() / 2, barY, barWidth + 9, barHeight + 6, 10);
+    noStroke();
+  }
+  rectMode(CORNER);
 
   if (visibleEntries.length === 0) {
     fill(200);
     textAlign(CENTER);
     textSize(24);
-    text("No entries unlocked in this tab yet.", getMenuWidth() / 2, listTop + 40);
-  }
-
-  for (let i = 0; i < visibleEntries.length; i++) {
-    const entry = visibleEntries[i];
-    const col = i % 2;
-    const row = Math.floor(i / 2);
-    const x = col === 0 ? leftColX : rightColX;
-    const y = baseY + row * rowHeight;
-
-    if (y > listTop - 180 && y < getMenuHeight() + 180) {
-      let cardFillColor;
-      let primaryTextColor;
-      let secondaryTextColor;
-
-      if (!entry.discovered) {
-        cardFillColor = color(40);
-        primaryTextColor = color(180);
-        secondaryTextColor = color(180);
-      } else if (entry.category === 'exotic') {
-        cardFillColor = color(255, 204, 0);
-        primaryTextColor = color(0);
-        secondaryTextColor = color(40);
-      } else {
-        cardFillColor = color(235);
-        primaryTextColor = color(10);
-        secondaryTextColor = color(0, 0, 0, 160);
-      }
-
-      fill(cardFillColor);
-      rect(x, y - 60, colWidth, 180, 20);
-
-      if (entry.discovered) {
-        fill(primaryTextColor);
-        textSize(32);
-        text(entry.name, x + 20, y - 20);
-        textSize(20);
-        fill(primaryTextColor);
-        text(entry.desc, x + 20, y + 5, colWidth - 40, 90);
-
-        fill(secondaryTextColor);
-        textSize(18);
-        text(entry.stats, x + 20, y + 100);
-      } else {
-        fill(primaryTextColor);
-        textSize(32);
-        text("???", x + 20, y - 20);
-
-        textSize(20);
-        text("?????????????????", x + 20, y + 10, colWidth - 40, 60);
-
-        textSize(18);
-        text("????????????", x + 20, y + 70);
-      }
-    }
-  }
-
-  if (maxOffset > 0) {
-    const viewRatio = viewHeight / contentHeight;
-    const barH = max(60, viewHeight * viewRatio);
-    const scrollableRange = maxOffset;
-    const scrollProgress = scrollableRange === 0 ? 0 : (-dexTargetScroll) / scrollableRange;
-    const barY = listTop + scrollProgress * (viewHeight - barH);
-    fill(100, 100, 100, 150);
-    rect(getMenuWidth() - 30, barY, 10, barH, 5);
+    text("No entries in this tab yet.", getMenuWidth() / 2, DEX_LIST_TOP + 40);
   }
 
   fadeAlpha = map(sin(frameCount * 0.05), -1, 1, 30, 70);
   fill(255, fadeAlpha);
-  textAlign(CENTER);
-  textSize(24);
-  text("Esc or B  Back", getMenuWidth() / 2, getMenuHeight() - 40);
+  textAlign(CENTER, BASELINE);
+  textSize(22);
+  text("Esc or B  Back", getMenuWidth() / 2, getMenuHeight() - 16);
 
   if (isBackPressed()) {
     antdex = false;
@@ -18245,7 +18023,7 @@ function antdexScreen() {
     antdexOpenCooldown = 20;
     antdexReturnState = 'menu';
   }
-  
+
   endMenuScaling();
 }
 
@@ -18263,7 +18041,6 @@ function setDexCategory(nextCategory) {
     dexCategory = nextCategory;
     dexTargetScroll = 0;
     dexScrollY = 0;
-    selectedDexIndex = -1;
   }
 }
 
@@ -18312,1725 +18089,1376 @@ function mousePressed() {
   
   if (!antdex) return;
 
-  const normalTab = dexTabRegions.normal;
-  const exoticTab = dexTabRegions.exotic;
-
-  if (pointInRect(getMenuMouseX(), getMenuMouseY(), normalTab)) {
-    setDexCategory('normal');
-    dexTabSwitchCooldown = 10;
-  } else if (pointInRect(getMenuMouseX(), getMenuMouseY(), exoticTab)) {
-    setDexCategory('exotic');
-    dexTabSwitchCooldown = 10;
+  for (const section of DEX_SECTIONS) {
+    if (pointInRect(getMenuMouseX(), getMenuMouseY(), dexTabRegions[section])) {
+      setDexCategory(section);
+      dexTabSwitchCooldown = 10;
+    }
   }
 }
 
-function updateAntDexEntries() {
-  //checks for and stores previously discovered ants
-  
-  // Movement Type 1-8
-  if (movementType1Discovered === true) storeItem('movementType1PreviouslyDiscovered', movementType1Discovered);
-  if (getItem('movementType1PreviouslyDiscovered') === true) movementType1Discovered = getItem('movementType1PreviouslyDiscovered');
-  
-  if (movementType2Discovered === true) storeItem('movementType2PreviouslyDiscovered', movementType2Discovered);
-  if (getItem('movementType2PreviouslyDiscovered') === true) movementType2Discovered = getItem('movementType2PreviouslyDiscovered');
-  
-  if (movementType3Discovered === true) storeItem('movementType3PreviouslyDiscovered', movementType3Discovered);
-  if (getItem('movementType3PreviouslyDiscovered') === true) movementType3Discovered = getItem('movementType3PreviouslyDiscovered');
-  
-  if (movementType4Discovered === true) storeItem('movementType4PreviouslyDiscovered', movementType4Discovered);
-  if (getItem('movementType4PreviouslyDiscovered') === true) movementType4Discovered = getItem('movementType4PreviouslyDiscovered');
-  
-  if (movementType5Discovered === true) storeItem('movementType5PreviouslyDiscovered', movementType5Discovered);
-  if (getItem('movementType5PreviouslyDiscovered') === true) movementType5Discovered = getItem('movementType5PreviouslyDiscovered');
-  
-  if (movementType6Discovered === true) storeItem('movementType6PreviouslyDiscovered', movementType6Discovered);
-  if (getItem('movementType6PreviouslyDiscovered') === true) movementType6Discovered = getItem('movementType6PreviouslyDiscovered');
-  
-  if (movementType7Discovered === true) storeItem('movementType7PreviouslyDiscovered', movementType7Discovered);
-  if (getItem('movementType7PreviouslyDiscovered') === true) movementType7Discovered = getItem('movementType7PreviouslyDiscovered');
-  
-  if (movementType8Discovered === true) storeItem('movementType8PreviouslyDiscovered', movementType8Discovered);
-  if (getItem('movementType8PreviouslyDiscovered') === true) movementType8Discovered = getItem('movementType8PreviouslyDiscovered');
+// ========== ANTDEX ==========
+// The Antdex has three sections:
+//   Stats     - one entry per gene cap (unlocked when an ant on the field has that cap), plus the stats and
+//               movement styles that have no gene caps, which unlock by their values
+//   Abilities - the 32 level 1 / level 2 abilities (unlocked when an ant on the field has the ability)
+//   Exotic    - ability combinations the code had to special-case (unlocked when an ant has both)
+// Each entry has a check(i) run against every ant on the field and a scene that drawDexPicture() draws on
+// its card and on the discovery pop-up. Discoveries are saved under ANTDEX_STORAGE_KEY as {id: true}.
+const ANTDEX_STORAGE_KEY = 'antDexDiscoveries';
+const DEX_ROMAN = ['I', 'II', 'III', 'IV', 'V'];
 
-  // Ant Speed (9-13)
-  if (antSpeedMinDiscovered === true) storeItem('antSpeedMinPreviouslyDiscovered', antSpeedMinDiscovered);
-  if (getItem('antSpeedMinPreviouslyDiscovered') === true) antSpeedMinDiscovered = getItem('antSpeedMinPreviouslyDiscovered');
-  
-  if (antSpeedLowDiscovered === true) storeItem('antSpeedLowPreviouslyDiscovered', antSpeedLowDiscovered);
-  if (getItem('antSpeedLowPreviouslyDiscovered') === true) antSpeedLowDiscovered = getItem('antSpeedLowPreviouslyDiscovered');
-  
-  if (antSpeedMedDiscovered === true) storeItem('antSpeedMedPreviouslyDiscovered', antSpeedMedDiscovered);
-  if (getItem('antSpeedMedPreviouslyDiscovered') === true) antSpeedMedDiscovered = getItem('antSpeedMedPreviouslyDiscovered');
-  
-  if (antSpeedHighDiscovered === true) storeItem('antSpeedHighPreviouslyDiscovered', antSpeedHighDiscovered);
-  if (getItem('antSpeedHighPreviouslyDiscovered') === true) antSpeedHighDiscovered = getItem('antSpeedHighPreviouslyDiscovered');
-  
-  if (antSpeedMaxDiscovered === true) storeItem('antSpeedMaxPreviouslyDiscovered', antSpeedMaxDiscovered);
-  if (getItem('antSpeedMaxPreviouslyDiscovered') === true) antSpeedMaxDiscovered = getItem('antSpeedMaxPreviouslyDiscovered');
+// Highest gene cap tier ant i has unlocked for a stat (-1 = none)
+function getUnlockedCapTier(i, statName) {
+  let tier = -1;
+  for (const inv of geneTokenInvestments[i] || []) {
+    if (inv.type === 'cap' && inv.target === statName) tier = Math.max(tier, inv.tier || 0);
+  }
+  return tier;
+}
 
-  // Bullet Speed (14-18)
-  if (bulletSpeedMinDiscovered === true) storeItem('bulletSpeedMinPreviouslyDiscovered', bulletSpeedMinDiscovered);
-  if (getItem('bulletSpeedMinPreviouslyDiscovered') === true) bulletSpeedMinDiscovered = getItem('bulletSpeedMinPreviouslyDiscovered');
-  
-  if (bulletSpeedLowDiscovered === true) storeItem('bulletSpeedLowPreviouslyDiscovered', bulletSpeedLowDiscovered);
-  if (getItem('bulletSpeedLowPreviouslyDiscovered') === true) bulletSpeedLowDiscovered = getItem('bulletSpeedLowPreviouslyDiscovered');
-  
-  if (bulletSpeedMedDiscovered === true) storeItem('bulletSpeedMedPreviouslyDiscovered', bulletSpeedMedDiscovered);
-  if (getItem('bulletSpeedMedPreviouslyDiscovered') === true) bulletSpeedMedDiscovered = getItem('bulletSpeedMedPreviouslyDiscovered');
-  
-  if (bulletSpeedHighDiscovered === true) storeItem('bulletSpeedHighPreviouslyDiscovered', bulletSpeedHighDiscovered);
-  if (getItem('bulletSpeedHighPreviouslyDiscovered') === true) bulletSpeedHighDiscovered = getItem('bulletSpeedHighPreviouslyDiscovered');
-  
-  if (bulletSpeedMaxDiscovered === true) storeItem('bulletSpeedMaxPreviouslyDiscovered', bulletSpeedMaxDiscovered);
-  if (getItem('bulletSpeedMaxPreviouslyDiscovered') === true) bulletSpeedMaxDiscovered = getItem('bulletSpeedMaxPreviouslyDiscovered');
+// Stats with gene caps. Each cap tier that raises the stat's limit gets an entry; the last tier of each
+// stat doesn't raise the limit any further (see getMaxAllowedValue / getMinAllowedValue), so it has none.
+const DEX_CAP_STATS = [
+  { stat: 'bulletSpeed', name: 'Fast Bullet', label: 'Bullet travel time', unit: ' frames', scene: 'bulletSpeed',
+    desc: 'Its bullets cross the arena faster, leaving less time to dodge.' },
+  { stat: 'bulletCooldown', name: 'Quick Reload', label: 'Cooldown', unit: ' frames', scene: 'cooldown',
+    desc: 'Waits less time between shots.' },
+  { stat: 'antSpeed', name: 'Fast', label: 'Ant speed', unit: '', scene: 'antSpeed',
+    desc: 'Runs faster than a normal ant.' },
+  { stat: 'antSize', name: 'Giant', label: 'Ant size', unit: 'x', scene: 'antSize',
+    desc: 'Grows bigger than a normal ant, with more health and an easier hitbox to hit.' },
+  { stat: 'bulletSize', name: 'Big Bullet', label: 'Bullet size', unit: 'x', scene: 'bulletSize',
+    desc: 'Fires bigger, heavier bullets that deal more damage.' },
+  { stat: 'bulletKnockbackMultiplier', name: 'Heavy Knockback', label: 'Knockback', unit: 'x', scene: 'knockbackPower',
+    desc: 'Knockback and vacuum bullets push (and pull) the beetle harder.' },
+  { stat: 'bulletCamoFlashRate', name: 'Deep Camouflage', label: 'Flashes per second', unit: '', scene: 'camoFlash',
+    desc: 'Camouflage bullets flash into sight less often, staying hidden longer.' },
+  { stat: 'bulletBurstCount', name: 'Big Burst', label: 'Bullets per burst', unit: '', scene: 'burstCount',
+    desc: 'Burst, delayed burst and rapid fire ants fire more bullets in each volley.' },
+  { stat: 'bulletBurstSpread', name: 'Wide Burst', label: 'Burst spread', unit: '°', scene: 'burstSpread', degrees: true,
+    desc: 'Burst volleys fan out wider.' },
+  { stat: 'bulletCooldownMultiplier', name: 'Long Alternate', label: 'Cooldown multiplier', unit: 'x', scene: 'cooldownMult',
+    desc: 'Alternating fire ants wait longer on their slow shot.' },
+  { stat: 'bulletCurveStrength', name: 'Sharp Curve', label: 'Curve strength', unit: '', scene: 'curveStrength',
+    desc: 'Curving and homing bullets turn harder.' },
+  { stat: 'bulletAccelerateDelay', name: 'Quick Accelerate', label: 'Frames before speeding up', unit: '', scene: 'accelDelay',
+    desc: 'Accelerating bullets speed up (and beam bullets fire) sooner.' },
+  { stat: 'radiusMultiplier', name: 'Wide Blast', label: 'Radius multiplier', unit: 'x', scene: 'radius',
+    desc: 'Explosions, smears, beams, streams and territories are bigger.' },
+  { stat: 'residueMultiplier', name: 'Lingering Residue', label: 'Residue multiplier', unit: 'x', scene: 'residue',
+    desc: 'Residue, smears, beams, streams and ground effects last longer.' }
+];
 
-  // Cooldown (19-23)
-  if (cooldownMinDiscovered === true) storeItem('cooldownMinPreviouslyDiscovered', cooldownMinDiscovered);
-  if (getItem('cooldownMinPreviouslyDiscovered') === true) cooldownMinDiscovered = getItem('cooldownMinPreviouslyDiscovered');
-  
-  if (cooldownLowDiscovered === true) storeItem('cooldownLowPreviouslyDiscovered', cooldownLowDiscovered);
-  if (getItem('cooldownLowPreviouslyDiscovered') === true) cooldownLowDiscovered = getItem('cooldownLowPreviouslyDiscovered');
-  
-  if (cooldownMedDiscovered === true) storeItem('cooldownMedPreviouslyDiscovered', cooldownMedDiscovered);
-  if (getItem('cooldownMedPreviouslyDiscovered') === true) cooldownMedDiscovered = getItem('cooldownMedPreviouslyDiscovered');
-  
-  if (cooldownHighDiscovered === true) storeItem('cooldownHighPreviouslyDiscovered', cooldownHighDiscovered);
-  if (getItem('cooldownHighPreviouslyDiscovered') === true) cooldownHighDiscovered = getItem('cooldownHighPreviouslyDiscovered');
-  
-  if (cooldownMaxDiscovered === true) storeItem('cooldownMaxPreviouslyDiscovered', cooldownMaxDiscovered);
-  if (getItem('cooldownMaxPreviouslyDiscovered') === true) cooldownMaxDiscovered = getItem('cooldownMaxPreviouslyDiscovered');
+function formatDexCapValue(info, value) {
+  if (info.degrees) return Math.round(value * 180 / Math.PI) + info.unit;
+  return (Math.round(value * 1000) / 1000) + info.unit;
+}
 
-  // Offset (24-28)
-  if (offsetMinDiscovered === true) storeItem('offsetMinPreviouslyDiscovered', offsetMinDiscovered);
-  if (getItem('offsetMinPreviouslyDiscovered') === true) offsetMinDiscovered = getItem('offsetMinPreviouslyDiscovered');
-  
-  if (offsetLowDiscovered === true) storeItem('offsetLowPreviouslyDiscovered', offsetLowDiscovered);
-  if (getItem('offsetLowPreviouslyDiscovered') === true) offsetLowDiscovered = getItem('offsetLowPreviouslyDiscovered');
-  
-  if (offsetMedDiscovered === true) storeItem('offsetMedPreviouslyDiscovered', offsetMedDiscovered);
-  if (getItem('offsetMedPreviouslyDiscovered') === true) offsetMedDiscovered = getItem('offsetMedPreviouslyDiscovered');
-  
-  if (offsetHighDiscovered === true) storeItem('offsetHighPreviouslyDiscovered', offsetHighDiscovered);
-  if (getItem('offsetHighPreviouslyDiscovered') === true) offsetHighDiscovered = getItem('offsetHighPreviouslyDiscovered');
-  
-  if (offsetMaxDiscovered === true) storeItem('offsetMaxPreviouslyDiscovered', offsetMaxDiscovered);
-  if (getItem('offsetMaxPreviouslyDiscovered') === true) offsetMaxDiscovered = getItem('offsetMaxPreviouslyDiscovered');
-
-  // Bullet Size (29-33)
-  if (bulletSizeMinDiscovered === true) storeItem('bulletSizeMinPreviouslyDiscovered', bulletSizeMinDiscovered);
-  if (getItem('bulletSizeMinPreviouslyDiscovered') === true) bulletSizeMinDiscovered = getItem('bulletSizeMinPreviouslyDiscovered');
-  
-  if (bulletSizeLowDiscovered === true) storeItem('bulletSizeLowPreviouslyDiscovered', bulletSizeLowDiscovered);
-  if (getItem('bulletSizeLowPreviouslyDiscovered') === true) bulletSizeLowDiscovered = getItem('bulletSizeLowPreviouslyDiscovered');
-  
-  if (bulletSizeMedDiscovered === true) storeItem('bulletSizeMedPreviouslyDiscovered', bulletSizeMedDiscovered);
-  if (getItem('bulletSizeMedPreviouslyDiscovered') === true) bulletSizeMedDiscovered = getItem('bulletSizeMedPreviouslyDiscovered');
-  
-  if (bulletSizeHighDiscovered === true) storeItem('bulletSizeHighPreviouslyDiscovered', bulletSizeHighDiscovered);
-  if (getItem('bulletSizeHighPreviouslyDiscovered') === true) bulletSizeHighDiscovered = getItem('bulletSizeHighPreviouslyDiscovered');
-  
-  if (bulletSizeMaxDiscovered === true) storeItem('bulletSizeMaxPreviouslyDiscovered', bulletSizeMaxDiscovered);
-  if (getItem('bulletSizeMaxPreviouslyDiscovered') === true) bulletSizeMaxDiscovered = getItem('bulletSizeMaxPreviouslyDiscovered');
-
-  // Ant Size (34-38 + 73-74)
-  if (antSizeMinDiscovered === true) storeItem('antSizeMinPreviouslyDiscovered', antSizeMinDiscovered);
-  if (getItem('antSizeMinPreviouslyDiscovered') === true) antSizeMinDiscovered = getItem('antSizeMinPreviouslyDiscovered');
-  
-  if (antSizeLowDiscovered === true) storeItem('antSizeLowPreviouslyDiscovered', antSizeLowDiscovered);
-  if (getItem('antSizeLowPreviouslyDiscovered') === true) antSizeLowDiscovered = getItem('antSizeLowPreviouslyDiscovered');
-  
-  if (antSizeMedDiscovered === true) storeItem('antSizeMedPreviouslyDiscovered', antSizeMedDiscovered);
-  if (getItem('antSizeMedPreviouslyDiscovered') === true) antSizeMedDiscovered = getItem('antSizeMedPreviouslyDiscovered');
-  
-  if (antSizeHighDiscovered === true) storeItem('antSizeHighPreviouslyDiscovered', antSizeHighDiscovered);
-  if (getItem('antSizeHighPreviouslyDiscovered') === true) antSizeHighDiscovered = getItem('antSizeHighPreviouslyDiscovered');
-  
-  if (antSizeMaxDiscovered === true) storeItem('antSizeMaxPreviouslyDiscovered', antSizeMaxDiscovered);
-  if (getItem('antSizeMaxPreviouslyDiscovered') === true) antSizeMaxDiscovered = getItem('antSizeMaxPreviouslyDiscovered');
-  
-  if (smallAntsDiscovered === true) storeItem('smallAntsPreviouslyDiscovered', smallAntsDiscovered);
-  if (getItem('smallAntsPreviouslyDiscovered') === true) smallAntsDiscovered = getItem('smallAntsPreviouslyDiscovered');
-  
-  if (largeAntsDiscovered === true) storeItem('largeAntsPreviouslyDiscovered', largeAntsDiscovered);
-  if (getItem('largeAntsPreviouslyDiscovered') === true) largeAntsDiscovered = getItem('largeAntsPreviouslyDiscovered');
-
-  // Distance From Anchor (39-43)
-  if (distanceMinDiscovered === true) storeItem('distanceMinPreviouslyDiscovered', distanceMinDiscovered);
-  if (getItem('distanceMinPreviouslyDiscovered') === true) distanceMinDiscovered = getItem('distanceMinPreviouslyDiscovered');
-  
-  if (distanceLowDiscovered === true) storeItem('distanceLowPreviouslyDiscovered', distanceLowDiscovered);
-  if (getItem('distanceLowPreviouslyDiscovered') === true) distanceLowDiscovered = getItem('distanceLowPreviouslyDiscovered');
-  
-  if (distanceMedDiscovered === true) storeItem('distanceMedPreviouslyDiscovered', distanceMedDiscovered);
-  if (getItem('distanceMedPreviouslyDiscovered') === true) distanceMedDiscovered = getItem('distanceMedPreviouslyDiscovered');
-  
-  if (distanceHighDiscovered === true) storeItem('distanceHighPreviouslyDiscovered', distanceHighDiscovered);
-  if (getItem('distanceHighPreviouslyDiscovered') === true) distanceHighDiscovered = getItem('distanceHighPreviouslyDiscovered');
-  
-  if (distanceMaxDiscovered === true) storeItem('distanceMaxPreviouslyDiscovered', distanceMaxDiscovered);
-  if (getItem('distanceMaxPreviouslyDiscovered') === true) distanceMaxDiscovered = getItem('distanceMaxPreviouslyDiscovered');
-
-  // Special Abilities (44-46 + 67)
-  if (noSpecialDiscovered === true) storeItem('noSpecialPreviouslyDiscovered', noSpecialDiscovered);
-  if (getItem('noSpecialPreviouslyDiscovered') === true) noSpecialDiscovered = getItem('noSpecialPreviouslyDiscovered');
-  
-  if (timeExplosionDiscovered === true) storeItem('timeExplosionPreviouslyDiscovered', timeExplosionDiscovered);
-  if (getItem('timeExplosionPreviouslyDiscovered') === true) timeExplosionDiscovered = getItem('timeExplosionPreviouslyDiscovered');
-  
-  if (proximityExplosionDiscovered === true) storeItem('proximityExplosionPreviouslyDiscovered', proximityExplosionDiscovered);
-  if (getItem('proximityExplosionPreviouslyDiscovered') === true) proximityExplosionDiscovered = getItem('proximityExplosionPreviouslyDiscovered');
-  
-  if (knockbackDiscovered === true) storeItem('knockbackPreviouslyDiscovered', knockbackDiscovered);
-  if (getItem('knockbackPreviouslyDiscovered') === true) knockbackDiscovered = getItem('knockbackPreviouslyDiscovered');
-  if (vacuumDiscovered === true) storeItem('vacuumPreviouslyDiscovered', vacuumDiscovered);
-  if (getItem('vacuumPreviouslyDiscovered') === true) vacuumDiscovered = getItem('vacuumPreviouslyDiscovered');
-  if (camouflageDiscovered === true) storeItem('camouflagePreviouslyDiscovered', camouflageDiscovered);
-  if (getItem('camouflagePreviouslyDiscovered') === true) camouflageDiscovered = getItem('camouflagePreviouslyDiscovered');
-  if (ghostBulletDiscovered === true) storeItem('ghostBulletPreviouslyDiscovered', ghostBulletDiscovered);
-  if (getItem('ghostBulletPreviouslyDiscovered') === true) ghostBulletDiscovered = getItem('ghostBulletPreviouslyDiscovered');
-  if (recoilDiscovered === true) storeItem('recoilPreviouslyDiscovered', recoilDiscovered);
-  if (getItem('recoilPreviouslyDiscovered') === true) recoilDiscovered = getItem('recoilPreviouslyDiscovered');
-  if (launchDiscovered === true) storeItem('launchPreviouslyDiscovered', launchDiscovered);
-  if (getItem('launchPreviouslyDiscovered') === true) launchDiscovered = getItem('launchPreviouslyDiscovered');
-
-  // Fire Types
-  if (alternatingFireDiscovered === true) storeItem('alternatingFirePreviouslyDiscovered', alternatingFireDiscovered);
-  if (getItem('alternatingFirePreviouslyDiscovered') === true) alternatingFireDiscovered = getItem('alternatingFirePreviouslyDiscovered');
-  if (hitReloadFireDiscovered === true) storeItem('hitReloadFirePreviouslyDiscovered', hitReloadFireDiscovered);
-  if (getItem('hitReloadFirePreviouslyDiscovered') === true) hitReloadFireDiscovered = getItem('hitReloadFirePreviouslyDiscovered');
-
-  if (normalFireDiscovered === true) storeItem('normalFirePreviouslyDiscovered', normalFireDiscovered);
-  if (getItem('normalFirePreviouslyDiscovered') === true) normalFireDiscovered = getItem('normalFirePreviouslyDiscovered');
-
-  if (burstFireDiscovered === true) storeItem('burstFirePreviouslyDiscovered', burstFireDiscovered);
-  if (getItem('burstFirePreviouslyDiscovered') === true) burstFireDiscovered = getItem('burstFirePreviouslyDiscovered');
-  if (delayedBurstFireDiscovered === true) storeItem('delayedBurstFirePreviouslyDiscovered', delayedBurstFireDiscovered);
-  if (getItem('delayedBurstFirePreviouslyDiscovered') === true) delayedBurstFireDiscovered = getItem('delayedBurstFirePreviouslyDiscovered');
-  
-  if (rapidFireDiscovered === true) storeItem('rapidFirePreviouslyDiscovered', rapidFireDiscovered);
-  if (getItem('rapidFirePreviouslyDiscovered') === true) rapidFireDiscovered = getItem('rapidFirePreviouslyDiscovered');
-  if (streamFireDiscovered === true) storeItem('streamFirePreviouslyDiscovered', streamFireDiscovered);
-  if (getItem('streamFirePreviouslyDiscovered') === true) streamFireDiscovered = getItem('streamFirePreviouslyDiscovered');
-  if (alarmFireDiscovered === true) storeItem('alarmFirePreviouslyDiscovered', alarmFireDiscovered);
-  if (getItem('alarmFirePreviouslyDiscovered') === true) alarmFireDiscovered = getItem('alarmFirePreviouslyDiscovered');
-  if (avengeFireDiscovered === true) storeItem('avengeFirePreviouslyDiscovered', avengeFireDiscovered);
-  if (getItem('avengeFirePreviouslyDiscovered') === true) avengeFireDiscovered = getItem('avengeFirePreviouslyDiscovered');
-
-  // Explosion Fuse (47-51)
-  if (fuseMinDiscovered === true) storeItem('fuseMinPreviouslyDiscovered', fuseMinDiscovered);
-  if (getItem('fuseMinPreviouslyDiscovered') === true) fuseMinDiscovered = getItem('fuseMinPreviouslyDiscovered');
-  
-  if (fuseLowDiscovered === true) storeItem('fuseLowPreviouslyDiscovered', fuseLowDiscovered);
-  if (getItem('fuseLowPreviouslyDiscovered') === true) fuseLowDiscovered = getItem('fuseLowPreviouslyDiscovered');
-  
-  if (fuseMedDiscovered === true) storeItem('fuseMedPreviouslyDiscovered', fuseMedDiscovered);
-  if (getItem('fuseMedPreviouslyDiscovered') === true) fuseMedDiscovered = getItem('fuseMedPreviouslyDiscovered');
-  
-  if (fuseHighDiscovered === true) storeItem('fuseHighPreviouslyDiscovered', fuseHighDiscovered);
-  if (getItem('fuseHighPreviouslyDiscovered') === true) fuseHighDiscovered = getItem('fuseHighPreviouslyDiscovered');
-  
-  if (fuseMaxDiscovered === true) storeItem('fuseMaxPreviouslyDiscovered', fuseMaxDiscovered);
-  if (getItem('fuseMaxPreviouslyDiscovered') === true) fuseMaxDiscovered = getItem('fuseMaxPreviouslyDiscovered');
-
-  // Proximity (52-56)
-  if (proxMinDiscovered === true) storeItem('proxMinPreviouslyDiscovered', proxMinDiscovered);
-  if (getItem('proxMinPreviouslyDiscovered') === true) proxMinDiscovered = getItem('proxMinPreviouslyDiscovered');
-  
-  if (proxLowDiscovered === true) storeItem('proxLowPreviouslyDiscovered', proxLowDiscovered);
-  if (getItem('proxLowPreviouslyDiscovered') === true) proxLowDiscovered = getItem('proxLowPreviouslyDiscovered');
-  
-  if (proxMedDiscovered === true) storeItem('proxMedPreviouslyDiscovered', proxMedDiscovered);
-  if (getItem('proxMedPreviouslyDiscovered') === true) proxMedDiscovered = getItem('proxMedPreviouslyDiscovered');
-  
-  if (proxHighDiscovered === true) storeItem('proxHighPreviouslyDiscovered', proxHighDiscovered);
-  if (getItem('proxHighPreviouslyDiscovered') === true) proxHighDiscovered = getItem('proxHighPreviouslyDiscovered');
-  
-  if (proxMaxDiscovered === true) storeItem('proxMaxPreviouslyDiscovered', proxMaxDiscovered);
-  if (getItem('proxMaxPreviouslyDiscovered') === true) proxMaxDiscovered = getItem('proxMaxPreviouslyDiscovered');
-
-  // Explosion Radius (57-61)
-  if (radiusMinDiscovered === true) storeItem('radiusMinPreviouslyDiscovered', radiusMinDiscovered);
-  if (getItem('radiusMinPreviouslyDiscovered') === true) radiusMinDiscovered = getItem('radiusMinPreviouslyDiscovered');
-  
-  if (radiusLowDiscovered === true) storeItem('radiusLowPreviouslyDiscovered', radiusLowDiscovered);
-  if (getItem('radiusLowPreviouslyDiscovered') === true) radiusLowDiscovered = getItem('radiusLowPreviouslyDiscovered');
-  
-  if (radiusMedDiscovered === true) storeItem('radiusMedPreviouslyDiscovered', radiusMedDiscovered);
-  if (getItem('radiusMedPreviouslyDiscovered') === true) radiusMedDiscovered = getItem('radiusMedPreviouslyDiscovered');
-  
-  if (radiusHighDiscovered === true) storeItem('radiusHighPreviouslyDiscovered', radiusHighDiscovered);
-  if (getItem('radiusHighPreviouslyDiscovered') === true) radiusHighDiscovered = getItem('radiusHighPreviouslyDiscovered');
-  
-  if (radiusMaxDiscovered === true) storeItem('radiusMaxPreviouslyDiscovered', radiusMaxDiscovered);
-  if (getItem('radiusMaxPreviouslyDiscovered') === true) radiusMaxDiscovered = getItem('radiusMaxPreviouslyDiscovered');
-
-  // Explosion Residue (62-66)
-  if (residueMinDiscovered === true) storeItem('residueMinPreviouslyDiscovered', residueMinDiscovered);
-  if (getItem('residueMinPreviouslyDiscovered') === true) residueMinDiscovered = getItem('residueMinPreviouslyDiscovered');
-  
-  if (residueLowDiscovered === true) storeItem('residueLowPreviouslyDiscovered', residueLowDiscovered);
-  if (getItem('residueLowPreviouslyDiscovered') === true) residueLowDiscovered = getItem('residueLowPreviouslyDiscovered');
-  
-  if (residueMedDiscovered === true) storeItem('residueMedPreviouslyDiscovered', residueMedDiscovered);
-  if (getItem('residueMedPreviouslyDiscovered') === true) residueMedDiscovered = getItem('residueMedPreviouslyDiscovered');
-  
-  if (residueHighDiscovered === true) storeItem('residueHighPreviouslyDiscovered', residueHighDiscovered);
-  if (getItem('residueHighPreviouslyDiscovered') === true) residueHighDiscovered = getItem('residueHighPreviouslyDiscovered');
-  
-  if (residueMaxDiscovered === true) storeItem('residueMaxPreviouslyDiscovered', residueMaxDiscovered);
-  if (getItem('residueMaxPreviouslyDiscovered') === true) residueMaxDiscovered = getItem('residueMaxPreviouslyDiscovered');
-
-  // Knockback Multiplier (68-72)
-  if (knockbackMinDiscovered === true) storeItem('knockbackMinPreviouslyDiscovered', knockbackMinDiscovered);
-  if (getItem('knockbackMinPreviouslyDiscovered') === true) knockbackMinDiscovered = getItem('knockbackMinPreviouslyDiscovered');
-  
-  if (knockbackLowDiscovered === true) storeItem('knockbackLowPreviouslyDiscovered', knockbackLowDiscovered);
-  if (getItem('knockbackLowPreviouslyDiscovered') === true) knockbackLowDiscovered = getItem('knockbackLowPreviouslyDiscovered');
-  
-  if (knockbackMedDiscovered === true) storeItem('knockbackMedPreviouslyDiscovered', knockbackMedDiscovered);
-  if (getItem('knockbackMedPreviouslyDiscovered') === true) knockbackMedDiscovered = getItem('knockbackMedPreviouslyDiscovered');
-  
-  if (knockbackHighDiscovered === true) storeItem('knockbackHighPreviouslyDiscovered', knockbackHighDiscovered);
-  if (getItem('knockbackHighPreviouslyDiscovered') === true) knockbackHighDiscovered = getItem('knockbackHighPreviouslyDiscovered');
-  
-  if (knockbackMaxDiscovered === true) storeItem('knockbackMaxPreviouslyDiscovered', knockbackMaxDiscovered);
-  if (getItem('knockbackMaxPreviouslyDiscovered') === true) knockbackMaxDiscovered = getItem('knockbackMaxPreviouslyDiscovered');
-
-  // Burst Count (1.5-5.5)
-  if (burstCountMinDiscovered === true) storeItem('burstCountMinPreviouslyDiscovered', burstCountMinDiscovered);
-  if (getItem('burstCountMinPreviouslyDiscovered') === true) burstCountMinDiscovered = getItem('burstCountMinPreviouslyDiscovered');
-  
-  if (burstCountLowDiscovered === true) storeItem('burstCountLowPreviouslyDiscovered', burstCountLowDiscovered);
-  if (getItem('burstCountLowPreviouslyDiscovered') === true) burstCountLowDiscovered = getItem('burstCountLowPreviouslyDiscovered');
-  
-  if (burstCountMedDiscovered === true) storeItem('burstCountMedPreviouslyDiscovered', burstCountMedDiscovered);
-  if (getItem('burstCountMedPreviouslyDiscovered') === true) burstCountMedDiscovered = getItem('burstCountMedPreviouslyDiscovered');
-  
-  if (burstCountHighDiscovered === true) storeItem('burstCountHighPreviouslyDiscovered', burstCountHighDiscovered);
-  if (getItem('burstCountHighPreviouslyDiscovered') === true) burstCountHighDiscovered = getItem('burstCountHighPreviouslyDiscovered');
-  
-  if (burstCountMaxDiscovered === true) storeItem('burstCountMaxPreviouslyDiscovered', burstCountMaxDiscovered);
-  if (getItem('burstCountMaxPreviouslyDiscovered') === true) burstCountMaxDiscovered = getItem('burstCountMaxPreviouslyDiscovered');
-
-  // Cooldown Multiplier (0.5-5.5)
-  if (cooldownMultiplierMinDiscovered === true) storeItem('cooldownMultiplierMinPreviouslyDiscovered', cooldownMultiplierMinDiscovered);
-  if (getItem('cooldownMultiplierMinPreviouslyDiscovered') === true) cooldownMultiplierMinDiscovered = getItem('cooldownMultiplierMinPreviouslyDiscovered');
-  
-  if (cooldownMultiplierLowDiscovered === true) storeItem('cooldownMultiplierLowPreviouslyDiscovered', cooldownMultiplierLowDiscovered);
-  if (getItem('cooldownMultiplierLowPreviouslyDiscovered') === true) cooldownMultiplierLowDiscovered = getItem('cooldownMultiplierLowPreviouslyDiscovered');
-  
-  if (cooldownMultiplierMedDiscovered === true) storeItem('cooldownMultiplierMedPreviouslyDiscovered', cooldownMultiplierMedDiscovered);
-  if (getItem('cooldownMultiplierMedPreviouslyDiscovered') === true) cooldownMultiplierMedDiscovered = getItem('cooldownMultiplierMedPreviouslyDiscovered');
-  
-  if (cooldownMultiplierHighDiscovered === true) storeItem('cooldownMultiplierHighPreviouslyDiscovered', cooldownMultiplierHighDiscovered);
-  if (getItem('cooldownMultiplierHighPreviouslyDiscovered') === true) cooldownMultiplierHighDiscovered = getItem('cooldownMultiplierHighPreviouslyDiscovered');
-  
-  if (cooldownMultiplierMaxDiscovered === true) storeItem('cooldownMultiplierMaxPreviouslyDiscovered', cooldownMultiplierMaxDiscovered);
-  if (getItem('cooldownMultiplierMaxPreviouslyDiscovered') === true) cooldownMultiplierMaxDiscovered = getItem('cooldownMultiplierMaxPreviouslyDiscovered');
-
-  // Bullet Death Type: Smear
-  if (smearDeathDiscovered === true) storeItem('smearDeathPreviouslyDiscovered', smearDeathDiscovered);
-  if (getItem('smearDeathPreviouslyDiscovered') === true) smearDeathDiscovered = getItem('smearDeathPreviouslyDiscovered');
-
-  // Bullet Death Type: Refire
-  if (refireDeathDiscovered === true) storeItem('refireDeathPreviouslyDiscovered', refireDeathDiscovered);
-  if (getItem('refireDeathPreviouslyDiscovered') === true) refireDeathDiscovered = getItem('refireDeathPreviouslyDiscovered');
-
-  // Bullet Death Type: Turret
-  if (turretDeathDiscovered === true) storeItem('turretDeathPreviouslyDiscovered', turretDeathDiscovered);
-  if (getItem('turretDeathPreviouslyDiscovered') === true) turretDeathDiscovered = getItem('turretDeathPreviouslyDiscovered');
-
-  // Bullet Death Types: Territory, Nest, Mound, Bunker
-  if (territoryDeathDiscovered === true) storeItem('territoryDeathPreviouslyDiscovered', territoryDeathDiscovered);
-  if (getItem('territoryDeathPreviouslyDiscovered') === true) territoryDeathDiscovered = getItem('territoryDeathPreviouslyDiscovered');
-  if (nestDeathDiscovered === true) storeItem('nestDeathPreviouslyDiscovered', nestDeathDiscovered);
-  if (getItem('nestDeathPreviouslyDiscovered') === true) nestDeathDiscovered = getItem('nestDeathPreviouslyDiscovered');
-  if (moundDeathDiscovered === true) storeItem('moundDeathPreviouslyDiscovered', moundDeathDiscovered);
-  if (getItem('moundDeathPreviouslyDiscovered') === true) moundDeathDiscovered = getItem('moundDeathPreviouslyDiscovered');
-  if (bunkerDeathDiscovered === true) storeItem('bunkerDeathPreviouslyDiscovered', bunkerDeathDiscovered);
-  if (getItem('bunkerDeathPreviouslyDiscovered') === true) bunkerDeathDiscovered = getItem('bunkerDeathPreviouslyDiscovered');
-
-  // Bullet Death Type: Landmine Conversion
-  if (landmineConversionDiscovered === true) storeItem('landmineConversionPreviouslyDiscovered', landmineConversionDiscovered);
-  if (getItem('landmineConversionPreviouslyDiscovered') === true) landmineConversionDiscovered = getItem('landmineConversionPreviouslyDiscovered');
-
-  // Bullet Path Type
-  if (clockwiseCurveDiscovered === true) storeItem('clockwiseCurvePreviouslyDiscovered', clockwiseCurveDiscovered);
-  if (getItem('clockwiseCurvePreviouslyDiscovered') === true) clockwiseCurveDiscovered = getItem('clockwiseCurvePreviouslyDiscovered');
-  
-  if (homingCurveDiscovered === true) storeItem('homingCurvePreviouslyDiscovered', homingCurveDiscovered);
-  if (getItem('homingCurvePreviouslyDiscovered') === true) homingCurveDiscovered = getItem('homingCurvePreviouslyDiscovered');
-  
-  if (highArcDiscovered === true) storeItem('highArcPreviouslyDiscovered', highArcDiscovered);
-  if (getItem('highArcPreviouslyDiscovered') === true) highArcDiscovered = getItem('highArcPreviouslyDiscovered');
-  if (splitArcDiscovered === true) storeItem('splitArcPreviouslyDiscovered', splitArcDiscovered);
-  if (getItem('splitArcPreviouslyDiscovered') === true) splitArcDiscovered = getItem('splitArcPreviouslyDiscovered');
-  if (beamDiscovered === true) storeItem('beamPreviouslyDiscovered', beamDiscovered);
-  if (getItem('beamPreviouslyDiscovered') === true) beamDiscovered = getItem('beamPreviouslyDiscovered');
-  if (blinkDiscovered === true) storeItem('blinkPreviouslyDiscovered', blinkDiscovered);
-  if (getItem('blinkPreviouslyDiscovered') === true) blinkDiscovered = getItem('blinkPreviouslyDiscovered');
-  if (portalDiscovered === true) storeItem('portalPreviouslyDiscovered', portalDiscovered);
-  if (getItem('portalPreviouslyDiscovered') === true) portalDiscovered = getItem('portalPreviouslyDiscovered');
-
-  // Burst Spread (88-92)
-  if (burstSpreadMinDiscovered === true) storeItem('burstSpreadMinPreviouslyDiscovered', burstSpreadMinDiscovered);
-  if (getItem('burstSpreadMinPreviouslyDiscovered') === true) burstSpreadMinDiscovered = getItem('burstSpreadMinPreviouslyDiscovered');
-  
-  if (burstSpreadLowDiscovered === true) storeItem('burstSpreadLowPreviouslyDiscovered', burstSpreadLowDiscovered);
-  if (getItem('burstSpreadLowPreviouslyDiscovered') === true) burstSpreadLowDiscovered = getItem('burstSpreadLowPreviouslyDiscovered');
-  
-  if (burstSpreadMedDiscovered === true) storeItem('burstSpreadMedPreviouslyDiscovered', burstSpreadMedDiscovered);
-  if (getItem('burstSpreadMedPreviouslyDiscovered') === true) burstSpreadMedDiscovered = getItem('burstSpreadMedPreviouslyDiscovered');
-  
-  if (burstSpreadHighDiscovered === true) storeItem('burstSpreadHighPreviouslyDiscovered', burstSpreadHighDiscovered);
-  if (getItem('burstSpreadHighPreviouslyDiscovered') === true) burstSpreadHighDiscovered = getItem('burstSpreadHighPreviouslyDiscovered');
-  
-  if (burstSpreadMaxDiscovered === true) storeItem('burstSpreadMaxPreviouslyDiscovered', burstSpreadMaxDiscovered);
-  if (getItem('burstSpreadMaxPreviouslyDiscovered') === true) burstSpreadMaxDiscovered = getItem('burstSpreadMaxPreviouslyDiscovered');
-
-  
-  //checks for new discoveries
-  if (start === true){
-    for (let i = 1; i <= enemyCount; i++) {
-      if (hasAntAphidEffects(i)) continue; // Aphid boosts aren't the ant's own genes
-      // 1-8: Movement Behaviors
-      if (!movementType1Discovered && followBeetle[i] && followTarget[i]) {
-        movementType1Discovered = true;
-        triggerDiscoveryPopup();
-      }
-      if (!movementType2Discovered && followAnt[i] && followTarget[i]) {
-        movementType2Discovered = true;
-        triggerDiscoveryPopup();
-      }
-      if (!movementType3Discovered && findLocation[i] && followTarget[i]) {
-        movementType3Discovered = true;
-        triggerDiscoveryPopup();
-      }
-      if (!movementType4Discovered && standStill[i] && followTarget[i]) {
-        movementType4Discovered = true;
-        triggerDiscoveryPopup();
-      }
-      if (!movementType5Discovered && followBeetle[i] && keepDistance[i]) {
-        movementType5Discovered = true;
-        triggerDiscoveryPopup();
-      }
-      if (!movementType6Discovered && followAnt[i] && keepDistance[i]) {
-        movementType6Discovered = true;
-        triggerDiscoveryPopup();
-      }
-      if (!movementType7Discovered && findLocation[i] && keepDistance[i]) {
-        movementType7Discovered = true;
-        triggerDiscoveryPopup();
-      }
-      if (!movementType8Discovered && standStill[i] && keepDistance[i]) {
-        movementType8Discovered = true;
-        triggerDiscoveryPopup();
-      }
-
-      // 9-13: Ant Speed (0.9-3.5)
-      const spd = antSpeed[i];
-      if (!antSpeedMinDiscovered && spd >= 0.9 && spd <= 1.2) {
-        antSpeedMinDiscovered = true;
-        triggerDiscoveryPopup();
-      }
-      if (!antSpeedLowDiscovered && spd > 1.2 && spd <= 1.7) {
-        antSpeedLowDiscovered = true;
-        triggerDiscoveryPopup();
-      }
-      if (!antSpeedMedDiscovered && spd > 1.7 && spd <= 2.3) {
-        antSpeedMedDiscovered = true;
-        triggerDiscoveryPopup();
-      }
-      if (!antSpeedHighDiscovered && spd > 2.3 && spd <= 3.0) {
-        antSpeedHighDiscovered = true;
-        triggerDiscoveryPopup();
-      }
-      if (!antSpeedMaxDiscovered && spd > 3.0 && spd <= 3.5) {
-        antSpeedMaxDiscovered = true;
-        triggerDiscoveryPopup();
-      }
-
-      // 14-18: Bullet Speed (60-300, note: lower = faster)
-      const bSpd = bulletSpeed[i];
-      if (!bulletSpeedMinDiscovered && bSpd >= 60 && bSpd <= 90) {
-        bulletSpeedMinDiscovered = true;
-        triggerDiscoveryPopup();
-      }
-      if (!bulletSpeedLowDiscovered && bSpd > 90 && bSpd <= 140) {
-        bulletSpeedLowDiscovered = true;
-        triggerDiscoveryPopup();
-      }
-      if (!bulletSpeedMedDiscovered && bSpd > 140 && bSpd <= 220) {
-        bulletSpeedMedDiscovered = true;
-        triggerDiscoveryPopup();
-      }
-      if (!bulletSpeedHighDiscovered && bSpd > 220 && bSpd <= 270) {
-        bulletSpeedHighDiscovered = true;
-        triggerDiscoveryPopup();
-      }
-      if (!bulletSpeedMaxDiscovered && bSpd > 270 && bSpd <= 300) {
-        bulletSpeedMaxDiscovered = true;
-        triggerDiscoveryPopup();
-      }
-
-      // 19-23: Bullet Cooldown (79-200)
-      const cd = bulletCooldown[i];
-      if (!cooldownMinDiscovered && cd >= 79 && cd <= 95) {
-        cooldownMinDiscovered = true;
-        triggerDiscoveryPopup();
-      }
-      if (!cooldownLowDiscovered && cd > 95 && cd <= 120) {
-        cooldownLowDiscovered = true;
-        triggerDiscoveryPopup();
-      }
-      if (!cooldownMedDiscovered && cd > 120 && cd <= 150) {
-        cooldownMedDiscovered = true;
-        triggerDiscoveryPopup();
-      }
-      if (!cooldownHighDiscovered && cd > 150 && cd <= 180) {
-        cooldownHighDiscovered = true;
-        triggerDiscoveryPopup();
-      }
-      if (!cooldownMaxDiscovered && cd > 180 && cd <= 200) {
-        cooldownMaxDiscovered = true;
-        triggerDiscoveryPopup();
-      }
-
-      // 24-28: Shot Offset (0-500)
-      const offset = Math.max(Math.abs(shotOffsetX[i]), Math.abs(shotOffsetY[i]));
-      if (!offsetMinDiscovered && offset >= 0 && offset <= 50) {
-        offsetMinDiscovered = true;
-        triggerDiscoveryPopup();
-      }
-      if (!offsetLowDiscovered && offset > 50 && offset <= 150) {
-        offsetLowDiscovered = true;
-        triggerDiscoveryPopup();
-      }
-      if (!offsetMedDiscovered && offset > 150 && offset <= 300) {
-        offsetMedDiscovered = true;
-        triggerDiscoveryPopup();
-      }
-      if (!offsetHighDiscovered && offset > 300 && offset <= 450) {
-        offsetHighDiscovered = true;
-        triggerDiscoveryPopup();
-      }
-      if (!offsetMaxDiscovered && offset > 450 && offset <= 500) {
-        offsetMaxDiscovered = true;
-        triggerDiscoveryPopup();
-      }
-
-      // 29-33: Bullet Size (1-3)
-      const bSize = bulletSize[i];
-      if (!bulletSizeMinDiscovered && bSize === 1.0) {
-        bulletSizeMinDiscovered = true;
-        triggerDiscoveryPopup();
-      }
-      if (!bulletSizeLowDiscovered && bSize > 1.0 && bSize <= 1.4) {
-        bulletSizeLowDiscovered = true;
-        triggerDiscoveryPopup();
-      }
-      if (!bulletSizeMedDiscovered && bSize > 1.4 && bSize <= 2.0) {
-        bulletSizeMedDiscovered = true;
-        triggerDiscoveryPopup();
-      }
-      if (!bulletSizeHighDiscovered && bSize > 2.0 && bSize < 2.5) {
-        bulletSizeHighDiscovered = true;
-        triggerDiscoveryPopup();
-      }
-      if (!bulletSizeMaxDiscovered && bSize >= 2.5 && bSize <= 3.0) {
-        bulletSizeMaxDiscovered = true;
-        triggerDiscoveryPopup();
-      }
-
-      // 34-38: Ant Size (exact values) + 83-84: Small/Large Ants
-      const aSize = antSize[i];
-      if (!antSizeMinDiscovered && aSize === 0.3) {
-        antSizeMinDiscovered = true;
-        triggerDiscoveryPopup();
-      }
-      if (!antSizeLowDiscovered && aSize === 0.7) {
-        antSizeLowDiscovered = true;
-        triggerDiscoveryPopup();
-      }
-      if (!antSizeMedDiscovered && aSize === 1.0) {
-        antSizeMedDiscovered = true;
-        triggerDiscoveryPopup();
-      }
-      if (!antSizeHighDiscovered && aSize === 2.0) {
-        antSizeHighDiscovered = true;
-        triggerDiscoveryPopup();
-      }
-      if (!antSizeMaxDiscovered && aSize === 3.0) {
-        antSizeMaxDiscovered = true;
-        triggerDiscoveryPopup();
-      }
-      // Categorical: any variation from 1.0
-      if (!smallAntsDiscovered && aSize < 1.0) {
-        smallAntsDiscovered = true;
-        triggerDiscoveryPopup();
-      }
-      if (!largeAntsDiscovered && aSize > 1.0) {
-        largeAntsDiscovered = true;
-        triggerDiscoveryPopup();
-      }
-
-      // 39-43: Distance From Anchor (only for Keep Distance mode)
-      if (keepDistance[i]) {
-        const dist = distanceFromAnchor[i];
-        if (!distanceMinDiscovered && dist >= 0.1 && dist <= 100) {
-          distanceMinDiscovered = true;
-          triggerDiscoveryPopup();
-        }
-        if (!distanceLowDiscovered && dist > 100 && dist <= 250) {
-          distanceLowDiscovered = true;
-          triggerDiscoveryPopup();
-        }
-        if (!distanceMedDiscovered && dist > 250 && dist <= 500) {
-          distanceMedDiscovered = true;
-          triggerDiscoveryPopup();
-        }
-        if (!distanceHighDiscovered && dist > 500 && dist <= 750) {
-          distanceHighDiscovered = true;
-          triggerDiscoveryPopup();
-        }
-        if (!distanceMaxDiscovered && dist > 750 && dist <= 1000) {
-          distanceMaxDiscovered = true;
-          triggerDiscoveryPopup();
-        }
-      }
-
-      // 44-46 + 67: Special Abilities
-      const specialType = getSpecialType(i);
-
-      if (!noSpecialDiscovered && specialType === 0) {
-        noSpecialDiscovered = true;
-        triggerDiscoveryPopup();
-      }
-      if (!timeExplosionDiscovered && specialType === 1 && specialExplosion[i] < 1) {
-        timeExplosionDiscovered = true;
-        triggerDiscoveryPopup();
-      }
-      if (!proximityExplosionDiscovered && specialType === 1 && specialExplosion[i] >= 1) {
-        proximityExplosionDiscovered = true;
-        triggerDiscoveryPopup();
-      }
-      if (!vacuumDiscovered && isVacuumKnockback(i)) {
-        vacuumDiscovered = true;
-        triggerDiscoveryPopup();
-      }
-      if (!knockbackDiscovered && specialType === -1) {
-        knockbackDiscovered = true;
-        triggerDiscoveryPopup();
-      }
-      if (!camouflageDiscovered && specialType === 2) {
-        camouflageDiscovered = true;
-        triggerDiscoveryPopup();
-      }
-      if (!ghostBulletDiscovered && specialType === -2) {
-        ghostBulletDiscovered = true;
-        triggerDiscoveryPopup();
-      }
-      if (!recoilDiscovered && specialType === 3) {
-        recoilDiscovered = true;
-        triggerDiscoveryPopup();
-      }
-      if (!launchDiscovered && specialType === -3) {
-        launchDiscovered = true;
-        triggerDiscoveryPopup();
-      }
-
-      // Fire Type discoveries
-      const fireType = getFireType(i);
-      if (!alternatingFireDiscovered && fireType === -1) {
-        alternatingFireDiscovered = true;
-        triggerDiscoveryPopup();
-      }
-      if (!hitReloadFireDiscovered && fireType === -2) {
-        hitReloadFireDiscovered = true;
-        triggerDiscoveryPopup();
-      }
-      if (!normalFireDiscovered && fireType === 0) {
-        normalFireDiscovered = true;
-        triggerDiscoveryPopup();
-      }
-      if (!delayedBurstFireDiscovered && fireType === 3) {
-        delayedBurstFireDiscovered = true;
-        triggerDiscoveryPopup();
-      }
-      if (!burstFireDiscovered && fireType === 1) {
-        burstFireDiscovered = true;
-        triggerDiscoveryPopup();
-      }
-      if (!rapidFireDiscovered && fireType === 2) {
-        rapidFireDiscovered = true;
-        triggerDiscoveryPopup();
-      }
-      if (!streamFireDiscovered && fireType === 4) {
-        streamFireDiscovered = true;
-        triggerDiscoveryPopup();
-      }
-      if (!alarmFireDiscovered && fireType === 5) {
-        alarmFireDiscovered = true;
-        triggerDiscoveryPopup();
-      }
-      if (!avengeFireDiscovered && fireType === 6) {
-        avengeFireDiscovered = true;
-        triggerDiscoveryPopup();
-      }
-
-      // 47-51: Explosion Fuse (Time Explosion only)
-      if (specialType === 1 && specialExplosion[i] < 1) {
-        const fuse = bulletExplodeAfter[i];
-        if (!fuseMinDiscovered && fuse >= EXPLODE_AFTER_MIN && fuse <= 250) {
-          fuseMinDiscovered = true;
-          triggerDiscoveryPopup();
-        }
-        if (!fuseLowDiscovered && fuse > 250 && fuse <= 400) {
-          fuseLowDiscovered = true;
-          triggerDiscoveryPopup();
-        }
-        if (!fuseMedDiscovered && fuse > 400 && fuse <= 550) {
-          fuseMedDiscovered = true;
-          triggerDiscoveryPopup();
-        }
-        if (!fuseHighDiscovered && fuse > 550 && fuse <= 700) {
-          fuseHighDiscovered = true;
-          triggerDiscoveryPopup();
-        }
-        if (!fuseMaxDiscovered && fuse > 700 && fuse <= 800) {
-          fuseMaxDiscovered = true;
-          triggerDiscoveryPopup();
-        }
-      }
-
-      // 52-56: Explosion Proximity (Proximity Explosion only)
-      if (specialType === 1 && specialExplosion[i] >= 1) {
-        const prox = explosionProximity[i];
-        if (!proxMinDiscovered && prox >= 0.1 && prox <= 150) {
-          proxMinDiscovered = true;
-          triggerDiscoveryPopup();
-        }
-        if (!proxLowDiscovered && prox > 150 && prox <= 300) {
-          proxLowDiscovered = true;
-          triggerDiscoveryPopup();
-        }
-        if (!proxMedDiscovered && prox > 300 && prox <= 550) {
-          proxMedDiscovered = true;
-          triggerDiscoveryPopup();
-        }
-        if (!proxHighDiscovered && prox > 550 && prox <= 800) {
-          proxHighDiscovered = true;
-          triggerDiscoveryPopup();
-        }
-        if (!proxMaxDiscovered && prox > 800 && prox <= 1000) {
-          proxMaxDiscovered = true;
-          triggerDiscoveryPopup();
-        }
-      }
-
-      // 57-61: Radius (Any Explosion type, High Arc path, or Smear death)
-      if (specialType === 1 || getPathType(i) === 1 || getDeathType(i) === -1) {
-        const rad = radiusMultiplier[i];
-        if (!radiusMinDiscovered && rad >= 0.5 && rad <= 1.0) {
-          radiusMinDiscovered = true;
-          triggerDiscoveryPopup();
-        }
-        if (!radiusLowDiscovered && rad > 1.0 && rad <= 1.5) {
-          radiusLowDiscovered = true;
-          triggerDiscoveryPopup();
-        }
-        if (!radiusMedDiscovered && rad > 1.5 && rad <= 2.0) {
-          radiusMedDiscovered = true;
-          triggerDiscoveryPopup();
-        }
-        if (!radiusHighDiscovered && rad > 2.0 && rad <= 2.5) {
-          radiusHighDiscovered = true;
-          triggerDiscoveryPopup();
-        }
-        if (!radiusMaxDiscovered && rad > 2.5 && rad <= 3.0) {
-          radiusMaxDiscovered = true;
-          triggerDiscoveryPopup();
-        }
-      }
-
-      // 62-66: Residue (Any Explosion type, High Arc path, Landmine death, or Smear death)
-      if (specialType === 1 || getPathType(i) === 1 || getDeathType(i) === 1 || getDeathType(i) === -1) {
-        const res = residueMultiplier[i];
-        if (!residueMinDiscovered && res >= 0.5 && res <= 1.0) {
-          residueMinDiscovered = true;
-          triggerDiscoveryPopup();
-        }
-        if (!residueLowDiscovered && res > 1.0 && res <= 1.5) {
-          residueLowDiscovered = true;
-          triggerDiscoveryPopup();
-        }
-        if (!residueMedDiscovered && res > 1.5 && res <= 2.0) {
-          residueMedDiscovered = true;
-          triggerDiscoveryPopup();
-        }
-        if (!residueHighDiscovered && res > 2.0 && res <= 2.5) {
-          residueHighDiscovered = true;
-          triggerDiscoveryPopup();
-        }
-        if (!residueMaxDiscovered && res > 2.5 && res <= 3.0) {
-          residueMaxDiscovered = true;
-          triggerDiscoveryPopup();
-        }
-      }
-
-      // 68-72: Knockback Multiplier (Knockback type only)
-      if (specialType === -1) {
-        const kb = bulletKnockbackMultiplier[i];
-        if (!knockbackMinDiscovered && kb >= 2.0 && kb <= 2.5) {
-          knockbackMinDiscovered = true;
-          triggerDiscoveryPopup();
-        }
-        if (!knockbackLowDiscovered && kb > 2.5 && kb <= 3.1) {
-          knockbackLowDiscovered = true;
-          triggerDiscoveryPopup();
-        }
-        if (!knockbackMedDiscovered && kb > 3.1 && kb <= 3.8) {
-          knockbackMedDiscovered = true;
-          triggerDiscoveryPopup();
-        }
-        if (!knockbackHighDiscovered && kb > 3.8 && kb <= 4.5) {
-          knockbackHighDiscovered = true;
-          triggerDiscoveryPopup();
-        }
-        if (!knockbackMaxDiscovered && kb > 4.5 && kb <= 5.0) {
-          knockbackMaxDiscovered = true;
-          triggerDiscoveryPopup();
-        }
-      }
-
-      // 73-82: Bullet Burst Count (1.5-5.5, Burst / Delayed Burst Fire only)
-      if (fireType === 1 || fireType === 3) {
-        const burstCount = bulletBurstCount[i];
-        if (!burstCountMinDiscovered && burstCount >= 1.5 && burstCount <= 2.3) {
-          burstCountMinDiscovered = true;
-          triggerDiscoveryPopup();
-        }
-        if (!burstCountLowDiscovered && burstCount > 2.3 && burstCount <= 3.2) {
-          burstCountLowDiscovered = true;
-          triggerDiscoveryPopup();
-        }
-        if (!burstCountMedDiscovered && burstCount > 3.2 && burstCount <= 4.1) {
-          burstCountMedDiscovered = true;
-          triggerDiscoveryPopup();
-        }
-        if (!burstCountHighDiscovered && burstCount > 4.1 && burstCount < 5.0) {
-          burstCountHighDiscovered = true;
-          triggerDiscoveryPopup();
-        }
-        if (!burstCountMaxDiscovered && burstCount >= 5.0 && burstCount <= 5.5) {
-          burstCountMaxDiscovered = true;
-          triggerDiscoveryPopup();
-        }
-      }
-
-      // 83-87: Cooldown Multiplier (0.5-5.5, Alternating/Burst/Rapid Fire)
-      if (fireType === -1 || fireType === 1 || fireType === 2) {
-        const cdMultiplier = bulletCooldownMultiplier[i];
-        if (!cooldownMultiplierMinDiscovered && cdMultiplier >= 0.5 && cdMultiplier <= 1.4) {
-          cooldownMultiplierMinDiscovered = true;
-          triggerDiscoveryPopup();
-        }
-        if (!cooldownMultiplierLowDiscovered && cdMultiplier > 1.4 && cdMultiplier <= 2.4) {
-          cooldownMultiplierLowDiscovered = true;
-          triggerDiscoveryPopup();
-        }
-        if (!cooldownMultiplierMedDiscovered && cdMultiplier > 2.4 && cdMultiplier <= 3.4) {
-          cooldownMultiplierMedDiscovered = true;
-          triggerDiscoveryPopup();
-        }
-        if (!cooldownMultiplierHighDiscovered && cdMultiplier > 3.4 && cdMultiplier < 4.5) {
-          cooldownMultiplierHighDiscovered = true;
-          triggerDiscoveryPopup();
-        }
-        if (!cooldownMultiplierMaxDiscovered && cdMultiplier >= 4.5 && cdMultiplier <= 5.5) {
-          cooldownMultiplierMaxDiscovered = true;
-          triggerDiscoveryPopup();
-        }
-      }
-
-      // Bullet Death Type: Landmine Conversion
-      const deathType = getDeathType(i);
-      if (!landmineConversionDiscovered && deathType === 1) {
-        landmineConversionDiscovered = true;
-        triggerDiscoveryPopup();
-      }
-      if (!smearDeathDiscovered && deathType === -1) {
-        smearDeathDiscovered = true;
-        triggerDiscoveryPopup();
-      }
-      if (!refireDeathDiscovered && deathType === 2) {
-        refireDeathDiscovered = true;
-        triggerDiscoveryPopup();
-      }
-      if (!turretDeathDiscovered && deathType === 3) {
-        turretDeathDiscovered = true;
-        triggerDiscoveryPopup();
-      }
-      if (!territoryDeathDiscovered && deathType === 4) {
-        territoryDeathDiscovered = true;
-        triggerDiscoveryPopup();
-      }
-      if (!nestDeathDiscovered && deathType === 5) {
-        nestDeathDiscovered = true;
-        triggerDiscoveryPopup();
-      }
-      if (!moundDeathDiscovered && deathType === 6) {
-        moundDeathDiscovered = true;
-        triggerDiscoveryPopup();
-      }
-      if (!bunkerDeathDiscovered && deathType === 7) {
-        bunkerDeathDiscovered = true;
-        triggerDiscoveryPopup();
-      }
-
-      // Bullet Path Type discoveries
-      const pathType = getPathType(i);
-      if (!clockwiseCurveDiscovered && pathType === -1) {
-        clockwiseCurveDiscovered = true;
-        triggerDiscoveryPopup();
-      }
-      if (!homingCurveDiscovered && pathType === -2) {
-        homingCurveDiscovered = true;
-        triggerDiscoveryPopup();
-      }
-      if (!splitArcDiscovered && isSplitArc(i)) {
-        splitArcDiscovered = true;
-        triggerDiscoveryPopup();
-      }
-      if (!beamDiscovered && isBeamAccelerate(i)) {
-        beamDiscovered = true;
-        triggerDiscoveryPopup();
-      }
-      if (!blinkDiscovered && pathType === 3 && pathBlink[i] < 1) {
-        blinkDiscovered = true;
-        triggerDiscoveryPopup();
-      }
-      if (!portalDiscovered && pathType === 3 && pathBlink[i] >= 1) {
-        portalDiscovered = true;
-        triggerDiscoveryPopup();
-      }
-      if (!highArcDiscovered && pathType === 1) {
-        highArcDiscovered = true;
-        triggerDiscoveryPopup();
-      }
-
-      // 88-92: Burst Spread (60°-180°, Burst / Delayed Burst Fire only)
-      if (fireType === 1 || fireType === 3) {
-        const spreadDegrees = bulletBurstSpread[i] * 180 / PI;
-        if (!burstSpreadMinDiscovered && spreadDegrees >= 60 && spreadDegrees <= 84) {
-          burstSpreadMinDiscovered = true;
-          triggerDiscoveryPopup();
-        }
-        if (!burstSpreadLowDiscovered && spreadDegrees > 84 && spreadDegrees <= 109) {
-          burstSpreadLowDiscovered = true;
-          triggerDiscoveryPopup();
-        }
-        if (!burstSpreadMedDiscovered && spreadDegrees > 109 && spreadDegrees <= 134) {
-          burstSpreadMedDiscovered = true;
-          triggerDiscoveryPopup();
-        }
-        if (!burstSpreadHighDiscovered && spreadDegrees > 134 && spreadDegrees <= 159) {
-          burstSpreadHighDiscovered = true;
-          triggerDiscoveryPopup();
-        }
-        if (!burstSpreadMaxDiscovered && spreadDegrees > 159 && spreadDegrees <= 180) {
-          burstSpreadMaxDiscovered = true;
-          triggerDiscoveryPopup();
-        }
-      }
+function buildDexCapStatEntries() {
+  const entries = [];
+  for (const info of DEX_CAP_STATS) {
+    const tierInfo = moduleStatCapTiers[info.stat];
+    if (!tierInfo) continue;
+    const tiers = tierInfo.caps.length - 1;
+    for (let t = 0; t < tiers; t++) {
+      const limit = tierInfo.caps[t + 1];
+      entries.push({
+        id: `cap_${info.stat}_${t}`,
+        section: 'stats',
+        name: `${info.name} Ants ${DEX_ROMAN[t]}`,
+        desc: info.desc,
+        stats: `Gene cap ${t + 1}: ${info.label} ${tierInfo.inverse ? 'down to' : 'up to'} ${formatDexCapValue(info, limit)}`,
+        scene: info.scene,
+        level: (t + 1) / tiers,
+        value: limit,
+                check: i => getUnlockedCapTier(i, info.stat) >= t
+      });
     }
   }
-  
+  return entries;
+}
 
-  
+// Value-range entries for stats with no gene caps (unchanged from before gene caps existed).
+// legacy is the old per-entry storage key, so earlier discoveries carry over.
+function buildDexValueStatEntries() {
+  const entries = [];
+  const range = (id, name, desc, stats, scene, level, check, value) =>
+    entries.push({ id, legacy: id, section: 'stats', name, desc, stats, scene, level, check, value });
+
+  // Movement styles
+  const moves = [
+    ['movementType1', 'Follow Beetle Ants', "Tracks and follows the beetle's position directly.", 'Autonomy: Beetle • Follow Style: Follow', 'beetle', false, i => followBeetle[i] && followTarget[i]],
+    ['movementType2', 'Follow Other Ants', 'Mirrors the movement patterns of nearby ants.', 'Autonomy: Ants • Follow Style: Follow', 'ants', false, i => followAnt[i] && followTarget[i]],
+    ['movementType3', 'Find Location Ants', 'Moves toward a predetermined spot on the screen.', 'Autonomy: Location • Follow Style: Follow', 'location', false, i => findLocation[i] && followTarget[i]],
+    ['movementType4', 'Stand Still Ants', 'Remains stationary at spawn point for better aim.', 'Autonomy: Spawn • Follow Style: Follow', 'spawn', false, i => standStill[i] && followTarget[i]],
+    ['movementType5', 'Keep Distance From Beetle Ants', 'Maintains a specific range from the beetle.', 'Autonomy: Beetle • Follow Style: Keep Distance', 'beetle', true, i => followBeetle[i] && keepDistance[i]],
+    ['movementType6', 'Keep Distance From Ants', 'Maintains spacing relative to other ants.', 'Autonomy: Ants • Follow Style: Keep Distance', 'ants', true, i => followAnt[i] && keepDistance[i]],
+    ['movementType7', 'Keep Distance From Location Ants', 'Orbits around a fixed point at set distance.', 'Autonomy: Location • Follow Style: Keep Distance', 'location', true, i => findLocation[i] && keepDistance[i]],
+    ['movementType8', 'Keep Distance From Spawn Ants', 'Moves set distance from respawn location.', 'Autonomy: Spawn • Follow Style: Keep Distance', 'spawn', true, i => standStill[i] && keepDistance[i]]
+  ];
+  for (const [legacy, name, desc, stats, target, keep, check] of moves) {
+    entries.push({ id: legacy, legacy, section: 'stats', name, desc, stats, scene: 'movement', opts: { target, keep }, check });
+  }
+
+  // Ant size below normal has no gene cap
+  range('smallAnts', 'Small Ants', 'Ants smaller than standard size, with smaller hitboxes. Very small ants glow blue.', 'Ant Size: < 1.0', 'antSize', 0, i => antSize[i] < 1.0, 0.5);
+  range('largeAnts', 'Large Ants', 'Ants larger than standard size.', 'Ant Size: > 1.0', 'antSize', 0, i => antSize[i] > 1.0, 1.4);
+
+  // Five value bands per stat; ids match the old storage keys (offsetMin, offsetLow, ...)
+  const bands = (prefix, idPrefix, label, unitName, scene, bounds, descs, valueOf, gate) => {
+    const tierNames = ['Minimum', 'Low', 'Medium', 'High', 'Maximum'];
+    for (let b = 0; b < 5; b++) {
+      const lo = bounds[b], hi = bounds[b + 1];
+      range(idPrefix + ['Min', 'Low', 'Med', 'High', 'Max'][b], `${tierNames[b]} ${prefix} Ants`, descs[b],
+        `${label}: ${b === 0 ? lo : lo + 1}-${hi}${unitName}`, scene, b / 4,
+        i => {
+          if (!gate(i)) return false;
+          const v = valueOf(i);
+          return b === 0 ? v >= lo && v <= hi : v > lo && v <= hi;
+        });
+    }
+  };
+  bands('Offset', 'offset', 'Shot Offset', '', 'offset', [0, 50, 150, 300, 450, 500],
+    ["Perfect aim directly at the beetle's position.", 'Slight lead shots that predict movement.', 'Moderate angles for area denial.', 'Wide-angle shots that flank the beetle.', 'Shooting completely away from the beetle.'],
+    i => Math.max(Math.abs(shotOffsetX[i]), Math.abs(shotOffsetY[i])), () => true);
+  bands('Distance', 'distance', 'Distance From Anchor', '', 'distance', [0.1, 100, 250, 500, 750, 1000],
+    ['Stays extremely close to target, aggressive.', 'Moderately close positioning.', 'Maintains mid-range combat distance.', 'Prefers long-range positioning.', 'Extreme range, almost arena-edge positioning.'],
+    i => distanceFromAnchor[i], i => keepDistance[i]);
+  bands('Fuse', 'fuse', 'Explode After', ' frames', 'fuse', [EXPLODE_AFTER_MIN, 250, 400, 550, 700, EXPLODE_AFTER_MAX],
+    ['Very short fuse, quick detonations.', 'Short fuse for moderate timing.', 'Standard detonation timing.', 'Long fuse bullets that linger.', 'Extremely delayed explosions.'],
+    i => bulletExplodeAfter[i], i => getSpecialType(i) === 1 && specialExplosion[i] < 1);
+  bands('Proximity', 'prox', 'Explosion Proximity', '', 'proximity', [0.1, 150, 300, 550, 800, 1000],
+    ['Must be very close to beetle to detonate.', 'Modest trigger range for explosions.', 'Standard proximity detection range.', 'Wide trigger radius, hard to avoid.', 'Extreme range proximity detonation.'],
+    i => explosionProximity[i], i => getSpecialType(i) === 1 && specialExplosion[i] >= 1);
+  return entries;
+}
+
+// The 32 abilities: level 1 then level 2 of each threshold-gated trait stat
+function buildDexAbilityEntries() {
+  const list = [
+    // Special
+    ['timeExplosion', 'timeExplosion', 'Time Explosion Ants', 'Bullets detonate after a set duration.', 'Special: Explosion • Trigger: Time', 'timedExplosion', i => getSpecialType(i) === 1 && specialExplosion[i] < 1],
+    ['proximityExplosion', 'proximityExplosion', 'Proximity Explosion Ants', 'Bullets explode when near the beetle.', 'Special: Explosion • Trigger: Proximity', 'proximityExplosion', i => getSpecialType(i) === 1 && specialExplosion[i] >= 1],
+    ['knockback', 'knockback', 'Knockback Bullet Ants', 'Bullets push the beetle when hit.', 'Special: Knockback', 'knockback', i => getSpecialType(i) === -1 && !isVacuumKnockback(i)],
+    ['vacuum', 'vacuum', 'Vacuum Bullet Ants', 'Bullets pull the beetle toward them at close range, then knock it back on hit. Pull strength and range grow with knockback multiplier.', 'Special: Vacuum', 'vacuum', i => isVacuumKnockback(i)],
+    ['camouflage', 'camouflage', 'Camouflage Bullet Ants', 'Bullets (and landmines they become) flicker in and out of sight. Slower flickering keeps them hidden longer and is genetic.', 'Special: Camouflage • Flash Rate: 0.25-3 per second', 'camo', i => getSpecialType(i) === 2],
+    ['ghostBullet', 'ghostBullet', 'Ghost Bullet Ants', 'Bullets (and landmines they become) stay invisible and only appear within 150 pixels of the beetle. Misses vanish again.', 'Special: Ghost', 'ghost', i => getSpecialType(i) === -2],
+    ['recoil', 'recoil', 'Recoil Ants', 'Every shot kicks the ant backward, away from where it fired. Bigger, faster bullets kick harder; bigger ants are pushed less.', 'Special: Recoil', 'recoil', i => getSpecialType(i) === 3],
+    ['launch', 'launch', 'Launch Ants', "Every shot kicks the ant backward and briefly up into the air, where walking, dashing, bullets, shockwaves and mines can't touch it.", 'Special: Launch', 'launch', i => getSpecialType(i) === -3],
+    // Fire
+    ['alternatingFire', 'alternatingFire', 'Alternating Fire Ants', 'Alternate between fast and slow shots. Each shot toggles cooldown speed. Affected by cooldown multiplier.', 'Fire Type: Alternating', 'alternating', i => getFireType(i) === -1],
+    ['hitReloadFire', 'hitReloadFire', 'Hit Reload Ants', 'Fire on a cooldown 3x longer than normal, but every bullet that hits the beetle instantly reloads them for another shot.', 'Fire Type: Hit Reload', 'hitReload', i => getFireType(i) === -2],
+    ['burstFire', 'burstFire', 'Burst Fire Ants', 'Fire several bullets at once in a fan with each shot. Affected by burst count and spread.', 'Fire Type: Burst', 'burst', i => getFireType(i) === 1],
+    ['delayedBurstFire', 'delayedBurstFire', 'Delayed Burst Ants', 'Fire a single full-size bullet that glows orange, then splits into a burst mid-flight (up to 1 second later). Affected by burst count, spread, and delay.', 'Fire Type: Delayed Burst', 'delayedBurst', i => getFireType(i) === 3],
+    ['rapidFire', 'rapidFire', 'Rapid Fire Ants', 'Split each shot into 2-5 smaller bullets that fire one after another, 15 frames apart. Affected by burst count.', 'Fire Type: Rapid', 'rapid', i => getFireType(i) === 2],
+    ['streamFire', 'streamFire', 'Stream Fire Ants', 'Spray a continuous stream of acid instead of bullets, burning the beetle every frame it stands in it. The stream starts thin at the ant and widens as it flows out to its range. Wider streams reach less far.', 'Fire Type: Stream • Width / Range: Radius Multiplier • Duration: Residue Multiplier', 'stream', i => getFireType(i) === 4],
+    ['alarmFire', 'alarmFire', 'Alarm Ants', 'Fire faster while the beetle is close: 1.5x inside their outer radius and 2x inside their inner radius, shown by an orange or red ring.', 'Fire Type: Alarm • Inner Radius: 25-100px', 'alarm', i => getFireType(i) === 5],
+    ['avengeFire', 'avengeFire', 'Avenge Ants', 'Whenever another ant dies nearby, they flash white to reload like a hit reload ant and fire again. Every death they see is another shot.', 'Fire Type: Avenge', 'avenge', i => getFireType(i) === 6],
+    // Path
+    ['highArc', 'highArc', 'High Arc Ants', 'Bullets launch in a high arc and land like artillery. Cannot be touched until they hit the ground. Deal high-speed damage on impact.', 'Path Type: High Arc', 'highArc', i => getPathType(i) === 1 && !isSplitArc(i)],
+    ['splitArc', 'splitArc', 'Split Arc Ants', 'Lob high arc bullets that glow orange on the way up, then split into 3 smaller bullets at the top of the arc that land in a row across the target.', 'Path Type: Split Arc', 'splitArc', i => isSplitArc(i)],
+    ['clockwiseCurve', 'clockwiseCurve', 'Curve Ants', 'Bullets curve as they travel, creating unpredictable arcing shots. Curve intensifies over bullet lifetime.', 'Path Type: Curve • Curve Strength: -0.1 to 0.1', 'curve', i => getPathType(i) === -1],
+    ['homingCurve', 'homingCurve', 'Homing Ants', 'Bullets gradually turn toward the beetle mid-flight. Difficult to dodge.', 'Path Type: Homing', 'homing', i => getPathType(i) === -2],
+    ['accelerate', null, 'Accelerate Ants', 'Bullets start slow, then speed up suddenly with a sonic boom.', 'Path Type: Accelerate', 'accelerate', i => getPathType(i) === 2 && !isBeamAccelerate(i)],
+    ['beam', 'beam', 'Beam Ants', 'Bullets charge up with closing rings, then fire a beam to the edge of the screen when they would start accelerating. Beam color shows the effect: white knockback, purple vacuum, green explosive, cyan plain.', 'Path Type: Beam', 'beam', i => isBeamAccelerate(i)],
+    ['blink', 'blink', 'Blink Ants', "Bullets flicker cyan, then vanish and reappear in a flash where they'd be half a second later, skipping everything in between.", 'Path Type: Blink', 'blink', i => getPathType(i) === 3 && pathBlink[i] < 1],
+    ['portal', 'portal', 'Portal Ants', 'Bullets flicker pink and blink ahead like blink bullets, then come out of the flash aimed straight at the beetle at the same speed.', 'Path Type: Portal', 'portal', i => getPathType(i) === 3 && pathBlink[i] >= 1],
+    // Death
+    ['smearDeath', 'smearDeath', 'Smear Ants', 'Bullets leave a small damaging smear where they fade out. Radius and residue stats control its size and how long it lingers.', 'Death Type: Smear', 'smear', i => getDeathType(i) === -1],
+    ['landmineConversion', 'landmineConversion', 'Landmine Ants', 'Bullets transform into landmines when they expire instead of fading.', 'Death Type: Landmine', 'landmine', i => getDeathType(i) === 1],
+    ['refireDeath', 'refireDeath', 'Refire Ants', 'Where a bullet dies, it winds up and is fired at the beetle again, just as the ant would fire it. Refired bullets have no death effect.', 'Death Type: Refire', 'refire', i => getDeathType(i) === 2],
+    ['turretDeath', 'turretDeath', 'Turret Ants', 'Where a bullet dies, a small turret sets up and fires at the beetle 3 times, then disappears. Turret bullets have no death effect.', 'Death Type: Turret', 'turret', i => getDeathType(i) === 3],
+    ['territoryDeath', 'territoryDeath', 'Territory Ants', 'Where a bullet hits the ground it marks out an amber area. Any ant standing in it reloads 1.5x faster.', 'Death Type: Territory • Size: Radius Multiplier • Duration: Residue Multiplier', 'territory', i => getDeathType(i) === 4],
+    ['nestDeath', 'nestDeath', 'Nest Ants', 'Bullets leave a territory with a blue ring. Ants in it reload 1.5x faster and also grow a shield that soaks up 1 damage and stops the ant being run over.', 'Death Type: Nest • Size: Radius Multiplier • Duration: Residue Multiplier', 'nest', i => getDeathType(i) === 5],
+    ['moundDeath', 'moundDeath', 'Mound Ants', "Where a bullet hits the ground a round wall of dirt rises for a short time, blocking the beetle and its shots. Residue controls how long it stands.", 'Death Type: Mound • Duration: Residue Multiplier', 'mound', i => getDeathType(i) === 6],
+    ['bunkerDeath', 'bunkerDeath', 'Bunker Ants', "Full-size bullets raise a covered dirt bunker where they land. Any ant close enough can climb in unseen and keep shooting while the beetle can only hit the bunker.", 'Death Type: Bunker • Duration: Residue Multiplier', 'bunker', i => getDeathType(i) === 7]
+  ];
+  return list.map(([id, legacy, name, desc, stats, scene, check]) => ({ id, legacy, section: 'abilities', name, desc, stats, scene, check }));
+}
+
+// Ability combinations with code written just for them
+function buildDexExoticEntries() {
+  const timed = i => getSpecialType(i) === 1 && specialExplosion[i] < 1;
+  const explosive = i => getSpecialType(i) === 1;
+  const stream = i => isStreamFire(i);
+  // Bullets that turn into landmines (streams and beams have no death effect)
+  const mines = i => getDeathType(i) === 1 && !stream(i) && !isBeamAccelerate(i);
+  const list = [
+    ['airStrike', 'Air Strike Ants', 'High arc bullets with a timed fuse can go off in mid-air, raining a bigger blast down on the beetle from above.', 'Time Explosion + High Arc', 'airStrike', i => timed(i) && getPathType(i) === 1 && !stream(i)],
+    ['explodingAnts', 'Exploding Ants', 'Proximity explosion stream ants burst their streams, and if the beetle stays close they light a fuse and blow themselves up in a huge explosion.', 'Proximity Explosion + Stream', 'explodingAnts', i => getSpecialType(i) === 1 && specialExplosion[i] >= 1 && stream(i)],
+    ['ghostAnts', 'Ghost Ants', 'Ghost stream ants fade out of sight just before they spray, and only fade back in once the stream stops.', 'Ghost Bullets + Stream', 'ghostAnts', i => getSpecialType(i) === -2 && stream(i)],
+    ['hoverAnts', 'Hover Ants', 'Launch stream ants rise high into the air while they spray, untouchable above the spot they burn.', 'Launch + Stream', 'hoverAnts', i => getSpecialType(i) === -3 && stream(i)],
+    ['explodingLandmine', 'Exploding Landmines', 'Explosive bullets become landmines that blow up instead of just burning the beetle.', 'Explosion + Landmine', 'explodingLandmine', i => explosive(i) && mines(i)],
+    ['hiddenLandmine', 'Hidden Landmines', 'Ghost bullets become landmines that stay invisible until the beetle is right on top of them.', 'Ghost Bullets + Landmine', 'hiddenLandmine', i => getSpecialType(i) === -2 && mines(i)],
+    // Found in the code: combinations with their own handling
+    ['flickerLandmine', 'Flickering Landmines', 'Camouflage bullets become landmines that keep flickering in and out of sight.', 'Camouflage + Landmine', 'flickerLandmine', i => getSpecialType(i) === 2 && mines(i)],
+    ['twinBeam', 'Twin Beam Ants', "Explosive beam bullets don't explode: their beam fires both ways at once and burns like an explosion.", 'Explosion + Beam', 'twinBeam', i => explosive(i) && isBeamAccelerate(i) && !stream(i)],
+    ['beamStream', 'Laser Hose Ants', 'Beam stream ants fire a beam straight on from wherever their stream ends, for as long as the stream keeps arriving there.', 'Beam + Stream', 'beamStream', i => isBeamAccelerate(i) && stream(i)],
+    ['sprinkler', 'Sprinkler Ants', 'Accelerating stream ants throw particles off the end of their stream that fan out to the edge of the screen.', 'Accelerate + Stream', 'sprinkler', i => getPathType(i) === 2 && !isBeamAccelerate(i) && stream(i)],
+    ['clusterBomb', 'Cluster Bomb Ants', 'One lofted bullet splits into a burst, then every bullet of the burst splits into 3 more at the top of its arc. Arcs are timed so the two splits never happen at once.', 'Delayed Burst + Split Arc', 'clusterBomb', i => getFireType(i) === 3 && isSplitArc(i)]
+  ];
+  return list.map(([id, name, desc, stats, scene, check]) => ({ id, section: 'exotic', name, desc, stats, scene, check }));
+}
+
+function loadAntDexDiscoveries() {
+  antDexDiscovered = {};
+  try {
+    const saved = getItem(ANTDEX_STORAGE_KEY);
+    if (saved && typeof saved === 'object') antDexDiscovered = saved;
+  } catch (e) {}
+  // Carry over discoveries saved by the old one-key-per-entry system
+  let migrated = false;
+  for (const entry of antDexEntries) {
+    if (entry.legacy && !antDexDiscovered[entry.id] && getItem(entry.legacy + 'PreviouslyDiscovered') === true) {
+      antDexDiscovered[entry.id] = true;
+      migrated = true;
+    }
+  }
+  if (migrated) storeItem(ANTDEX_STORAGE_KEY, antDexDiscovered);
+}
+
+function buildAntDexEntries() {
   antDexEntries = [
-    // 1-8: Movement Behaviors
-    {
-      name: "Follow Beetle Ants",
-      desc: "Tracks and follows the beetle's position directly.",
-      stats: "Autonomy: Beetle • Follow Style: Follow",
-      discovered: movementType1Discovered
-    },
-    {
-      name: "Follow Other Ants",
-      desc: "Mirrors the movement patterns of nearby ants.",
-      stats: "Autonomy: Ants • Follow Style: Follow",
-      discovered: movementType2Discovered
-    },
-    {
-      name: "Find Location Ants",
-      desc: "Moves toward a predetermined spot on the screen.",
-      stats: "Autonomy: Location • Follow Style: Follow",
-      discovered: movementType3Discovered
-    },
-    {
-      name: "Stand Still Ants",
-      desc: "Remains stationary at spawn point for better aim.",
-      stats: "Autonomy: Spawn • Follow Style: Follow",
-      discovered: movementType4Discovered
-    },
-    {
-      name: "Keep Distance From Beetle Ants",
-      desc: "Maintains a specific range from the beetle.",
-      stats: "Autonomy: Beetle • Follow Style: Keep Distance",
-      discovered: movementType5Discovered
-    },
-    {
-      name: "Keep Distance From Ants",
-      desc: "Maintains spacing relative to other ants.",
-      stats: "Autonomy: Ants • Follow Style: Keep Distance",
-      discovered: movementType6Discovered
-    },
-    {
-      name: "Keep Distance From Location Ants",
-      desc: "Orbits around a fixed point at set distance.",
-      stats: "Autonomy: Location • Follow Style: Keep Distance",
-      discovered: movementType7Discovered
-    },
-    {
-      name: "Keep Distance From Spawn Ants",
-      desc: "Moves set distance from respawn location.",
-      stats: "Autonomy: Spawn • Follow Style: Keep Distance",
-      discovered: movementType8Discovered
-    },
+    ...buildDexCapStatEntries(),
+    ...buildDexValueStatEntries(),
+    ...buildDexAbilityEntries(),
+    ...buildDexExoticEntries()
+  ];
+  for (const entry of antDexEntries) {
+    if (entry.level === undefined) entry.level = 0.5;
+  }
+  loadAntDexDiscoveries();
+  for (const entry of antDexEntries) entry.discovered = !!antDexDiscovered[entry.id];
+}
 
-    // 9-13: Ant Speed
-    {
-      name: "Minimum Speed Ants",
-      desc: "Barely moving, prioritizing aim over mobility.",
-      stats: "Ant Speed: 0.9-1.2",
-      discovered: antSpeedMinDiscovered
-    },
-    {
-      name: "Low Speed Ants",
-      desc: "Slow crawlers with deliberate movement.",
-      stats: "Ant Speed: 1.3-1.7",
-      discovered: antSpeedLowDiscovered
-    },
-    {
-      name: "Medium Speed Ants",
-      desc: "Balanced speed for versatility.",
-      stats: "Ant Speed: 1.8-2.3",
-      discovered: antSpeedMedDiscovered
-    },
-    {
-      name: "High Speed Ants",
-      desc: "Quick movers that reposition rapidly.",
-      stats: "Ant Speed: 2.4-3.0",
-      discovered: antSpeedHighDiscovered
-    },
-    {
-      name: "Maximum Speed Ants",
-      desc: "Sprinters moving at beetle-threatening pace. Small ants can reach even higher speeds (max = 4.5 - Ant Size).",
-      stats: "Ant Speed: 3.1-4.2 (size dependent)",
-      discovered: antSpeedMaxDiscovered
-    },
+function discoverAntDexEntry(entry) {
+  entry.discovered = true;
+  antDexDiscovered[entry.id] = true;
+  storeItem(ANTDEX_STORAGE_KEY, antDexDiscovered);
+  triggerDiscoveryPopup(entry);
+}
 
-    // 14-18: Bullet Speed
-    {
-      name: "Minimum Bullet Speed Ants",
-      desc: "Lightning-fast projectiles with minimal dodge time.",
-      stats: "Bullet Speed: 60-90",
-      discovered: bulletSpeedMinDiscovered
-    },
-    {
-      name: "Low Bullet Speed Ants",
-      desc: "Fast bullets that pressure the beetle.",
-      stats: "Bullet Speed: 91-140",
-      discovered: bulletSpeedLowDiscovered
-    },
-    {
-      name: "Medium Bullet Speed Ants",
-      desc: "Moderate bullet velocity for balanced threat.",
-      stats: "Bullet Speed: 141-220",
-      discovered: bulletSpeedMedDiscovered
-    },
-    {
-      name: "High Bullet Speed Ants",
-      desc: "Slow bullets that linger as obstacles.",
-      stats: "Bullet Speed: 221-270",
-      discovered: bulletSpeedHighDiscovered
-    },
-    {
-      name: "Maximum Bullet Speed Ants",
-      desc: "Crawling projectiles that clutter the arena.",
-      stats: "Bullet Speed: 271-300",
-      discovered: bulletSpeedMaxDiscovered
-    },
+// Checks every ant on the field for new discoveries
+function updateAntDexEntries() {
+  if (antDexEntries.length === 0) buildAntDexEntries();
+  if (start !== true || frameCount % 10 !== 0) return; // A few checks a second is plenty
+  for (let i = 1; i <= enemyCount; i++) {
+    if (hasAntAphidEffects(i)) continue; // Aphid boosts aren't the ant's own genes
+    for (const entry of antDexEntries) {
+      if (!entry.discovered && entry.check(i)) discoverAntDexEntry(entry);
+    }
+  }
+}
 
-    // 19-23: Bullet Cooldown
-    {
-      name: "Minimum Cooldown Ants",
-      desc: "Rapid fire with overwhelming bullet spam.",
-      stats: "Bullet Cooldown: 79-95",
-      discovered: cooldownMinDiscovered
-    },
-    {
-      name: "Low Cooldown Ants",
-      desc: "Quick shots that maintain pressure.",
-      stats: "Bullet Cooldown: 96-120",
-      discovered: cooldownLowDiscovered
-    },
-    {
-      name: "Medium Cooldown Ants",
-      desc: "Standard firing rate for typical ants.",
-      stats: "Bullet Cooldown: 121-150",
-      discovered: cooldownMedDiscovered
-    },
-    {
-      name: "High Cooldown Ants",
-      desc: "Slow shooters with deliberate shots.",
-      stats: "Bullet Cooldown: 151-180",
-      discovered: cooldownHighDiscovered
-    },
-    {
-      name: "Maximum Cooldown Ants",
-      desc: "Bizarrely sluggish fire rate, barely shooting.",
-      stats: "Bullet Cooldown: 181-200",
-      discovered: cooldownMaxDiscovered,
-      category: 'exotic'
-    },
+// ----- Antdex pictures -----
+// Every entry's picture is a little looping scene drawn with the game's own sprites (ant, bullet, beetle) on
+// the arena floor color, with the same aura colors the game uses, so it shows what the ant does. Scenes work in a
+// 150 x 150 box (DEX_PIC) that drawDexPicture scales to fit. Things too big for the box are shrunk to fit,
+// and ideas that are hard to show with sprites alone get a small symbol (a clock for time, etc).
+const DEX_PIC = 150;
+const DEX_ANT_X = 26;       // Where the ant stands
+const DEX_BEETLE_X = 124;   // Where the beetle (the target) sits
+const DEX_MID_Y = 75;
+const DEX_LOOP = 150;       // Frames per loop of most scenes
+const DEX_SPRITE_SCALE = 0.85;
+const DEX_BEETLE_SIZE = 62; // Shrunk well below its real size to fit the box
 
-    // 24-28: Shot Offset
-    {
-      name: "Minimum Offset Ants",
-      desc: "Perfect aim directly at the beetle's position.",
-      stats: "Shot Offset: 0-50",
-      discovered: offsetMinDiscovered
-    },
-    {
-      name: "Low Offset Ants",
-      desc: "Slight lead shots that predict movement.",
-      stats: "Shot Offset: 51-150",
-      discovered: offsetLowDiscovered
-    },
-    {
-      name: "Medium Offset Ants",
-      desc: "Moderate angles for area denial.",
-      stats: "Shot Offset: 151-300",
-      discovered: offsetMedDiscovered
-    },
-    {
-      name: "High Offset Ants",
-      desc: "Wide-angle shots that flank the beetle.",
-      stats: "Shot Offset: 301-450",
-      discovered: offsetHighDiscovered
-    },
-    {
-      name: "Maximum Offset Ants",
-      desc: "Shooting completely away from the beetle.",
-      stats: "Shot Offset: 451-500",
-      discovered: offsetMaxDiscovered,
-      category: 'exotic'
-    },
+function dexPhase(g, period = DEX_LOOP) {
+  return (g.t % period) / period;
+}
 
-    // 29-33: Bullet Size
-    {
-      name: "Minimum Bullet Size Ants",
-      desc: "Standard projectiles with basic damage.",
-      stats: "Bullet Size: 1.0",
-      discovered: bulletSizeMinDiscovered
-    },
-    {
-      name: "Low Bullet Size Ants",
-      desc: "Slightly enlarged bullets with more impact.",
-      stats: "Bullet Size: 1.1-1.4",
-      discovered: bulletSizeLowDiscovered
-    },
-    {
-      name: "Medium Bullet Size Ants",
-      desc: "Noticeably larger bullets that slow down.",
-      stats: "Bullet Size: 1.5-2.0",
-      discovered: bulletSizeMedDiscovered
-    },
-    {
-      name: "High Bullet Size Ants",
-      desc: "Heavy projectiles with serious damage.",
-      stats: "Bullet Size: 2.1-2.4",
-      discovered: bulletSizeHighDiscovered
-    },
-    {
-      name: "Maximum Bullet Size Ants",
-      desc: "Massive landmine-like bullets that barely move.",
-      stats: "Bullet Size: 2.5-3.0",
-      discovered: bulletSizeMaxDiscovered,
-      category: 'exotic'
-    },
+function dexEase(x) {
+  x = constrain(x, 0, 1);
+  return x * x * (3 - 2 * x);
+}
 
-    // 34-38: Ant Size
-    {
-      name: "Minimum Ant Size Ants",
-      desc: "Tiniest possible ants, barely visible.",
-      stats: "Ant Size: 0.3",
-      discovered: antSizeMinDiscovered,
-      category: 'exotic'
-    },
-    {
-      name: "Low Ant Size Ants",
-      desc: "Small ants with reduced hitboxes.",
-      stats: "Ant Size: 0.7",
-      discovered: antSizeLowDiscovered
-    },
-    {
-      name: "Medium Ant Size Ants",
-      desc: "Standard-sized ants, well-balanced.",
-      stats: "Ant Size: 1.0",
-      discovered: antSizeMedDiscovered
-    },
-    {
-      name: "High Ant Size Ants",
-      desc: "Large ants that are easier targets.",
-      stats: "Ant Size: 2.0",
-      discovered: antSizeHighDiscovered
-    },
-    {
-      name: "Maximum Ant Size Ants",
-      desc: "Gigantic ants with massive health pools.",
-      stats: "Ant Size: 3.0",
-      discovered: antSizeMaxDiscovered,
-      category: 'exotic'
-    },
+function dexRotate(rad) {
+  rotate(rad * 180 / Math.PI); // The game runs in angleMode(DEGREES)
+}
 
-    // 39-43: Distance From Anchor
-    {
-      name: "Minimum Distance Ants",
-      desc: "Stays extremely close to target, aggressive.",
-      stats: "Distance From Anchor: 0.1-100",
-      discovered: distanceMinDiscovered
-    },
-    {
-      name: "Low Distance Ants",
-      desc: "Moderately close positioning.",
-      stats: "Distance From Anchor: 101-250",
-      discovered: distanceLowDiscovered
-    },
-    {
-      name: "Medium Distance Ants",
-      desc: "Maintains mid-range combat distance.",
-      stats: "Distance From Anchor: 251-500",
-      discovered: distanceMedDiscovered
-    },
-    {
-      name: "High Distance Ants",
-      desc: "Prefers long-range positioning.",
-      stats: "Distance From Anchor: 501-750",
-      discovered: distanceHighDiscovered
-    },
-    {
-      name: "Maximum Distance Ants",
-      desc: "Extreme range, almost arena-edge positioning.",
-      stats: "Distance From Anchor: 751-1000",
-      discovered: distanceMaxDiscovered,
-      category: 'exotic'
-    },
+function dexAnt(x, y, size = 1, angle = 0, alpha = 255, lift = 0) {
+  const sz = (45 + 15 * size) * DEX_SPRITE_SCALE;
+  push();
+  noStroke();
+  fill(0, 0, 0, 70 * alpha / 255);
+  ellipse(x + 1, y + 2, sz * 0.62 * (lift > 0 ? 0.8 : 1), sz * 0.3 * (lift > 0 ? 0.8 : 1));
+  imageMode(CENTER);
+  translate(x, y - lift);
+  dexRotate(angle);
+  if (alpha < 255) tint(255, alpha);
+  image(ant, 0, 0, sz, sz);
+  pop();
+  if (size < 0.8) {
+    // Small ants glow blue in the game
+    push();
+    noStroke();
+    fill(80, 150, 255, (60 + 40 * Math.sin(frameCount * 0.15)) * alpha / 255);
+    ellipse(x, y - lift, sz * 0.75, sz * 0.75);
+    pop();
+  }
+  return sz;
+}
 
-    // 44-46: Special Abilities
-    {
-      name: "No Special Ability Ants",
-      desc: "Basic bullets with no special properties.",
-      stats: "Special: None",
-      discovered: noSpecialDiscovered
-    },
-    {
-      name: "Time Explosion Ants",
-      desc: "Bullets detonate after a set duration.",
-      stats: "Special: Explosion • Trigger: Time",
-      discovered: timeExplosionDiscovered
-    },
-    {
-      name: "Proximity Explosion Ants",
-      desc: "Bullets explode when near the beetle.",
-      stats: "Special: Explosion • Trigger: Proximity",
-      discovered: proximityExplosionDiscovered
-    },
+function dexBeetle(x, y, alpha = 255, angle = Math.PI) {
+  push();
+  imageMode(CENTER);
+  translate(x, y);
+  dexRotate(angle);
+  if (alpha < 255) tint(255, alpha);
+  image(beetle, 0, 0, DEX_BEETLE_SIZE, DEX_BEETLE_SIZE);
+  pop();
+}
 
-    // 47-51: Explosion Fuse
-    {
-      name: "Minimum Fuse Ants",
-      desc: "Very short fuse, quick detonations.",
-      stats: "Explode After: 40-250 frames",
-      discovered: fuseMinDiscovered
-    },
-    {
-      name: "Low Fuse Ants",
-      desc: "Short fuse for moderate timing.",
-      stats: "Explode After: 251-400 frames",
-      discovered: fuseLowDiscovered
-    },
-    {
-      name: "Medium Fuse Ants",
-      desc: "Standard detonation timing.",
-      stats: "Explode After: 401-550 frames",
-      discovered: fuseMedDiscovered
-    },
-    {
-      name: "High Fuse Ants",
-      desc: "Long fuse bullets that linger.",
-      stats: "Explode After: 551-700 frames",
-      discovered: fuseHighDiscovered
-    },
-    {
-      name: "Maximum Fuse Ants",
-      desc: "Extremely delayed explosions.",
-      stats: "Explode After: 701-800 frames",
-      discovered: fuseMaxDiscovered,
-      category: 'exotic'
-    },
+// A bullet with the game's auras. o: { aura, core, alpha, h (height in the air), angle, size }
+function dexBullet(x, y, o = {}) {
+  const size = o.size || 1;
+  const a = (o.alpha === undefined ? 255 : o.alpha) / 255;
+  const h = o.h || 0;
+  const by = y - h;
+  const pulse = 83 + 70 * Math.sin(frameCount * 0.3);
+  push();
+  noStroke();
+  if (h > 0) {
+    fill(0, 0, 0, map(h, 0, 40, 130, 40, true) * a);
+    ellipse(x, y, 12 * size * DEX_SPRITE_SCALE, 12 * size * DEX_SPRITE_SCALE);
+  }
+  const auraSize = 25 * size * DEX_SPRITE_SCALE;
+  if (o.aura === 'knockback') fill(220, 220, 220, pulse * a);
+  else if (o.aura === 'vacuum') fill(190, 90, 255, 100 * a);
+  else if (o.aura === 'homing') fill(255, 60, 60, pulse * a);
+  else if (o.aura === 'blink') fill(110, 235, 255, pulse * a);
+  else if (o.aura === 'portal') fill(255, 120, 255, pulse * a);
+  else if (o.aura === 'split') fill(255, 150, 40, pulse * a);
+  else if (o.aura === 'explode') fill(80, 220, 80, pulse * a);
+  else noFill();
+  if (o.aura) ellipse(x, by, auraSize * (o.aura === 'homing' ? 1.2 : 1), auraSize * (o.aura === 'homing' ? 1.2 : 1));
+  if (o.aura === 'vacuum') {
+    noFill();
+    strokeWeight(1.2);
+    for (let r = 0; r < 3; r++) {
+      const ringT = ((frameCount * 0.04) + r / 3) % 1;
+      stroke(215, 140, 255, 220 * ringT * a);
+      ellipse(x, by, auraSize * 1.2 * (1 - ringT), auraSize * 1.2 * (1 - ringT));
+    }
+    noStroke();
+  }
+  imageMode(CENTER);
+  push();
+  translate(x, by);
+  dexRotate(o.angle || 0);
+  tint(255, 255 * a);
+  image(bulletImage, 0, 0, 20 * size * DEX_SPRITE_SCALE, 20 * size * DEX_SPRITE_SCALE);
+  pop();
+  const coreSize = (6 * size + 2 * Math.sin(frameCount * 0.25)) * DEX_SPRITE_SCALE;
+  if (o.core === 'mine') fill(255, 255, 0, 220 * a);
+  else if (o.core === 'turret') fill(255, 40, 40, 220 * a);
+  else if (o.core === 'nest') fill(90, 170, 255, 220 * a);
+  else if (o.core === 'bunker') fill(70, 45, 20, 230 * a);
+  if (o.core) ellipse(x, by, coreSize, coreSize);
+  pop();
+}
 
-    // 52-56: Explosion Proximity
-    {
-      name: "Minimum Proximity Ants",
-      desc: "Must be very close to beetle to detonate.",
-      stats: "Explosion Proximity: 0.1-150",
-      discovered: proxMinDiscovered
-    },
-    {
-      name: "Low Proximity Ants",
-      desc: "Modest trigger range for explosions.",
-      stats: "Explosion Proximity: 151-300",
-      discovered: proxLowDiscovered
-    },
-    {
-      name: "Medium Proximity Ants",
-      desc: "Standard proximity detection range.",
-      stats: "Explosion Proximity: 301-550",
-      discovered: proxMedDiscovered
-    },
-    {
-      name: "High Proximity Ants",
-      desc: "Wide trigger radius, hard to avoid.",
-      stats: "Explosion Proximity: 551-800",
-      discovered: proxHighDiscovered
-    },
-    {
-      name: "Maximum Proximity Ants",
-      desc: "Extreme range proximity detonation.",
-      stats: "Explosion Proximity: 801-1000",
-      discovered: proxMaxDiscovered,
-      category: 'exotic'
-    },
+// Bullet from (x1, y1) to (x2, y2) at fraction f, facing the way it travels
+function dexBulletAlong(x1, y1, x2, y2, f, o = {}) {
+  dexBullet(lerp(x1, x2, f), lerp(y1, y2, f), Object.assign({ angle: Math.atan2(y2 - y1, x2 - x1) }, o));
+}
 
-    // 57-61: Explosion Radius
-    {
-      name: "Minimum Explosion Radius Ants",
-      desc: "Small blast radius, easier to dodge.",
-      stats: "Explosion Radius: 0.5-1.0x",
-      discovered: radiusMinDiscovered
-    },
-    {
-      name: "Low Explosion Radius Ants",
-      desc: "Modest blast area.",
-      stats: "Explosion Radius: 1.1-1.5x",
-      discovered: radiusLowDiscovered
-    },
-    {
-      name: "Medium Explosion Radius Ants",
-      desc: "Standard explosion size.",
-      stats: "Explosion Radius: 1.6-2.0x",
-      discovered: radiusMedDiscovered
-    },
-    {
-      name: "High Explosion Radius Ants",
-      desc: "Large blast zone.",
-      stats: "Explosion Radius: 2.1-2.5x",
-      discovered: radiusHighDiscovered
-    },
-    {
-      name: "Maximum Explosion Radius Ants",
-      desc: "Massive explosions covering huge areas.",
-      stats: "Explosion Radius: 2.6-3.0x",
-      discovered: radiusMaxDiscovered,
-      category: 'exotic'
-    },
+// Explosion, as drawEnemyExplosions draws it (r = outer radius)
+function dexExplosion(x, y, r, alpha = 255) {
+  const a = alpha / 255 * 180;
+  const wobble = 0.9 + 0.2 * Math.sin(frameCount * 0.4);
+  push();
+  noStroke();
+  fill(0, 255, 0, a * 0.6);
+  ellipse(x, y, r * 2 * wobble, r * 2 * wobble);
+  fill(0, 200, 0, a);
+  ellipse(x, y, r * 2 / 1.2 * wobble, r * 2 / 1.2 * wobble);
+  pop();
+}
 
-    // 62-66: Explosion Residue
-    {
-      name: "Minimum Explosion Residue Ants",
-      desc: "Clean explosions with minimal lingering.",
-      stats: "Explosion Residue: 0.5-1.0x",
-      discovered: residueMinDiscovered
-    },
-    {
-      name: "Low Explosion Residue Ants",
-      desc: "Brief residue duration.",
-      stats: "Explosion Residue: 1.1-1.5x",
-      discovered: residueLowDiscovered
-    },
-    {
-      name: "Medium Explosion Residue Ants",
-      desc: "Standard residue persistence.",
-      stats: "Explosion Residue: 1.6-2.0x",
-      discovered: residueMedDiscovered
-    },
-    {
-      name: "High Explosion Residue Ants",
-      desc: "Long-lasting explosion residue.",
-      stats: "Explosion Residue: 2.1-2.5x",
-      discovered: residueHighDiscovered
-    },
-    {
-      name: "Maximum Explosion Residue Ants",
-      desc: "Extremely persistent residue clutter.",
-      stats: "Explosion Residue: 2.6-3.0x",
-      discovered: residueMaxDiscovered,
-      category: 'exotic'
-    },
+function dexResidue(x, y, r, alpha = 255) {
+  push();
+  noStroke();
+  fill(0, 255, 0, alpha * 0.25);
+  ellipse(x, y, r * 2, r * 1.6);
+  fill(0, 200, 0, alpha * 0.35);
+  ellipse(x, y, r * 1.1, r * 0.9);
+  pop();
+}
 
-    // 67: Knockback Special
-    {
-      name: "Knock back Bullet Ants",
-      desc: "Bullets push the beetle when hit.",
-      stats: "Special: Knockback",
-      discovered: knockbackDiscovered
-    },
-    {
-      name: "Vacuum Bullet Ants",
-      desc: "Bullets pull the beetle toward them at close range, then knock it back on hit. Pull strength and range grow with knockback multiplier.",
-      stats: "Special: Vacuum",
-      discovered: vacuumDiscovered
-    },
+// Landmine, as updateLandMines draws it: green disc, bright green outline and yellow center, plus the
+// auras it inherits (o.aura 'explode' / 'knockback'). o.alpha fades it (camouflage / ghost stealth).
+function dexMine(x, y, o = {}) {
+  const a = o.alpha === undefined ? 255 : o.alpha;
+  const size = 15 * (o.size || 1.2) * DEX_SPRITE_SCALE * 1.4;
+  push();
+  noStroke();
+  if (o.aura === 'explode') {
+    fill(80, 220, 80, Math.min(a, 83 + 70 * Math.sin(frameCount * 0.3)));
+    ellipse(x, y, size * 1.35, size * 1.35);
+  } else if (o.aura === 'knockback') {
+    fill(220, 220, 220, Math.min(a, 83 + 70 * Math.sin(frameCount * 0.3)));
+    ellipse(x, y, size * 1.2, size * 1.2);
+  }
+  fill(0, 200, 0, map(a, 0, 255, 0, 180));
+  stroke(0, 255, 0, a);
+  strokeWeight(2);
+  ellipse(x, y, size, size);
+  noStroke();
+  fill(255, 255, 0, a);
+  ellipse(x, y, size * 0.3, size * 0.3);
+  pop();
+}
 
-    // Camouflage / Ghost Specials
-    {
-      name: "Camouflage Bullet Ants",
-      desc: "Bullets (and landmines they become) flicker in and out of sight. Slower flickering keeps them hidden longer and is genetic.",
-      stats: "Special: Camouflage • Flash Rate: 0.25-3 per second",
-      discovered: camouflageDiscovered
-    },
-    {
-      name: "Ghost Bullet Ants",
-      desc: "Bullets (and landmines they become) stay invisible and only appear within 150 pixels of the beetle. Misses vanish again.",
-      stats: "Special: Ghost",
-      discovered: ghostBulletDiscovered
-    },
+// Turret, as drawDeathTurret draws it: a landmine body with a red center that pulses faster as a shot nears.
+// charge 0-1 is how close the next shot is, deploy 0-1 grows it in, alpha fades it out.
+function dexTurret(x, y, charge = 0, deploy = 1, alpha = 255) {
+  const size = 15 * 1.2 * DEX_SPRITE_SCALE * 1.4 * deploy;
+  push();
+  fill(0, 200, 0, 180 * alpha / 255);
+  stroke(0, 255, 0, alpha);
+  strokeWeight(2);
+  ellipse(x, y, size, size);
+  noStroke();
+  fill(255, 40, 40, alpha);
+  const core = size * (0.3 + 0.1 * charge * (1 + Math.sin(frameCount * (0.17 + 0.5 * charge))));
+  ellipse(x, y, core, core);
+  pop();
+}
 
-    // Recoil / Launch Specials
-    {
-      name: "Recoil Ants",
-      desc: "Every shot kicks the ant backward, away from where it fired. Bigger, faster bullets kick harder; bigger ants are pushed less.",
-      stats: "Special: Recoil",
-      discovered: recoilDiscovered
-    },
-    {
-      name: "Launch Ants",
-      desc: "Every shot kicks the ant backward and briefly up into the air (higher and longer for bigger, faster bullets), where walking, dashing, bullets, shockwaves and mines can't touch it.",
-      stats: "Special: Launch",
-      discovered: launchDiscovered
-    },
+// Refire wind-up, as drawDeathRefireWindup draws it: a red ring closing in on a spinning, reddening bullet
+function dexRefireWindup(x, y, t) {
+  const bulletDrawSize = 20 * DEX_SPRITE_SCALE;
+  push();
+  noFill();
+  stroke(255, 70, 70, 80 + 175 * t);
+  strokeWeight(1 + 2 * t);
+  const ringSize = bulletDrawSize * (3 - 2 * t);
+  ellipse(x, y, ringSize, ringSize);
+  imageMode(CENTER);
+  translate(x, y);
+  rotate(frameCount * (6 + 30 * t)); // Degrees, like the game
+  tint(255, 255, 255 - 120 * t);
+  image(bulletImage, 0, 0, bulletDrawSize, bulletDrawSize);
+  pop();
+}
 
-    // 68-72: Knockback Multiplier
-    {
-      name: "Minimum Knockback Ants",
-      desc: "Modest push when hit.",
-      stats: "Knockback Multiplier: 2.0-2.5x",
-      discovered: knockbackMinDiscovered
-    },
-    {
-      name: "Low Knockback Ants",
-      desc: "Noticeable shove on impact.",
-      stats: "Knockback Multiplier: 2.6-3.1x",
-      discovered: knockbackLowDiscovered
-    },
-    {
-      name: "Medium Knockback Ants",
-      desc: "Strong knockback force.",
-      stats: "Knockback Multiplier: 3.2-3.8x",
-      discovered: knockbackMedDiscovered
-    },
-    {
-      name: "High Knockback Ants",
-      desc: "Very strong push that disrupts movement.",
-      stats: "Knockback Multiplier: 3.9-4.5x",
-      discovered: knockbackHighDiscovered
-    },
-    {
-      name: "Maximum Knockback Ants",
-      desc: "Devastating knockback that launches beetle.",
-      stats: "Knockback Multiplier: 4.6-5.0x",
-      discovered: knockbackMaxDiscovered,
-      category: 'exotic'
-    },
+// Smear, as drawEnemySmears draws it: a lobed streak of acid
+const DEX_SMEAR_LOBES = [{ dx: -7, dy: 1, scale: 0.7 }, { dx: 6, dy: -2, scale: 0.8 }, { dx: 12, dy: 2, scale: 0.55 }];
+function dexSmear(x, y, r, grow, alpha) {
+  push();
+  noStroke();
+  fill(0, 255, 0, alpha * 0.45);
+  for (const lobe of DEX_SMEAR_LOBES) ellipse(x + lobe.dx * grow, y + lobe.dy * grow, r * 2 * lobe.scale * grow);
+  fill(0, 170, 0, alpha * 0.8);
+  ellipse(x, y, r * 1.3 * grow);
+  for (const lobe of DEX_SMEAR_LOBES) ellipse(x + lobe.dx * grow, y + lobe.dy * grow, r * 1.1 * lobe.scale * grow);
+  pop();
+}
 
-    // Fire Types
-    {
-      name: "Alternating Fire Ants",
-      desc: "Alternate between fast and slow shots. Each shot toggles cooldown speed. Affected by cooldown multiplier.",
-      stats: "Fire Type: Alternating",
-      discovered: alternatingFireDiscovered
-    },
-    {
-      name: "Hit Reload Ants",
-      desc: "Fire on a cooldown 3x longer than normal, but every bullet that hits the beetle instantly reloads them for another shot.",
-      stats: "Fire Type: Hit Reload",
-      discovered: hitReloadFireDiscovered
-    },
-    {
-      name: "Normal Fire Ants",
-      desc: "Fire one bullet at a time with standard timing.",
-      stats: "Fire Type: Normal",
-      discovered: normalFireDiscovered
-    },
-    {
-      name: "Burst Fire Ants",
-      desc: "Fire multiple bullets in rapid succession with each trigger. Affected by burst count.",
-      stats: "Fire Type: Burst",
-      discovered: burstFireDiscovered
-    },
-    {
-      name: "Delayed Burst Ants",
-      desc: "Fire a single full-size bullet that glows orange, then splits into a burst mid-flight (up to 1 second later). Affected by burst count, spread, and delay.",
-      stats: "Fire Type: Delayed Burst",
-      discovered: delayedBurstFireDiscovered
-    },
-    {
-      name: "Rapid Fire Ants",
-      desc: "Vary their firing rate with unpredictable timing. Affected by cooldown multiplier.",
-      stats: "Fire Type: Rapid",
-      discovered: rapidFireDiscovered
-    },
-    {
-      name: "Stream Fire Ants",
-      desc: "Spray a continuous stream of acid instead of bullets, burning the beetle every frame it stands in it. The stream starts thin at the ant and widens as it flows out to its range; when the beetle moves, the ant re-aims from the base and the new end has to flow out to reach it. Wider streams reach less far. High arc streams lob and split arcs split into 3 at the apex, curved streams bend, homing streams bend their end toward the beetle, accelerating streams throw off particles that fan out (by burst spread) to the edge of the screen, and beam streams fire a beam straight on from wherever the stream ends. Explosive streams burst all at once in grey smoke, and proximity ants also blow themselves up in a bigger explosion for double damage if the beetle stays within their explosion proximity. Launch ants hover high over a burning spot while they spray.",
-      stats: "Fire Type: Stream • Width / Range: Radius Multiplier • Duration: Residue Multiplier",
-      discovered: streamFireDiscovered
-    },
-    {
-      name: "Alarm Ants",
-      desc: "Fire faster while the beetle is close: 1.5x inside their outer radius and 2x inside their inner radius, shown by an orange or red ring. The inner radius is 25-100px; the smaller it is, the further the outer radius reaches (300px down to 100px).",
-      stats: "Fire Type: Alarm • Inner Radius: 25-100px",
-      discovered: alarmFireDiscovered
-    },
-    {
-      name: "Avenge Ants",
-      desc: "Whenever another ant dies within 180px, they flash white to reload like a hit reload ant and fire again. Every death they see is another shot, one reload at a time.",
-      stats: "Fire Type: Avenge",
-      discovered: avengeFireDiscovered
-    },
+// Territory / nest area, as updateEnemyTerritories draws it: amber fill with a turning dashed rim, plus a
+// pulsing blue inner ring for a nest
+function dexTerritory(x, y, r, nest, alpha = 255) {
+  push();
+  noStroke();
+  fill(255, 185, 60, alpha * 0.18);
+  ellipse(x, y, r * 2);
+  noFill();
+  stroke(255, 200, 80, alpha * 0.8);
+  strokeWeight(2);
+  const dashes = Math.max(6, Math.round(r / 6));
+  const turn = frameCount * 0.6;
+  for (let d = 0; d < dashes; d++) {
+    const a = turn + (d / dashes) * 360;
+    arc(x, y, r * 2, r * 2, a, a + 180 / dashes, OPEN); // Degrees: drawDexPicture sets angleMode(DEGREES)
+  }
+  if (nest) {
+    stroke(110, 190, 255, alpha * (0.5 + 0.3 * Math.sin(frameCount * 0.12)));
+    strokeWeight(2.5);
+    ellipse(x, y, r * 1.4);
+  }
+  pop();
+}
 
-    // 73-77: Bullet Burst Count
-    {
-      name: "Minimum Burst Count Ants",
-      desc: "Fire 1-2 bullets per burst. Nearly single-shot behavior.",
-      stats: "Bullet Burst Count: 1.5-2.3",
-      discovered: burstCountMinDiscovered
-    },
-    {
-      name: "Low Burst Count Ants",
-      desc: "Fire 2-3 bullets per burst. Controlled volleys.",
-      stats: "Bullet Burst Count: 2.4-3.2",
-      discovered: burstCountLowDiscovered
-    },
-    {
-      name: "Medium Burst Count Ants",
-      desc: "Fire 3-4 bullets per burst. Balanced pressure.",
-      stats: "Bullet Burst Count: 3.3-4.1",
-      discovered: burstCountMedDiscovered
-    },
-    {
-      name: "High Burst Count Ants",
-      desc: "Fire 4-5 bullets per burst. Heavy barrages.",
-      stats: "Bullet Burst Count: 4.2-4.9",
-      discovered: burstCountHighDiscovered
-    },
-    {
-      name: "Maximum Burst Count Ants",
-      desc: "Fire 5-6 bullets per burst. Overwhelming volleys.",
-      stats: "Bullet Burst Count: 5.0-5.5",
-      discovered: burstCountMaxDiscovered,
-      category: 'exotic'
-    },
+// Proximity explosion stream ant's self-destruct fuse, as drawSelfDestructFuse draws it: a grey ring closing
+// in (red once it can't be stopped) around a glow on the ant. t 0-1 is how far the fuse has burned.
+function dexSelfDestructFuse(x, y, radius, t) {
+  const locked = t >= 0.67;
+  const c = locked ? [255, 70, 50] : [190, 190, 190];
+  const pulse = 0.5 + 0.5 * Math.sin(frameCount * (0.3 + 0.9 * t));
+  push();
+  noFill();
+  stroke(c[0], c[1], c[2], 40 + 50 * pulse);
+  strokeWeight(1.5);
+  ellipse(x, y, radius * 2, radius * 2);
+  stroke(c[0], c[1], c[2], 90 + 165 * pulse);
+  strokeWeight(2 + 2 * t);
+  const ring = lerp(radius * 2 + 20, 24, t);
+  ellipse(x, y, ring, ring);
+  noStroke();
+  fill(c[0], c[1], c[2], (locked ? 120 : 60) * pulse);
+  ellipse(x, y, 40, 40);
+  pop();
+}
 
-    // 78-82: Cooldown Multiplier
-    {
-      name: "Minimum Cooldown Multiplier Ants",
-      desc: "Faster shooting with 0.5-1.4x time between shots.",
-      stats: "Cooldown Multiplier: 0.5-1.4x",
-      discovered: cooldownMultiplierMinDiscovered
-    },
-    {
-      name: "Low Cooldown Multiplier Ants",
-      desc: "Moderate firing with 1.5-2.4x time between shots.",
-      stats: "Cooldown Multiplier: 1.5-2.4x",
-      discovered: cooldownMultiplierLowDiscovered
-    },
-    {
-      name: "Medium Cooldown Multiplier Ants",
-      desc: "Slower firing with 2.5-3.4x time between shots.",
-      stats: "Cooldown Multiplier: 2.5-3.4x",
-      discovered: cooldownMultiplierMedDiscovered
-    },
-    {
-      name: "High Cooldown Multiplier Ants",
-      desc: "Much slower firing with 3.5-4.4x time between shots.",
-      stats: "Cooldown Multiplier: 3.5-4.4x",
-      discovered: cooldownMultiplierHighDiscovered
-    },
-    {
-      name: "Maximum Cooldown Multiplier Ants",
-      desc: "Extremely slow firing with 4.5-5.5x time between shots.",
-      stats: "Cooldown Multiplier: 4.5-5.5x",
-      discovered: cooldownMultiplierMaxDiscovered,
-      category: 'exotic'
-    },
+function dexSpeedLines(x, y, count, len, speed, alpha = 200) {
+  push();
+  strokeWeight(1.5);
+  for (let k = 0; k < count; k++) {
+    const yy = y + (k - (count - 1) / 2) * 7;
+    const offset = (frameCount * speed + k * 9) % 14;
+    stroke(255, 255, 255, alpha * (0.5 + 0.5 * ((k % 2) ? 0.7 : 1)));
+    line(x - offset - len, yy, x - offset - len * 0.25, yy);
+  }
+  pop();
+}
 
-    // Bullet Death Type - Smear
-    {
-      name: "Smear Ants",
-      desc: "Bullets leave a small damaging smear where they fade out. Radius and residue stats control its size and how long it lingers.",
-      stats: "Death Type: Smear",
-      discovered: smearDeathDiscovered
-    },
+function dexRing(x, y, r, col, alpha, dashed) {
+  push();
+  noFill();
+  stroke(col[0], col[1], col[2], alpha);
+  strokeWeight(1.5);
+  if (dashed) {
+    const steps = 24;
+    for (let k = 0; k < steps; k += 2) {
+      const a1 = (k / steps) * Math.PI * 2 + frameCount * 0.01;
+      const a2 = ((k + 1) / steps) * Math.PI * 2 + frameCount * 0.01;
+      line(x + Math.cos(a1) * r, y + Math.sin(a1) * r, x + Math.cos(a2) * r, y + Math.sin(a2) * r);
+    }
+  } else {
+    ellipse(x, y, r * 2, r * 2);
+  }
+  pop();
+}
 
-    // 83: Bullet Death Type - Landmine Conversion
-    {
-      name: "Landmine Conversion Ants",
-      desc: "Bullets transform into landmines when they expire instead of fading.",
-      stats: "Death Type: Landmine Conversion",
-      discovered: landmineConversionDiscovered
-    },
+// Symbols for ideas that are hard to show with sprites
+function dexClock(x, y, r = 9, fast = false) {
+  push();
+  fill(255, 255, 255, 230);
+  stroke(30);
+  strokeWeight(1.5);
+  ellipse(x, y, r * 2, r * 2);
+  const hand = (frameCount * (fast ? 0.2 : 0.06)) % (Math.PI * 2);
+  line(x, y, x + Math.cos(hand - Math.PI / 2) * r * 0.75, y + Math.sin(hand - Math.PI / 2) * r * 0.75);
+  line(x, y, x, y - r * 0.5);
+  if (fast) {
+    noFill();
+    stroke(255, 255, 255, 220);
+    line(x - r - 6, y - 3, x - r - 2, y - 3);
+    line(x - r - 7, y + 2, x - r - 2, y + 2);
+  }
+  pop();
+}
 
-    // Bullet Death Type - Refire
-    {
-      name: "Refire Ants",
-      desc: "Where a bullet dies, it winds up and is fired at the beetle again, just as the ant would fire it. Refired bullets have no death effect.",
-      stats: "Death Type: Refire",
-      discovered: refireDeathDiscovered
-    },
+function dexArrow(x1, y1, x2, y2, col = [255, 255, 255], alpha = 220) {
+  push();
+  stroke(col[0], col[1], col[2], alpha);
+  strokeWeight(2);
+  line(x1, y1, x2, y2);
+  const a = Math.atan2(y2 - y1, x2 - x1);
+  line(x2, y2, x2 - Math.cos(a - 0.5) * 6, y2 - Math.sin(a - 0.5) * 6);
+  line(x2, y2, x2 - Math.cos(a + 0.5) * 6, y2 - Math.sin(a + 0.5) * 6);
+  pop();
+}
 
-    // Bullet Death Type - Turret
-    {
-      name: "Turret Ants",
-      desc: "Where a bullet dies, a small turret sets up and fires at the beetle 3 times, just as the ant would, then disappears. Turret bullets have no death effect.",
-      stats: "Death Type: Turret",
-      discovered: turretDeathDiscovered
-    },
+function dexCross(x, y, r, col = [255, 60, 60], alpha = 230) {
+  push();
+  stroke(col[0], col[1], col[2], alpha);
+  strokeWeight(2.5);
+  line(x - r, y - r, x + r, y + r);
+  line(x - r, y + r, x + r, y - r);
+  pop();
+}
 
-    // Bullet Death Types - Territory / Nest / Mound / Bunker
-    {
-      name: "Territory Ants",
-      desc: "Where a bullet hits the ground it marks out an amber area. Any ant standing in it reloads 1.5x faster. It won't form on top of another territory, nest, mound or bunker. Radius and residue stats control its size and how long it lasts.",
-      stats: "Death Type: Territory • Size: Radius Multiplier (max 150px) • Duration: Residue Multiplier",
-      discovered: territoryDeathDiscovered
-    },
-    {
-      name: "Nest Ants",
-      desc: "Bullets leave a territory with a blue ring. Ants in it reload 1.5x faster and also grow a shield, quickly at first and slower as the nest fades. A shield soaks up 1 damage and stops the ant being run over, and it stays after the ant leaves.",
-      stats: "Death Type: Nest • Size: Radius Multiplier (max 150px) • Duration: Residue Multiplier",
-      discovered: nestDeathDiscovered
-    },
-    {
-      name: "Mound Ants",
-      desc: "Where a bullet hits the ground a round wall of dirt rises for a short time, blocking the beetle and its shots. It won't form on top of another territory, nest, mound or bunker, and takes as much damage to break as the bullet's size. Residue controls how long it stands.",
-      stats: "Death Type: Mound • Duration: Residue Multiplier",
-      discovered: moundDeathDiscovered
-    },
-    {
-      name: "Bunker Ants",
-      desc: "Full-size bullets raise a covered dirt bunker where they land, solid enough to block the beetle. Any ant close enough can climb in unseen and keep shooting while the beetle can only hit the bunker. It won't form on top of another territory, nest, mound or bunker. When it's destroyed or caves in, everyone inside spills out.",
-      stats: "Death Type: Bunker • Duration: Residue Multiplier",
-      discovered: bunkerDeathDiscovered
-    },
+function dexFlash(x, y, r, col = [255, 255, 255], alpha = 200) {
+  push();
+  noStroke();
+  fill(col[0], col[1], col[2], alpha);
+  ellipse(x, y, r * 2, r * 2);
+  pop();
+}
 
-    // 84-86: Bullet Path Types
-    {
-      name: "Clockwise Curve Ants",
-      desc: "Bullets curve in a clockwise spiral as they travel. Creates unpredictable arcing shots. Curve intensifies over bullet lifetime.",
-      stats: "Path Type: Clockwise Curve • Curve Strength: -0.1 to 0.1",
-      discovered: clockwiseCurveDiscovered
-    },
-    {
-      name: "Homing Curve Ants",
-      desc: "Bullets gradually turn toward the beetle mid-flight. Difficult to dodge.",
-      stats: "Path Type: Homing",
-      discovered: homingCurveDiscovered
-    },
-    {
-      name: "High Arc Ants",
-      desc: "Bullets launch in a high arc and land like artillery. Cannot be touched until they hit the ground. Deal high-speed damage on impact.",
-      stats: "Path Type: High Arc • Arc Duration: 130-600 frames",
-      discovered: highArcDiscovered
-    },
-    {
-      name: "Split Arc Ants",
-      desc: "Lob high arc bullets that glow orange on the way up, then split into 3 smaller bullets at the top of the arc that land in a row across the target.",
-      stats: "Path Type: Split Arc • Arc Duration: 130-600 frames",
-      discovered: splitArcDiscovered
-    },
-    {
-      name: "Beam Ants",
-      desc: "Bullets charge up with closing rings, then fire a beam to the edge of the screen when they would start accelerating. Knockback beams shove the beetle along the beam and vacuum beams pull it in. Explosive beams fire both ways and burn like an explosion. Beam color shows the effect: white knockback, purple vacuum, green explosive, cyan plain. Beam bullets have no death effect.",
-      stats: "Path Type: Beam • Width: Radius Multiplier • Duration: Residue Multiplier",
-      discovered: beamDiscovered
-    },
-    {
-      name: "Blink Ants",
-      desc: "Bullets flicker cyan, then vanish and reappear in a flash where they'd be half a second later, skipping everything in between. Blink streams jump 90px partway along.",
-      stats: "Path Type: Blink • Blink Delay: 10-120 frames",
-      discovered: blinkDiscovered
-    },
-    {
-      name: "Portal Ants",
-      desc: "Bullets flicker pink and blink ahead like blink bullets, then come out of the flash aimed straight at the beetle at the same speed. Portal streams re-aim the same way.",
-      stats: "Path Type: Portal • Blink Delay: 10-120 frames",
-      discovered: portalDiscovered
-    },
+// A tapered acid stream from (x1, y1) to (x2, y2), drawn from fraction f0 to f1 of the way along
+function dexStream(x1, y1, x2, y2, f0, f1, o = {}) {
+  const glow = o.glow || [110, 220, 40];
+  const core = o.core || [215, 255, 150];
+  const width = o.width || 12;
+  const steps = 14;
+  push();
+  noStroke();
+  for (let k = 0; k <= steps; k++) {
+    const f = k / steps;
+    if (f < f0 || f > f1) continue;
+    const w = width * (0.2 + 0.8 * f);
+    const wobble = Math.sin(frameCount * 0.3 + k) * 1.2;
+    const x = lerp(x1, x2, f);
+    const y = lerp(y1, y2, f) + wobble * f;
+    fill(glow[0], glow[1], glow[2], 140);
+    ellipse(x, y, w * 1.4, w);
+    fill(core[0], core[1], core[2], 200);
+    ellipse(x, y, w * 0.7, w * 0.45);
+  }
+  pop();
+}
 
-    // 87-91: Burst Spread (60°-180°, Burst Fire only)
-    {
-      name: "Minimum Burst Spread Ants",
-      desc: "Tight burst spread of 60-84°. Concentrated fire pattern.",
-      stats: "Burst Spread: 60-84°",
-      discovered: burstSpreadMinDiscovered
-    },
-    {
-      name: "Low Burst Spread Ants",
-      desc: "Narrow burst spread of 85-109°. Focused volleys.",
-      stats: "Burst Spread: 85-109°",
-      discovered: burstSpreadLowDiscovered
-    },
-    {
-      name: "Medium Burst Spread Ants",
-      desc: "Moderate burst spread of 110-134°. Balanced coverage.",
-      stats: "Burst Spread: 110-134°",
-      discovered: burstSpreadMedDiscovered
-    },
-    {
-      name: "High Burst Spread Ants",
-      desc: "Wide burst spread of 135-159°. Area denial pattern.",
-      stats: "Burst Spread: 135-159°",
-      discovered: burstSpreadHighDiscovered
-    },
-    {
-      name: "Maximum Burst Spread Ants",
-      desc: "Extreme burst spread of 160-180°. Full hemisphere coverage.",
-      stats: "Burst Spread: 160-180°",
-      discovered: burstSpreadMaxDiscovered,
-      category: 'exotic'
-    },
+function dexBeam(x1, y1, x2, y2, width, alpha, glow = [60, 220, 255], core = [225, 250, 255]) {
+  push();
+  strokeCap(ROUND);
+  stroke(glow[0], glow[1], glow[2], alpha * 0.7);
+  strokeWeight(width);
+  line(x1, y1, x2, y2);
+  stroke(core[0], core[1], core[2], alpha);
+  strokeWeight(width * 0.4);
+  line(x1, y1, x2, y2);
+  pop();
+}
 
-    // 89-90: Categorical Ant Size
-    {
-      name: "Small Ants",
-      desc: "Ants smaller than standard size.",
-      stats: "Ant Size: < 1.0",
-      discovered: smallAntsDiscovered
-    },
-    {
-      name: "Large Ants",
-      desc: "Ants larger than standard size.",
-      stats: "Ant Size: > 1.0",
-      discovered: largeAntsDiscovered
-    },
-  ].map(entry => ({
-    ...entry,
-    category: entry.category || 'normal'
-  }));
-  
+function dexSpeedRing(x, y, age) {
+  push();
+  noFill();
+  stroke(255, 255, 255, 220 * (1 - age));
+  strokeWeight(1.5);
+  ellipse(x, y, 6 + 26 * age, 6 + 26 * age);
+  pop();
+}
+
+// Fires bullets every `interval` frames that take `travel` frames to arrive; draw(f) draws one in flight
+function dexVolley(g, interval, travel, draw) {
+  const age0 = g.t % interval;
+  for (let age = age0; age < travel; age += interval) draw(age / travel);
+}
+
+// Point on a bullet path that bends sideways by `bend` px at its middle
+function dexCurvePoint(x1, y1, x2, y2, f, bend) {
+  const nx = -(y2 - y1), ny = x2 - x1;
+  const len = Math.hypot(nx, ny) || 1;
+  const off = Math.sin(f * Math.PI) * bend;
+  return { x: lerp(x1, x2, f) + nx / len * off, y: lerp(y1, y2, f) + ny / len * off };
+}
+
+// High arc: height at fraction f of the flight
+function dexArcHeight(f, peak = 38) {
+  return Math.sin(f * Math.PI) * peak;
+}
+
+function dexStandardShot(g, o = {}, travel = 90) {
+  dexAnt(DEX_ANT_X, DEX_MID_Y);
+  dexBeetle(DEX_BEETLE_X, DEX_MID_Y);
+  dexVolley(g, DEX_LOOP, travel, f => dexBulletAlong(DEX_ANT_X + 14, DEX_MID_Y, DEX_BEETLE_X - 14, DEX_MID_Y, f, o));
+}
+
+// Bullet that flies toward the beetle and explodes at fraction `at`
+function dexExplodingShot(g, at, o = {}) {
+  const p = dexPhase(g);
+  const x1 = DEX_ANT_X + 14, x2 = DEX_BEETLE_X - 4;
+  dexAnt(DEX_ANT_X, DEX_MID_Y);
+  dexBeetle(DEX_BEETLE_X, DEX_MID_Y);
+  const travel = 0.6;
+  const f = p / travel;
+  if (f < at) {
+    dexBulletAlong(x1, DEX_MID_Y, x2, DEX_MID_Y, f, Object.assign({ aura: 'explode' }, o));
+  } else {
+    const age = (p - at * travel) / (1 - at * travel);
+    const x = lerp(x1, x2, at);
+    if (age < 0.35) dexExplosion(x, DEX_MID_Y, (o.radius || 16) * dexEase(age / 0.12), 255 * (1 - age / 0.35));
+    dexResidue(x, DEX_MID_Y, (o.radius || 16) * 0.7, 255 * Math.max(0, 1 - age / (o.residue || 0.8)));
+  }
+}
+
+const DEX_SCENES = {
+  // ----- Body stats (no bullet) -----
+  antSpeed: g => {
+    const n = 2 + Math.round(3 * g.level);
+    dexSpeedLines(70, DEX_MID_Y, n, 14 + 26 * g.level, 1.5 + 3 * g.level);
+    dexAnt(85, DEX_MID_Y + Math.sin(frameCount * 0.4) * 1.5);
+  },
+  antSize: g => {
+    dexAnt(32, DEX_MID_Y + 24, 1, 0, 90); // A normal ant to compare against
+    dexAnt(92, DEX_MID_Y - 4, g.value || 1);
+  },
+  movement: g => {
+    const { target, keep } = g.opts;
+    const p = dexPhase(g, 180);
+    const tx = keep ? 82 : 118, ty = DEX_MID_Y;
+    const drawTarget = () => {
+      if (target === 'beetle') dexBeetle(tx, ty, 255, Math.PI);
+      else if (target === 'ants') dexAnt(tx, ty, 1, Math.PI, 200);
+      else if (target === 'location') dexCross(tx, ty, 7, [255, 220, 60]);
+      else dexRing(tx, ty, 11, [175, 140, 95], 230, false); // Spawn point
+    };
+    if (keep || target !== 'spawn') drawTarget();
+    if (keep) {
+      const r = 42;
+      dexRing(tx, ty, r, [255, 255, 255], 120, true);
+      const a = p * Math.PI * 2;
+      const ax = tx + Math.cos(a) * r, ay = ty + Math.sin(a) * r;
+      dexAnt(ax, ay, 1, a + Math.PI);
+    } else if (target === 'spawn') {
+      // Stand still: stays on its spawn point, turning to aim at the beetle
+      const by = DEX_MID_Y + Math.sin(p * Math.PI * 2) * 40;
+      dexBeetle(DEX_BEETLE_X, by, 255, Math.PI);
+      dexRing(DEX_ANT_X + 10, DEX_MID_Y, 11, [175, 140, 95], 230, false);
+      dexAnt(DEX_ANT_X + 10, DEX_MID_Y, 1, Math.atan2(by - DEX_MID_Y, DEX_BEETLE_X - DEX_ANT_X - 10));
+    } else {
+      const f = dexEase(p / 0.8);
+      const ax = lerp(18, tx - 30, f);
+      dexAnt(ax, ty + Math.sin(p * 20) * 1.5, 1, 0, 255 * Math.min(1, (1 - p) * 8));
+      if (f > 0 && f < 1) dexSpeedLines(ax - 10, ty, 2, 10, 2, 120);
+    }
+  },
+  // ----- Shooting stats -----
+  offset: g => {
+    const off = 6 + 50 * g.level;
+    dexAnt(DEX_ANT_X, DEX_MID_Y, 1, Math.atan2(off, DEX_BEETLE_X - DEX_ANT_X));
+    dexBeetle(DEX_BEETLE_X, DEX_MID_Y);
+    push();
+    stroke(255, 255, 255, 70);
+    strokeWeight(1);
+    line(DEX_ANT_X, DEX_MID_Y, DEX_BEETLE_X, DEX_MID_Y);
+    pop();
+    dexCross(DEX_BEETLE_X - 8, DEX_MID_Y + off, 4, [255, 220, 60]);
+    dexVolley(g, 75, 70, f => dexBulletAlong(DEX_ANT_X + 12, DEX_MID_Y, DEX_BEETLE_X - 8, DEX_MID_Y + off, f));
+  },
+  distance: g => {
+    // Distances up to 1000px, shrunk to fit the box
+    const r = 12 + 52 * g.level;
+    const bx = 82;
+    dexBeetle(bx, DEX_MID_Y);
+    dexRing(bx, DEX_MID_Y, r, [255, 255, 255], 110, true);
+    const a = Math.PI + Math.sin(frameCount * 0.02) * 0.6;
+    const ax = bx + Math.cos(a) * r, ay = DEX_MID_Y + Math.sin(a) * r;
+    dexArrow(bx + Math.cos(a) * 14, DEX_MID_Y + Math.sin(a) * 14, ax - Math.cos(a) * 12, ay - Math.sin(a) * 12, [255, 220, 60], 160);
+    dexAnt(ax, ay, 1, a + Math.PI);
+  },
+  bulletSpeed: g => {
+    const travel = Math.round(lerp(90, 24, g.level));
+    dexAnt(DEX_ANT_X, DEX_MID_Y);
+    dexBeetle(DEX_BEETLE_X, DEX_MID_Y);
+    dexVolley(g, travel + 30, travel, f => {
+      const x = lerp(DEX_ANT_X + 14, DEX_BEETLE_X - 14, f);
+      dexSpeedLines(x - 4, DEX_MID_Y, 1 + Math.round(2 * g.level), 6 + 16 * g.level, 3, 160);
+      dexBullet(x, DEX_MID_Y);
+    });
+  },
+  cooldown: g => {
+    dexAnt(DEX_ANT_X, DEX_MID_Y);
+    dexBeetle(DEX_BEETLE_X, DEX_MID_Y);
+    const interval = Math.round(lerp(60, 16, g.level));
+    dexVolley(g, interval, 70, f => dexBulletAlong(DEX_ANT_X + 14, DEX_MID_Y, DEX_BEETLE_X - 14, DEX_MID_Y, f));
+    dexClock(132, 18, 9, true);
+  },
+  bulletSize: g => dexStandardShot(g, { size: g.value || 2 }, 110),
+  camoFlash: g => {
+    // Fewer flashes per second (higher tiers) keep the bullet hidden longer
+    const rate = g.value || 1.5;
+    dexAnt(DEX_ANT_X, DEX_MID_Y);
+    dexBeetle(DEX_BEETLE_X, DEX_MID_Y);
+    dexVolley(g, DEX_LOOP, 110, f => {
+      const wave = 0.5 + 0.5 * Math.sin(g.t * rate * Math.PI * 2 / 60); // Same curve as getStealthAlpha
+      dexBulletAlong(DEX_ANT_X + 14, DEX_MID_Y, DEX_BEETLE_X - 14, DEX_MID_Y, f, { alpha: 255 * (0.08 + 0.92 * wave * wave) });
+    });
+  },
+  knockbackPower: g => DEX_SCENES._knockback(g, 8 + 26 * g.level),
+  _knockback: (g, push) => {
+    const p = dexPhase(g);
+    const hitAt = 0.45;
+    const pushF = p < hitAt ? 0 : dexEase((p - hitAt) / 0.15) * (1 - dexEase((p - 0.8) / 0.2));
+    const bx = DEX_BEETLE_X - 14 + pushF * push;
+    dexAnt(DEX_ANT_X, DEX_MID_Y);
+    dexBeetle(Math.min(bx, 140), DEX_MID_Y);
+    if (p < hitAt) dexBulletAlong(DEX_ANT_X + 14, DEX_MID_Y, DEX_BEETLE_X - 26, DEX_MID_Y, p / hitAt, { aura: 'knockback' });
+    else if (p < hitAt + 0.2) dexArrow(DEX_BEETLE_X - 30, DEX_MID_Y - 22, DEX_BEETLE_X - 30 + 12 + push * 0.6, DEX_MID_Y - 22);
+  },
+  burstCount: g => DEX_SCENES._burst(g, Math.max(2, Math.round(g.value || 3)), 0.9),
+  burstSpread: g => DEX_SCENES._burst(g, 3, Math.min(g.value || 2, 3.14)),
+  _burst: (g, count, spread) => {
+    dexAnt(DEX_ANT_X, DEX_MID_Y);
+    dexVolley(g, 100, 80, f => {
+      for (let k = 0; k < count; k++) {
+        const a = count === 1 ? 0 : -spread / 2 + spread * k / (count - 1);
+        const d = 14 + f * 105;
+        dexBullet(DEX_ANT_X + Math.cos(a) * d, DEX_MID_Y + Math.sin(a) * d, { angle: a });
+      }
+    });
+  },
+  cooldownMult: g => {
+    // Alternating fire: a short wait, then a wait `value` times longer
+    const mult = g.value || 4;
+    const short = 18;
+    const period = Math.round(short + short * mult);
+    dexAnt(DEX_ANT_X, DEX_MID_Y);
+    dexBeetle(DEX_BEETLE_X, DEX_MID_Y);
+    for (const start of [0, short]) {
+      let age = (g.t - start) % period;
+      if (age < 0) age += period;
+      if (age < 70) dexBulletAlong(DEX_ANT_X + 14, DEX_MID_Y, DEX_BEETLE_X - 14, DEX_MID_Y, age / 70);
+    }
+    dexClock(132, 18);
+  },
+  curveStrength: g => {
+    dexAnt(DEX_ANT_X, DEX_MID_Y);
+    const bend = 14 + 36 * g.level;
+    dexVolley(g, DEX_LOOP, 100, f => {
+      const pt = dexCurvePoint(DEX_ANT_X + 14, DEX_MID_Y, 130, DEX_MID_Y, f, bend);
+      const next = dexCurvePoint(DEX_ANT_X + 14, DEX_MID_Y, 130, DEX_MID_Y, f + 0.02, bend);
+      dexBullet(pt.x, pt.y, { angle: Math.atan2(next.y - pt.y, next.x - pt.x) });
+    });
+  },
+  accelDelay: g => {
+    DEX_SCENES._accelerate(g, lerp(0.55, 0.15, g.level));
+    dexClock(132, 18);
+  },
+  _accelerate: (g, at) => {
+    const p = dexPhase(g);
+    dexAnt(DEX_ANT_X, DEX_MID_Y);
+    dexBeetle(DEX_BEETLE_X, DEX_MID_Y);
+    const slow = 22; // px it creeps before speeding up
+    const x0 = DEX_ANT_X + 14;
+    let x;
+    if (p < at) x = x0 + slow * (p / at);
+    else x = x0 + slow + (p - at) * (p - at) * 900;
+    if (p >= at && p < at + 0.15) dexSpeedRing(x0 + slow, DEX_MID_Y, (p - at) / 0.15);
+    if (x < DEX_BEETLE_X - 14) {
+      if (p >= at) dexSpeedLines(x - 4, DEX_MID_Y, 2, 14, 3, 160);
+      dexBullet(x, DEX_MID_Y);
+    }
+  },
+  radius: g => dexExplodingShot(g, 0.85, { radius: 8 + 9 * (g.value || 2), residue: 0.4 }),
+  residue: g => {
+    dexExplodingShot(g, 0.8, { radius: 16, residue: 0.4 + 0.6 * g.level });
+    dexClock(132, 18);
+  },
+  fuse: g => {
+    // Fuses run up to 800 frames: shown at the scale of the box, a longer fuse flies further before it goes off
+    dexExplodingShot(g, lerp(0.25, 0.95, g.level));
+    dexClock(132, 18);
+  },
+  proximity: g => {
+    const r = 10 + 40 * g.level;
+    const x1 = DEX_ANT_X + 14, bx = DEX_BEETLE_X;
+    const at = Math.max(0.05, (bx - r - x1) / (bx - 4 - x1));
+    dexRing(bx, DEX_MID_Y, r, [80, 220, 80], 120, true);
+    dexExplodingShot(g, at);
+  },
+
+  // ----- Abilities -----
+  timedExplosion: g => {
+    dexExplodingShot(g, 0.5);
+    dexClock(132, 18);
+  },
+  proximityExplosion: g => {
+    dexRing(DEX_BEETLE_X, DEX_MID_Y, 30, [80, 220, 80], 120, true);
+    dexExplodingShot(g, 0.66);
+  },
+  knockback: g => DEX_SCENES._knockback(g, 22),
+  vacuum: g => {
+    const p = dexPhase(g);
+    const by = DEX_MID_Y + 14;
+    const bulletX = lerp(DEX_ANT_X + 14, 150, p / 0.8);
+    const pull = p < 0.8 ? Math.max(0, 1 - Math.abs(bulletX - DEX_BEETLE_X) / 45) : 0;
+    dexAnt(DEX_ANT_X, DEX_MID_Y - 14);
+    dexBeetle(DEX_BEETLE_X - pull * 6, by - pull * 14);
+    if (p < 0.8) dexBullet(bulletX, DEX_MID_Y - 14, { aura: 'vacuum' });
+  },
+  camo: g => DEX_SCENES.camoFlash(Object.assign({}, g, { value: 1.5 })),
+  ghost: g => {
+    dexAnt(DEX_ANT_X, DEX_MID_Y);
+    dexBeetle(DEX_BEETLE_X, DEX_MID_Y);
+    dexVolley(g, DEX_LOOP, 100, f => {
+      const x = lerp(DEX_ANT_X + 14, DEX_BEETLE_X - 14, f);
+      const near = DEX_BEETLE_X - x;
+      dexBullet(x, DEX_MID_Y, { alpha: map(near, 50, 25, 0, 255, true) });
+    });
+    dexRing(DEX_BEETLE_X, DEX_MID_Y, 45, [255, 255, 255], 50, true);
+  },
+  recoil: g => DEX_SCENES._recoil(g, false),
+  launch: g => DEX_SCENES._recoil(g, true),
+  _recoil: (g, hop) => {
+    const p = dexPhase(g);
+    const kick = p < 0.4 ? dexEase(p / 0.25) : 1 - dexEase((p - 0.5) / 0.4);
+    const ax = 44 - kick * 22;
+    const lift = hop && p < 0.4 ? Math.sin((p / 0.4) * Math.PI) * 16 : 0;
+    dexAnt(ax, DEX_MID_Y, 1, 0, 255, lift);
+    dexBeetle(DEX_BEETLE_X, DEX_MID_Y);
+    if (p < 0.6) dexBulletAlong(58, DEX_MID_Y, DEX_BEETLE_X - 14, DEX_MID_Y, p / 0.6);
+    if (p < 0.2) dexArrow(ax + 2, DEX_MID_Y + 18, ax - 14, DEX_MID_Y + 18, [255, 255, 255], 200);
+  },
+  alternating: g => {
+    DEX_SCENES.cooldownMult(Object.assign({}, g, { value: 2.5 }));
+  },
+  hitReload: g => {
+    const p = dexPhase(g, 120);
+    dexAnt(DEX_ANT_X, DEX_MID_Y);
+    dexBeetle(DEX_BEETLE_X, DEX_MID_Y);
+    const x1 = DEX_ANT_X + 14, x2 = DEX_BEETLE_X - 12;
+    if (p < 0.45) dexBulletAlong(x1, DEX_MID_Y, x2, DEX_MID_Y, p / 0.45);
+    else if (p < 0.6) {
+      const t = (p - 0.45) / 0.15;
+      dexFlash(DEX_ANT_X, DEX_MID_Y, 10 + 8 * t, [255, 255, 255], 200 * (1 - t)); // Hit: instant reload flash
+      dexFlash(x2, DEX_MID_Y, 6 + 6 * t, [255, 80, 80], 180 * (1 - t));
+    }
+    if (p >= 0.55) dexBulletAlong(x1, DEX_MID_Y, x2, DEX_MID_Y, (p - 0.55) / 0.45);
+  },
+  burst: g => DEX_SCENES._burst(g, 3, 0.8),
+  delayedBurst: g => {
+    const p = dexPhase(g, 120);
+    dexAnt(DEX_ANT_X, DEX_MID_Y);
+    const splitAt = 0.35;
+    const sx = DEX_ANT_X + 14 + 40;
+    if (p < splitAt) dexBulletAlong(DEX_ANT_X + 14, DEX_MID_Y, sx, DEX_MID_Y, p / splitAt, { aura: 'split', size: 1.3 });
+    else {
+      const f = (p - splitAt) / (1 - splitAt);
+      for (let k = -1; k <= 1; k++) {
+        const a = k * 0.45;
+        dexBullet(sx + Math.cos(a) * f * 75, DEX_MID_Y + Math.sin(a) * f * 75, { angle: a });
+      }
+    }
+  },
+  rapid: g => {
+    // One shot splits into 3 smaller bullets (sized like getBurstBulletSize) fired 15 frames apart, then the
+    // ant waits out its cooldown. While it reloads, a faint full-size bullet shows the shot being split.
+    const count = 3;
+    const size = 1 / (1 + (count - 1) / 4);
+    const period = 150;
+    const travel = 60;
+    const age0 = g.t % period;
+    dexAnt(DEX_ANT_X, DEX_MID_Y);
+    dexBeetle(DEX_BEETLE_X, DEX_MID_Y);
+    if (age0 > 100) {
+      const t = Math.min(1, (age0 - 100) / 25);
+      dexBullet(DEX_ANT_X + 30, DEX_MID_Y - 26, { alpha: 160 * (1 - t) });
+      for (let k = 0; k < count; k++) {
+        dexBullet(DEX_ANT_X + 30 + (k - 1) * 12 * t, DEX_MID_Y - 26, { size, alpha: 160 * t });
+      }
+    }
+    for (let k = 0; k < count; k++) {
+      const age = age0 - k * 15;
+      if (age >= 0 && age < travel) dexBulletAlong(DEX_ANT_X + 14, DEX_MID_Y, DEX_BEETLE_X - 14, DEX_MID_Y, age / travel, { size });
+    }
+  },
+  stream: g => {
+    const p = dexPhase(g);
+    dexAnt(DEX_ANT_X, DEX_MID_Y);
+    dexBeetle(DEX_BEETLE_X, DEX_MID_Y);
+    // Grows out from the base, sprays, then the rest flows away
+    const f1 = Math.min(1, p / 0.3);
+    const f0 = p < 0.7 ? 0 : (p - 0.7) / 0.3;
+    dexStream(DEX_ANT_X + 12, DEX_MID_Y, DEX_BEETLE_X - 4, DEX_MID_Y, f0, f1);
+  },
+  alarm: g => {
+    const p = dexPhase(g, 200);
+    const bx = lerp(140, 62, Math.sin(p * Math.PI));
+    const d = bx - DEX_ANT_X;
+    dexRing(DEX_ANT_X, DEX_MID_Y, 70, [255, 170, 40], 60, true);
+    dexRing(DEX_ANT_X, DEX_MID_Y, 40, [255, 60, 40], 60, true);
+    if (d < 70) {
+      const inner = d < 40;
+      const pulse = 0.5 + 0.5 * Math.sin(frameCount * (inner ? 0.6 : 0.3));
+      push();
+      noFill();
+      stroke(255, inner ? 60 : 170, 40, 120 + 120 * pulse);
+      strokeWeight(2);
+      ellipse(DEX_ANT_X, DEX_MID_Y, 34 + 4 * pulse, 34 + 4 * pulse);
+      pop();
+    }
+    dexAnt(DEX_ANT_X, DEX_MID_Y);
+    dexBeetle(bx, DEX_MID_Y);
+    const interval = d < 40 ? 20 : d < 70 ? 30 : 60;
+    dexVolley(g, interval, 40, f => {
+      const x = lerp(DEX_ANT_X + 14, bx - 12, f);
+      if (x < bx - 10) dexBullet(x, DEX_MID_Y);
+    });
+  },
+  avenge: g => {
+    const p = dexPhase(g, 160);
+    const fx = 50, fy = 36;
+    if (p < 0.3) dexAnt(fx, fy, 1, 0.3);
+    else if (p < 0.5) {
+      const t = (p - 0.3) / 0.2;
+      dexAnt(fx, fy, 1, 0.3, 255 * (1 - t));
+      dexCross(fx, fy, 8, [255, 60, 60], 255 * (1 - t));
+    }
+    dexAnt(DEX_ANT_X, DEX_MID_Y + 22);
+    dexBeetle(DEX_BEETLE_X, DEX_MID_Y + 10);
+    if (p >= 0.3 && p < 0.42) dexFlash(DEX_ANT_X, DEX_MID_Y + 22, 14, [255, 255, 255], 220 * (1 - (p - 0.3) / 0.12));
+    if (p >= 0.4 && p < 0.85) dexBulletAlong(DEX_ANT_X + 14, DEX_MID_Y + 22, DEX_BEETLE_X - 12, DEX_MID_Y + 10, (p - 0.4) / 0.45);
+  },
+  highArc: g => {
+    dexAnt(DEX_ANT_X, DEX_MID_Y + 20);
+    dexBeetle(DEX_BEETLE_X, DEX_MID_Y + 20);
+    dexVolley(g, DEX_LOOP, 110, f => {
+      dexBullet(lerp(DEX_ANT_X + 10, DEX_BEETLE_X - 4, f), DEX_MID_Y + 20, { h: dexArcHeight(f, 50) });
+    });
+  },
+  splitArc: g => {
+    const p = dexPhase(g);
+    dexAnt(DEX_ANT_X, DEX_MID_Y + 20);
+    dexBeetle(DEX_BEETLE_X, DEX_MID_Y + 20);
+    const f = p / 0.8;
+    if (f > 1) return;
+    const x = lerp(DEX_ANT_X + 10, DEX_BEETLE_X - 4, f);
+    const h = dexArcHeight(f, 50);
+    if (f < 0.5) dexBullet(x, DEX_MID_Y + 20, { h, aura: 'split' });
+    else {
+      for (let k = -1; k <= 1; k++) {
+        const spread = (f - 0.5) / 0.5 * 22 * k;
+        dexBullet(x, DEX_MID_Y + 20 + spread, { h, size: 0.7 });
+      }
+    }
+  },
+  curve: g => DEX_SCENES.curveStrength(Object.assign({}, g, { level: 0.35 })),
+  homing: g => {
+    const p = dexPhase(g);
+    const by = DEX_MID_Y + Math.sin(p * Math.PI * 2) * 35;
+    dexAnt(DEX_ANT_X, DEX_MID_Y, 1, Math.atan2(by - DEX_MID_Y, 90));
+    dexBeetle(DEX_BEETLE_X, by);
+    // Starts straight, then bends toward wherever the beetle is
+    const f = Math.min(1, p / 0.7);
+    const x = lerp(DEX_ANT_X + 14, DEX_BEETLE_X - 12, f);
+    const y = lerp(DEX_MID_Y, by, f * f);
+    if (p < 0.7) dexBullet(x, y, { aura: 'homing', angle: Math.atan2((by - DEX_MID_Y) * 2 * f, DEX_BEETLE_X - DEX_ANT_X) });
+  },
+  accelerate: g => DEX_SCENES._accelerate(g, 0.4),
+  beam: g => {
+    const p = dexPhase(g);
+    dexAnt(DEX_ANT_X, DEX_MID_Y);
+    dexBeetle(DEX_BEETLE_X, DEX_MID_Y);
+    const fireAt = 0.4;
+    const bx = DEX_ANT_X + 14 + 26 * Math.min(1, p / fireAt);
+    if (p < fireAt) {
+      dexBullet(bx, DEX_MID_Y);
+      const charge = p / fireAt;
+      push();
+      noFill();
+      strokeWeight(1.5 + charge);
+      for (let r = 0; r < 2; r++) {
+        const q = ((frameCount / (30 * (1 - 0.6 * charge))) + r * 0.5) % 1;
+        stroke(60, 220, 255, (60 + 170 * charge) * q);
+        const size = lerp(30, 10, q);
+        ellipse(bx, DEX_MID_Y, size, size);
+      }
+      pop();
+    } else if (p < 0.75) {
+      dexBeam(bx, DEX_MID_Y, DEX_PIC + 10, DEX_MID_Y, 8, 255 * (1 - (p - fireAt) / 0.35));
+    }
+  },
+  blink: g => DEX_SCENES._blink(g, false),
+  portal: g => DEX_SCENES._blink(g, true),
+  _blink: (g, portal) => {
+    const p = dexPhase(g);
+    const by = portal ? DEX_MID_Y + 32 : DEX_MID_Y;
+    const col = portal ? [255, 120, 255] : [110, 235, 255];
+    dexAnt(DEX_ANT_X, DEX_MID_Y, 1, portal ? 0 : Math.atan2(by - DEX_MID_Y, 90));
+    dexBeetle(DEX_BEETLE_X, by);
+    const jumpAt = 0.3, x1 = DEX_ANT_X + 14, jx = 52, ox = 92;
+    if (p < jumpAt) dexBullet(lerp(x1, jx, p / jumpAt), DEX_MID_Y, { aura: portal ? 'portal' : 'blink' });
+    else if (p < 0.8) {
+      const t = (p - jumpAt) / 0.5;
+      if (t < 0.25) {
+        dexFlash(jx, DEX_MID_Y, 8 * (1 - t * 4) + 3, col, 160 * (1 - t * 4));
+        dexFlash(ox, DEX_MID_Y, 10 * t * 4 + 2, col, 200 * (1 - t * 2));
+      }
+      // Portal bullets come out aimed at the beetle
+      const tx = portal ? DEX_BEETLE_X - 12 : 150, ty = portal ? by : DEX_MID_Y;
+      dexBulletAlong(ox, DEX_MID_Y, tx, ty, t);
+    }
+  },
+  smear: g => {
+    const p = dexPhase(g);
+    dexAnt(DEX_ANT_X, DEX_MID_Y);
+    const stop = 96;
+    const f = Math.min(1, p / 0.45);
+    const x = lerp(DEX_ANT_X + 14, stop, 1 - (1 - f) * (1 - f)); // slows down as it fades
+    if (p < 0.5) dexBullet(x, DEX_MID_Y, { alpha: 255 * (1 - Math.max(0, (p - 0.35) / 0.15)) });
+    if (p >= 0.42) {
+      const age = (p - 0.42) / 0.58;
+      dexSmear(stop, DEX_MID_Y, 11, Math.min(1, age / 0.1), lerp(150, 0, age * age));
+    }
+  },
+  landmine: g => {
+    const p = dexPhase(g);
+    dexAnt(DEX_ANT_X, DEX_MID_Y);
+    if (p < 0.4) dexBulletAlong(DEX_ANT_X + 14, DEX_MID_Y, 100, DEX_MID_Y, p / 0.4, { core: 'mine' });
+    else dexMine(100, DEX_MID_Y);
+  },
+  refire: g => {
+    const p = dexPhase(g, 170);
+    const sx = 90, sy = DEX_MID_Y - 30;
+    const by = DEX_MID_Y + 25;
+    dexAnt(DEX_ANT_X, DEX_MID_Y, 1, Math.atan2(sy - DEX_MID_Y, sx - DEX_ANT_X));
+    dexBeetle(DEX_BEETLE_X - 6, by);
+    if (p < 0.35) dexBulletAlong(DEX_ANT_X + 12, DEX_MID_Y - 4, sx, sy, p / 0.35);
+    else if (p < 0.55) dexRefireWindup(sx, sy, (p - 0.35) / 0.2);
+    else if (p < 0.85) dexBulletAlong(sx, sy, DEX_BEETLE_X - 16, by, (p - 0.55) / 0.3);
+  },
+  turret: g => {
+    const p = dexPhase(g, 200);
+    const sx = 76, sy = DEX_MID_Y - 30;
+    const by = DEX_MID_Y + 25;
+    dexAnt(DEX_ANT_X, DEX_MID_Y, 1, Math.atan2(sy - DEX_MID_Y, sx - DEX_ANT_X));
+    dexBeetle(DEX_BEETLE_X - 6, by);
+    if (p < 0.25) dexBulletAlong(DEX_ANT_X + 12, DEX_MID_Y - 4, sx, sy, p / 0.25, { core: 'turret' });
+    else {
+      // Fires 3 times, its center pulsing faster before each shot, then fades away
+      const shots = [0.36, 0.54, 0.72];
+      const next = shots.find(s => s > p);
+      const charge = next === undefined ? 0 : 1 - constrain((next - p) / 0.12, 0, 1);
+      dexTurret(sx, sy, charge, Math.min(1, (p - 0.25) / 0.05), p > 0.88 ? 255 * (1 - (p - 0.88) / 0.12) : 255);
+      for (const start of shots) {
+        const f = (p - start) / 0.2;
+        if (f > 0 && f < 1) dexBulletAlong(sx, sy, DEX_BEETLE_X - 16, by, f);
+      }
+    }
+  },
+  _ground: (g, drawEffect, core) => {
+    const p = dexPhase(g, 180);
+    const lx = 88;
+    dexAnt(DEX_ANT_X, DEX_MID_Y + 25);
+    if (p < 0.25) dexBulletAlong(DEX_ANT_X + 14, DEX_MID_Y + 25, lx, DEX_MID_Y, p / 0.25, { core });
+    else drawEffect(lx, DEX_MID_Y, Math.min(1, (p - 0.25) / 0.1), p);
+  },
+  territory: g => DEX_SCENES._ground(g, (x, y, grow, p) => {
+    dexTerritory(x, y, 35 * grow, false);
+    // An ant standing in it reloads faster
+    dexAnt(x, y, 1, Math.PI * 0.5);
+    dexVolley(g, 25, 30, f => dexBulletAlong(x, y + 10, x, 160, f, { size: 0.7 }));
+    dexClock(132, 18, 9, true);
+  }),
+  nest: g => DEX_SCENES._ground(g, (x, y, grow, p) => {
+    dexTerritory(x, y, 35 * grow, true);
+    const sz = dexAnt(x, y, 1, Math.PI * 0.5);
+    const shield = Math.min(1, (p - 0.35) / 0.4);
+    if (shield > 0) {
+      push();
+      fill(120, 200, 255, 40 * shield);
+      stroke(150, 215, 255, 90 + 140 * shield);
+      strokeWeight(1 + 1.5 * shield);
+      ellipse(x, y, sz * 0.95, sz * 0.95);
+      pop();
+    }
+  }, 'nest'),
+  mound: g => DEX_SCENES._ground(g, (x, y, grow, p) => {
+    const r = 16 * grow * (p > 0.85 ? 1 - (p - 0.85) / 0.15 : 1);
+    push();
+    noStroke();
+    fill(0, 0, 0, 70);
+    ellipse(x + 3, y + 4, r * 2.1, r * 1.9);
+    fill(135, 100, 60);
+    stroke(80, 55, 30);
+    strokeWeight(2);
+    ellipse(x, y, r * 2, r * 2);
+    noStroke();
+    fill(175, 140, 95, 200);
+    ellipse(x - r * 0.25, y - r * 0.3, r * 1.1, r * 0.9);
+    pop();
+    // The beetle's shot is blocked by it
+    dexBeetle(DEX_BEETLE_X + 4, y);
+    const f = ((g.t % 60) / 60);
+    const sx = lerp(DEX_BEETLE_X - 14, x + r, f);
+    if (r > 4) {
+      push();
+      noStroke();
+      fill(58, 166, 18);
+      ellipse(sx, y, 6, 6);
+      pop();
+    }
+  }),
+  bunker: g => DEX_SCENES._ground(g, (x, y, grow, p) => {
+    const r = 18 * grow;
+    push();
+    noStroke();
+    fill(0, 0, 0, 70);
+    ellipse(x + 3, y + 4, r * 2.4, r * 2.2);
+    fill(115, 85, 50);
+    ellipse(x, y, r * 2.3, r * 2.1);
+    fill(25, 18, 10);
+    ellipse(x, y, r * 1.8, r * 1.6);
+    pop();
+    // A nearby ant climbs in and vanishes
+    const t = constrain((p - 0.4) / 0.35, 0, 1);
+    if (t < 1) dexAnt(lerp(130, x, t), lerp(30, y, t), 1, Math.atan2(y - 30, x - 130), 255 * (1 - Math.max(0, (t - 0.8) / 0.2)));
+  }, 'bunker'),
+
+  // ----- Exotic -----
+  airStrike: g => {
+    const p = dexPhase(g);
+    const gy = DEX_MID_Y + 25;
+    dexAnt(DEX_ANT_X, gy);
+    dexBeetle(DEX_BEETLE_X - 8, gy);
+    const at = 0.72;
+    const f = p / 0.75;
+    const x = lerp(DEX_ANT_X + 10, DEX_BEETLE_X - 4, Math.min(f, at));
+    const h = dexArcHeight(Math.min(f, at), 60);
+    if (f < at) dexBullet(x, gy, { h, aura: 'explode' });
+    else {
+      const age = (f - at) / (1 / 0.75 - at);
+      // Blast in the air, linked down to the ground below
+      push();
+      stroke(80, 220, 80, 200 * (1 - age));
+      strokeWeight(3);
+      line(x, gy - h, x, gy);
+      pop();
+      dexExplosion(x, gy - h, 22 * dexEase(age / 0.15), 255 * (1 - age));
+      dexResidue(x, gy, 16, 220 * (1 - age));
+    }
+  },
+  explodingAnts: g => {
+    const p = dexPhase(g, 180);
+    const ax = 48;
+    if (p < 0.7) {
+      if (p > 0.3) dexSelfDestructFuse(ax, DEX_MID_Y, 70, (p - 0.3) / 0.4);
+      dexAnt(ax, DEX_MID_Y);
+      dexStream(ax + 12, DEX_MID_Y, DEX_BEETLE_X - 4, DEX_MID_Y, 0, Math.min(1, p / 0.2));
+    } else {
+      const age = (p - 0.7) / 0.3;
+      dexExplosion(ax, DEX_MID_Y, 45 * dexEase(age / 0.15), 255 * (1 - age));
+    }
+    dexBeetle(DEX_BEETLE_X, DEX_MID_Y);
+  },
+  ghostAnts: g => {
+    const p = dexPhase(g);
+    const alpha = p < 0.15 ? 255 * (1 - p / 0.15) : p < 0.7 ? 0 : 255 * Math.min(1, (p - 0.7) / 0.15);
+    dexAnt(DEX_ANT_X, DEX_MID_Y, 1, 0, Math.max(alpha, 25));
+    dexBeetle(DEX_BEETLE_X, DEX_MID_Y);
+    if (p > 0.15 && p < 0.85) dexStream(DEX_ANT_X + 12, DEX_MID_Y, DEX_BEETLE_X - 4, DEX_MID_Y, p < 0.6 ? 0 : (p - 0.6) / 0.25, Math.min(1, (p - 0.15) / 0.2));
+  },
+  hoverAnts: g => {
+    const p = dexPhase(g);
+    const lift = p < 0.1 ? 18 * p / 0.1 : p < 0.75 ? 18 : 18 * (1 - (p - 0.75) / 0.1);
+    dexAnt(DEX_ANT_X + 10, DEX_MID_Y, 1, 0, 255, Math.max(0, lift));
+    if (lift > 10) {
+      push();
+      noStroke();
+      fill(90, 200, 40, 110);
+      ellipse(DEX_ANT_X + 10, DEX_MID_Y, 30, 16); // The spot below it burns
+      pop();
+    }
+    dexBeetle(DEX_BEETLE_X, DEX_MID_Y);
+    if (p > 0.1 && p < 0.8) dexStream(DEX_ANT_X + 20, DEX_MID_Y - lift, DEX_BEETLE_X - 4, DEX_MID_Y, 0, Math.min(1, (p - 0.1) / 0.2));
+  },
+  explodingLandmine: g => {
+    const p = dexPhase(g);
+    const mx = 70;
+    const bx = lerp(140, mx + 10, Math.min(1, p / 0.5));
+    if (p < 0.5) dexMine(mx, DEX_MID_Y, { aura: 'explode' });
+    else {
+      const age = (p - 0.5) / 0.5;
+      dexExplosion(mx, DEX_MID_Y, 28 * dexEase(age / 0.15), 255 * (1 - age));
+    }
+    dexBeetle(bx, DEX_MID_Y);
+  },
+  hiddenLandmine: g => {
+    const p = dexPhase(g);
+    const mx = 70;
+    const bx = lerp(140, mx + 14, Math.min(1, p / 0.6));
+    dexMine(mx, DEX_MID_Y, { alpha: map(bx - mx, 50, 25, 0, 255, true) });
+    dexBeetle(bx, DEX_MID_Y);
+  },
+  flickerLandmine: g => {
+    const wave = 0.5 + 0.5 * Math.sin(g.t * 1.5 * Math.PI * 2 / 60);
+    dexMine(70, DEX_MID_Y, { alpha: 255 * (0.08 + 0.92 * wave * wave) });
+    dexBeetle(DEX_BEETLE_X, DEX_MID_Y + 20);
+  },
+  twinBeam: g => {
+    const p = dexPhase(g);
+    const bx = 70, by = DEX_MID_Y - 18;
+    dexAnt(DEX_ANT_X, DEX_MID_Y + 20, 1, Math.atan2(by - DEX_MID_Y - 20, bx - DEX_ANT_X));
+    dexBeetle(DEX_BEETLE_X, by);
+    const fireAt = 0.35;
+    if (p < fireAt) dexBulletAlong(DEX_ANT_X + 10, DEX_MID_Y + 14, bx, by, p / fireAt, { aura: 'explode' });
+    else if (p < 0.75) {
+      const a = 255 * (1 - (p - fireAt) / 0.4);
+      dexBeam(bx, by, DEX_PIC + 10, by, 9, a, [0, 255, 0], [210, 255, 170]);
+      dexBeam(bx, by, -10, by, 9, a, [0, 255, 0], [210, 255, 170]);
+    }
+  },
+  beamStream: g => {
+    const p = dexPhase(g);
+    const end = 76;
+    dexAnt(DEX_ANT_X, DEX_MID_Y);
+    dexBeetle(DEX_BEETLE_X, DEX_MID_Y);
+    const f1 = Math.min(1, p / 0.3);
+    const f0 = p < 0.7 ? 0 : (p - 0.7) / 0.3;
+    dexStream(DEX_ANT_X + 12, DEX_MID_Y, end, DEX_MID_Y, f0, f1);
+    if (f1 >= 1 && p < 0.95) dexBeam(end, DEX_MID_Y, DEX_PIC + 10, DEX_MID_Y, 8, 230);
+  },
+  sprinkler: g => {
+    const p = dexPhase(g);
+    const end = 72;
+    dexAnt(DEX_ANT_X, DEX_MID_Y);
+    const f1 = Math.min(1, p / 0.25);
+    dexStream(DEX_ANT_X + 12, DEX_MID_Y, end, DEX_MID_Y, 0, f1);
+    if (f1 >= 1) {
+      for (let k = 0; k < 6; k++) {
+        const age = ((g.t + k * 13) % 40) / 40;
+        const a = (k / 5 - 0.5) * 1.0;
+        const d = age * age * 90;
+        push();
+        noStroke();
+        fill(110, 220, 40, 230);
+        ellipse(end + Math.cos(a) * d, DEX_MID_Y + Math.sin(a) * d, 5, 5);
+        pop();
+      }
+    }
+  },
+  clusterBomb: g => {
+    const p = dexPhase(g, 170);
+    dexAnt(DEX_ANT_X, DEX_MID_Y);
+    const splitAt = 0.2, sx = 46;
+    if (p < splitAt) {
+      dexBullet(lerp(DEX_ANT_X + 10, sx, p / splitAt), DEX_MID_Y, { aura: 'split', size: 1.3, h: dexArcHeight(p / splitAt * 0.15, 50) });
+      return;
+    }
+    const f = Math.min(1, (p - splitAt) / 0.7);
+    if (f >= 1) return;
+    for (let k = -1; k <= 1; k++) {
+      const a = k * 0.5;
+      const x = sx + Math.cos(a) * f * 85;
+      const y = DEX_MID_Y + Math.sin(a) * f * 85;
+      const h = dexArcHeight(f, 30);
+      if (f < 0.5) dexBullet(x, y, { h, aura: 'split' });
+      else for (let m = -1; m <= 1; m++) dexBullet(x, y + m * (f - 0.5) * 18, { h, size: 0.6 });
+    }
+  }
+};
+
+// Draws entry's picture in the box (x, y, w, h). Locked entries show a "?" instead.
+function drawDexPicture(entry, x, y, w, h, alpha = 255, locked = false) {
+  push();
+  drawingContext.save();
+  drawingContext.globalAlpha *= alpha / 255;
+  drawingContext.beginPath();
+  drawingContext.rect(x, y, w, h);
+  drawingContext.clip();
+  imageMode(CORNER);
+  ellipseMode(CENTER);
+  rectMode(CORNER);
+  noStroke();
+  if (locked) {
+    fill(55);
+    rect(x, y, w, h);
+    fill(120);
+    textAlign(CENTER, CENTER);
+    textSize(h * 0.5);
+    text('?', x + w / 2, y + h / 2);
+  } else {
+    fill(196, 108, 46); // The arena floor color (see drawBackground)
+    rect(x, y, w, h);
+    angleMode(DEGREES);
+    translate(x, y);
+    scale(w / DEX_PIC, h / DEX_PIC);
+    const scene = DEX_SCENES[entry.scene];
+    if (scene) scene({ t: frameCount, level: entry.level, value: entry.value, opts: entry.opts || {} });
+  }
+  drawingContext.restore();
+  pop();
+  push();
+  noFill();
+  stroke(0, 0, 0, 120 * alpha / 255);
+  strokeWeight(2);
+  rect(x, y, w, h, 6);
+  pop();
 }
 
 // ========== GAMEPAD SUPPORT ==========
@@ -21104,7 +20532,6 @@ bulletKnockbackMultiplier: { caps: [2, 3, 4, 5], inverse: false },
       bulletBurstCount: { caps: [3, 4, 5, 5.5], inverse: false },
       bulletBurstSpread: { caps: [2.0, 2.5, 3.0, 3.14], inverse: false },
       bulletCooldownMultiplier: { caps: [3, 4, 5, 5.5], inverse: false },
-      bulletArcDuration: { caps: [300, 400, 500, 600], inverse: false },
       bulletCurveStrength: { caps: [0.05, 0.075, 0.1], inverse: false },
       pathCurve: { caps: [1.0, 2.0], inverse: false },
       deathLandmine: { caps: [1.0, 2.0], inverse: false },
@@ -21119,7 +20546,6 @@ bulletKnockbackMultiplier: { caps: [2, 3, 4, 5], inverse: false },
       pathBlink: { caps: [1.0, 2.0], inverse: false },  // <1 = blink, >=1 = portal
       deathTerritory: { caps: [1.0, 2.0], inverse: false },  // <1 = territory, >=1 = nest
       deathMound: { caps: [1.0, 2.0], inverse: false },  // <1 = mound, >=1 = bunker
-      explosionProximity: { caps: [400, 600, 800, 1000], inverse: false },
       bulletSize: { caps: [1.5, 2.0, 2.5, 3.0], inverse: false },
       radiusMultiplier: { caps: [1.5, 2.0, 2.5, 3.0], inverse: false },
       residueMultiplier: { caps: [1.5, 2.0, 2.5, 3.0], inverse: false },
