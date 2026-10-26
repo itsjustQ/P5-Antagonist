@@ -771,14 +771,14 @@ let upgrade45Level = 0; // Mound Ring (max 1, requires Shockwave): shockwave var
 let upgrade46Level = 0; // Bunker (max 1, requires Shockwave): shockwave variant, hide in a bunker for 3s
 let upgrade47Level = 0; // Vortex (max 1, requires Shockwave): shockwave variant, pulls ants in before the blast
 let upgrade48Level = 0; // Flight and Slam (max 1, requires Shockwave): shockwave variant, fly then slam down
-let upgrade49Level = 0; // Mound Health (max 4, 1→5, requires Mound Ring or Bunker)
+let upgrade49Level = 0; // Mound Health (max 3, 5→20, requires Mound Ring or Bunker)
 let upgrade50Level = 0; // Flight Duration (max 5, 0.5s→3s, requires Flight and Slam)
 let upgrade51Level = 0; // Starting Health (max 4, 10→30 health at the start of each round)
 let upgrade52Level = 0; // Dash Deflection (max 1): dashing deflects bullets with the shockwave's chance
 let upgrade53Level = 0; // Shell Shrapnel (max 1, requires Add Shield): losing a shield to a bullet throws shrapnel back
 let upgrade54Level = 0; // Shrapnel Count (max 2, 1→3 pieces per shield, requires Shell Shrapnel)
 const UPGRADE_COUNT = 54;
-const UPGRADE_MAX_LEVELS = [4, 5, 5, 9, 8, 5, 5, 5, 1, 1, 1, 4, 4, 1, 5, 5, 5, 3, 4, 5, 1, 7, 10, 4, 1, 1, 1, 1, 4, 4, 1, 9, 1, 1, 1, 3, 1, 3, 2, 1, 1, 1, 1, 1, 1, 1, 1, 1, 4, 5, 4, 1, 1, 2];
+const UPGRADE_MAX_LEVELS = [4, 5, 5, 9, 8, 5, 5, 5, 1, 1, 1, 4, 4, 1, 5, 5, 5, 3, 4, 5, 1, 7, 10, 4, 1, 1, 1, 1, 4, 4, 1, 9, 1, 1, 1, 3, 1, 3, 2, 1, 1, 1, 1, 1, 1, 1, 1, 1, 3, 5, 4, 1, 1, 2];
 let displayedUpgrades = [];  // Array of up to 3 randomly selected upgrade indices (0-9)
 
 // Pre-game upgrade menu variables (insane difficulty 8-10)
@@ -1616,6 +1616,7 @@ function draw() {
       updateEnemyWalls();
       updatePlayerWalls();
       updateAphids();
+      updateAntRespawnQueue();
       drawEnemy();
       updateQueen();
       updateFinalStage(); // Queen of Queens tunnel attacks (finalboss.js)
@@ -3765,9 +3766,7 @@ function enemyInteraction1(){
               let scoreGained = addKillScore(100 * combo, 1, null);
               addDeathEffect(antX[i], antY[i], scoreGained);
               combo++;
-              antHealth[i] = antMaxHealth[i]; // Reset health for respawn
-              antLastShotFrame[i] = frameCount; // Respawned ants wait out a full cooldown before firing
-              if (antDormant[i]) parkAnt(i);
+              respawnAnt(i);
             }
           }
         }
@@ -6069,7 +6068,7 @@ function getDeflectChance(level = upgrade19Level) {
 }
 
 function getMoundHealth(level = upgrade49Level) {
-  return 1 + level; // 1 → 5
+  return 5 + Math.min(level, 3) * 5; // 5 → 20 (older saves could have a 4th level)
 }
 
 function getFlightSeconds(level = upgrade50Level) {
@@ -7653,6 +7652,8 @@ function createStreamNode(stream) {
     oy: stream.originY,
     x: stream.originX,
     y: stream.originY,
+    px: stream.originX,      // Where it was last frame (for going through a mound ring's gaps)
+    py: stream.originY,
     h: 0,                    // Height above the ground (high arc streams)
     startHeading: stream.aimAngle,
     heading: stream.aimAngle,
@@ -7687,6 +7688,8 @@ function placeArcNode(stream, node) {
 // the new bits go in spawned and the original is dropped.
 function advanceStreamNode(stream, node, spawned) {
   node.age++;
+  node.px = node.x;
+  node.py = node.y;
 
   if (stream.pathType === 1) {
     // High arc: lobbed so it lands on its aim point when a high arc bullet would
@@ -7874,6 +7877,71 @@ function getStreamContact(slices) {
   return best;
 }
 
+// Bits of stream on the ground stop at the first thing they hit instead of flowing through it: the beetle's mounds
+// and bunker (which take the stream's damage, once a frame each), the ants' own mounds, and the beetle itself.
+// Removes those bits and returns the bit that hit the beetle, or null.
+function blockStreamNodes(stream) {
+  const hitWalls = new Set();
+  let playerHit = null;
+  const kept = [];
+  for (const node of stream.nodes) {
+    if (node.h > STREAM_GROUND_HEIGHT) {
+      kept.push(node); // Lofted bits pass over everything
+      continue;
+    }
+    const r = getStreamNodeWidth(stream, node) / 2;
+    const wall = getPlayerWallAt(node.x, node.y, r) || getRingMoundCrossed(node.px, node.py, node.x, node.y);
+    if (wall) {
+      hitWalls.add(wall);
+    } else if (getEnemyMoundAt(node.x, node.y, r)) {
+      // Just stopped
+    } else if (!isPlayerFlying() && dist(node.x, node.y, playerX, playerY) <= r + STREAM_PLAYER_RADIUS) {
+      playerHit = node;
+    } else {
+      kept.push(node);
+    }
+  }
+  stream.nodes = kept;
+  for (const wall of hitWalls) damagePlayerWall(wall, stream.size * STREAM_DAMAGE_MULTIPLIER / 60);
+  return playerHit;
+}
+
+// Beam streams: cut the beam off at the first mound or bunker in its way (that one takes the stream's damage)
+function blockStreamBeamSlice(stream, beamSlice) {
+  const a = beamSlice[0];
+  const b = beamSlice[1];
+  const len = dist(a.x, a.y, b.x, b.y);
+  const step = 6;
+  for (let d = step; d < len; d += step) {
+    const x = a.x + (b.x - a.x) * d / len;
+    const y = a.y + (b.y - a.y) * d / len;
+    const wall = getPlayerWallAt(x, y, stream.width / 2) ||
+      getRingMoundCrossed(a.x + (b.x - a.x) * (d - step) / len, a.y + (b.y - a.y) * (d - step) / len, x, y);
+    if (wall || getEnemyMoundAt(x, y, stream.width / 2)) {
+      if (wall) damagePlayerWall(wall, stream.size * STREAM_DAMAGE_MULTIPLIER / 60);
+      b.x = x;
+      b.y = y;
+      return;
+    }
+  }
+}
+
+// Exploding streams burst at full length at once: cut a slice (base outward) off at the first mound or bunker on
+// the ground in its way, which takes the stream's damage. Returns { slice, blocked } (blocked = the point it stopped at).
+function cutStreamSliceAtWall(stream, slice) {
+  for (let k = 0; k < slice.length; k++) {
+    const pt = slice[k];
+    if (pt.h > STREAM_GROUND_HEIGHT) continue;
+    const prev = slice[k - 1];
+    const wall = getPlayerWallAt(pt.x, pt.y, pt.w / 2) || (prev ? getRingMoundCrossed(prev.x, prev.y, pt.x, pt.y) : null);
+    if (wall || getEnemyMoundAt(pt.x, pt.y, pt.w / 2)) {
+      if (wall) damagePlayerWall(wall, stream.size * getBulletSpeedTier(5).damageMultiplier); // Hits it like the burst hits the beetle
+      return { slice: slice.slice(0, k + 1), blocked: pt };
+    }
+  }
+  return { slice: slice, blocked: null };
+}
+
 function updateEnemyStreams() {
   updateStreamSelfDestructs();
   for (let s = enemyStreams.length - 1; s >= 0; s--) {
@@ -7937,12 +8005,21 @@ function updateStreamSpray(stream) {
     }
     if (stream.phaseLife >= stream.duration) stopStreamSpray(stream, false);
   }
-  if (!stream.spraying && stream.nodes.length === 0 && stream.particles.length === 0) return false; // Flowed away
+  const playerHit = blockStreamNodes(stream);
+  if (!stream.spraying && stream.nodes.length === 0 && stream.particles.length === 0) {
+    if (playerHit) handleExplosionDamage(stream.size * STREAM_DAMAGE_MULTIPLIER, o); // Its last bit hit the beetle
+    return false; // Flowed away
+  }
 
   const slices = getStreamSlices(stream, stream.nodes);
   // Beam streams: the beam fires from the end for as long as the stream keeps arriving there, even as it flows away
   const beamSlice = stream.beam ? getStreamBeamSlice(stream, stream.nodes) : null;
-  const contact = getStreamContact(beamSlice ? slices.concat([beamSlice]) : slices);
+  if (beamSlice) blockStreamBeamSlice(stream, beamSlice);
+  let contact = getStreamContact(beamSlice ? slices.concat([beamSlice]) : slices);
+  if (playerHit && !(contact && contact.touching)) {
+    contact = { x: playerHit.x, y: playerHit.y, margin: 0, touching: true,
+      dirX: Math.cos(playerHit.heading), dirY: Math.sin(playerHit.heading) };
+  }
   const touching = contact && contact.touching;
 
   // Damage every frame the beetle is in the stream (or on a launch ant's ground spot)
@@ -8003,10 +8080,19 @@ function forEachAlongStreamSlice(slice, spacing, fn) {
 function burstStream(stream) {
   const o = stream.owner;
   const nodes = prefillStreamNodes(stream);
-  const slices = getStreamSlices(stream, nodes);
-  if (stream.beam) {
+  const slices = [];
+  let blocked = null;
+  for (const slice of getStreamSlices(stream, nodes)) {
+    const cut = cutStreamSliceAtWall(stream, slice);
+    slices.push(cut.slice);
+    if (cut.blocked && !blocked) blocked = cut.blocked;
+  }
+  if (stream.beam && !blocked) {
     const beamSlice = getStreamBeamSlice(stream, nodes);
-    if (beamSlice) slices.push(beamSlice);
+    if (beamSlice) {
+      blockStreamBeamSlice(stream, beamSlice);
+      slices.push(beamSlice);
+    }
   }
 
   const contact = getStreamContact(slices);
@@ -8026,11 +8112,12 @@ function burstStream(stream) {
     forEachAlongStreamSlice(slice, spacing, (x, y, h, w) => spawnSmokeImpact(x, y, w * 0.8, 2, h));
   }
 
-  // Accelerating streams: every particle breaks away from the end at once
+  // Accelerating streams: every particle breaks away from the end at once (or where a mound stopped the stream)
   const front = nodes[0];
+  const end = blocked || front;
   for (let k = 0; k < stream.particlesTotal && front; k++) {
     const a = front.heading + random(-stream.particleSpread / 2, stream.particleSpread / 2);
-    stream.particles.push({ x: front.x, y: front.y, s: stream.range, free: true, speed: STREAM_GROWTH_SPEED, dirX: Math.cos(a), dirY: Math.sin(a) });
+    stream.particles.push({ x: end.x, y: end.y, s: stream.range, free: true, speed: STREAM_GROWTH_SPEED, dirX: Math.cos(a), dirY: Math.sin(a) });
   }
   stream.particlesFired = stream.particlesTotal;
   stream.phase = 'burst';
@@ -8057,6 +8144,19 @@ function updateStreamParticles(stream) {
     part.x += part.dirX * part.speed;
     part.y += part.dirY * part.speed;
     part.s += part.speed;
+    // Particles stop at the first mound or bunker they hit (the beetle's take the hit, like from a bullet)
+    const wall = getPlayerWallHitBy(part.x, part.y, part.dirX * part.speed, part.dirY * part.speed);
+    if (wall || getEnemyMoundAt(part.x, part.y, drawSize / 2)) {
+      if (wall) damagePlayerWall(wall, particleSize * getBulletSpeedTier(STREAM_PARTICLE_HIT_SPEED).damageMultiplier);
+      stream.particles.splice(k, 1);
+      continue;
+    }
+    if (!isPlayerFlying() && dist(part.x, part.y, playerX, playerY) < STREAM_PLAYER_RADIUS + drawSize / 2) {
+      stream.particles.splice(k, 1);
+      handlePlayerHit(stream.owner, stream.knockback, part.x, part.y, stream.knockbackMultiplier,
+        STREAM_PARTICLE_HIT_SPEED, false, particleSize);
+      continue;
+    }
     if (!part.free) {
       if (part.s >= stream.range) {
         // Break away from the end of the stream, fanning out in a spread
@@ -8068,12 +8168,6 @@ function updateStreamParticles(stream) {
     } else {
       if (part.x < 0 || part.x > getGameplayWidth() || part.y < scoreBarHeight || part.y > getGameplayHeight() - expBarHeight) {
         stream.particles.splice(k, 1);
-        continue;
-      }
-      if (dist(part.x, part.y, playerX, playerY) < STREAM_PLAYER_RADIUS + drawSize / 2) {
-        stream.particles.splice(k, 1);
-        handlePlayerHit(stream.owner, stream.knockback, part.x, part.y, stream.knockbackMultiplier,
-          STREAM_PARTICLE_HIT_SPEED, false, particleSize);
         continue;
       }
     }
@@ -8957,7 +9051,10 @@ let queenInheritedBrain = null;  // Last strategy of the previous queen this run
 let queenDefeatedThisRound = false;
 let queenProjectiles = [];       // Her acid and the ants she fires like bullets
 let queenEffects = [];           // Beams, streams, planted explosions, volleys, rings
-let antDormant = [];             // Ants that died during a queen fight and wait for her to spawn them again
+let antDormant = [];             // Ants that died during a queen fight and wait for her to spawn them again (or wait in antRespawnQueue)
+const ANT_RESPAWN_GAP_FRAMES = 60;  // Outside queen fights, at most one ant respawns per second...
+let antRespawnQueue = [];        // ...and the rest of the dead ants wait here (dormant), first killed first back
+let antRespawnWait = 0;          // Frames until the next ant may respawn
 let antOrder = [];               // Ants the queen has ordered to walk to a spot: { x, y, expires }, or null
 let antQueenType = [];           // Which of the round's ants (by its index when she arrived) each ant is a copy of
 let antHitSpots = [];            // Where each ant was, relative to the beetle, when it fired shots that hit
@@ -9068,12 +9165,39 @@ function holdDormantAnts() {
   }
 }
 
-// Put a dead ant back in play somewhere random, or, during a queen fight, keep it out of play
+// Put a dead ant back in play somewhere random, or, during a queen fight, keep it out of play. Ants come back
+// at most one every ANT_RESPAWN_GAP_FRAMES: the rest wait off the field (dormant) in antRespawnQueue, so killing a
+// lot of ants at once gives the beetle a breather.
 function respawnAnt(i) {
   if (antDormant[i]) {
     parkAnt(i);
     return;
   }
+  if (antRespawnWait > 0 || antRespawnQueue.length > 0) {
+    parkAnt(i);
+    antDormant[i] = true;
+    antRespawnQueue.push(i);
+    return;
+  }
+  placeRespawnedAnt(i);
+}
+
+// Bring back the next ant waiting to respawn once the gap since the last one is up (never during a queen fight,
+// where dead ants wait for her instead)
+function updateAntRespawnQueue() {
+  if (antRespawnWait > 0) antRespawnWait--;
+  if (antRespawnWait > 0 || isQueenFight()) return;
+  while (antRespawnQueue.length > 0) {
+    const i = antRespawnQueue.shift();
+    if (i > enemyCount || !antDormant[i]) continue; // Brought back some other way
+    antDormant[i] = false;
+    placeRespawnedAnt(i);
+    return;
+  }
+}
+
+function placeRespawnedAnt(i) {
+  antRespawnWait = ANT_RESPAWN_GAP_FRAMES;
   antX[i] = random(0, getGameplayWidth());
   antY[i] = random(scoreBarHeight + ANT_SPAWN_BUFFER, getGameplayHeight() - expBarHeight - expBarBuffer - ANT_SPAWN_BUFFER);
   spawnX[i] = antX[i] + cos(angleFromSpawn[i]);
@@ -9611,9 +9735,10 @@ function startQueenFight() {
   const types = [];
   for (let i = 1; i <= enemyCount; i++) {
     antQueenType[i] = i;
-    antDormant[i] = false;
+    antDormant[i] = antRespawnQueue.includes(i); // Ants still waiting to respawn wait for her instead
     types.push(i);
   }
+  antRespawnQueue = [];
 
   // She arrives at the edge spot farthest from the beetle
   const b = getPlayAreaBounds(60);
@@ -14362,9 +14487,9 @@ function drawUpgradeScreen() {
     },
     {
       title: 'Mound Health',
-      description: 'Your mounds and bunker take more hits. +1 health per level (1→5). Requires Mound Ring or Bunker.',
+      description: 'Your mounds and bunker take more hits. +5 health per level (5→20). Requires Mound Ring or Bunker.',
       level: upgrade49Level,
-      maxLevel: 4
+      maxLevel: 3
     },
     {
       title: 'Flight Duration',
@@ -15414,6 +15539,8 @@ function clearRoundEffects() {
   flashingEntities = [];
   resetAphids();
   endQueenFight();
+  antRespawnQueue = [];
+  antRespawnWait = 0;
   clearRoundOutro();
   antHitSpots = [];
   pendingHitSpot = null;
@@ -21094,7 +21221,7 @@ function drawDevTools() {
         { name: 'Bunker', level: currentUpgrades.upgrade46, maxLevel: 1, id: 45 },
         { name: 'Vortex', level: currentUpgrades.upgrade47, maxLevel: 1, id: 46 },
         { name: 'Flight and Slam', level: currentUpgrades.upgrade48, maxLevel: 1, id: 47 },
-        { name: 'Mound Health', level: currentUpgrades.upgrade49, maxLevel: 4, id: 48 },
+        { name: 'Mound Health', level: currentUpgrades.upgrade49, maxLevel: 3, id: 48 },
         { name: 'Flight Duration', level: currentUpgrades.upgrade50, maxLevel: 5, id: 49 },
         { name: 'Starting Health', level: currentUpgrades.upgrade51, maxLevel: 4, id: 50 },
         { name: 'Dash Deflection', level: currentUpgrades.upgrade52, maxLevel: 1, id: 51 },
