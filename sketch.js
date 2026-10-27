@@ -3741,7 +3741,7 @@ function enemyInteraction1(){
         calculateBonus();
         streakPoints += Math.round(comboPoints * antSize[i]);
         let scoreGained = addKillScore(100 + comboPoints, antSize[i], dash ? 'dash' : null);
-        health = health + antSize[i];
+        healFromKill(antSize[i]);
         
         // Oogpister Beetle: 20% chance to instantly reload 1 bullet when eating an ant
         if (upgrade11Level === 1 && random() < 0.2) {
@@ -3885,7 +3885,7 @@ function dashCollision() {
           calculateBonus();
           streakPoints += Math.round(comboPoints * antSize[i]);
           let scoreGained = addKillScore(100 + comboPoints, antSize[i], 'dash');
-          health += antSize[i];
+          healFromKill(antSize[i]);
           addDeathEffect(antX[i], antY[i], scoreGained);
           respawnAnt(i);
           
@@ -4744,7 +4744,7 @@ function enemyShoot1() {
               calculateBonus();
               streakPoints += Math.round(comboPoints * antSize[ai]);
               let scoreGained = addKillScore(100 + comboPoints, antSize[ai], 'bullet');
-              health += antSize[ai];
+              healFromKill(antSize[ai]);
               addDeathEffect(antX[ai], antY[ai], scoreGained);
               respawnAnt(ai);
             }
@@ -4803,7 +4803,7 @@ function enemyShoot1() {
                   calculateBonus();
                   streakPoints += Math.round(comboPoints * antSize[aj]);
                   let scoreGained = addKillScore(100 + comboPoints, antSize[aj], 'bullet');
-                  health += antSize[aj];
+                  healFromKill(antSize[aj]);
                   addDeathEffect(antX[aj], antY[aj], scoreGained);
                   respawnAnt(aj);
                 }
@@ -4971,7 +4971,7 @@ function enemyShoot1() {
               calculateBonus();
               streakPoints += Math.round(comboPoints * antSize[i]);
               let scoreGained = addKillScore(100 + comboPoints, antSize[i], 'bullet');
-              health += antSize[i];
+              healFromKill(antSize[i]);
               addDeathEffect(antX[i], antY[i], scoreGained);
               respawnAnt(i);
             }
@@ -5644,6 +5644,12 @@ function tryPlayerShoot() {
   }
 }
 
+// Eating a kill heals the beetle, but only while it's alive: healing a dead beetle back above 0
+// hides the "You Lost" screen and leaves the round stuck with end set
+function healFromKill(amount) {
+  if (end == false && health > 0) health += amount;
+}
+
 // Player acid hits ant j for one bullet's damage. Kills from every shot type count as bullet kills.
 // A hit from one of the beetle's projectiles (acid by default; Shell Shrapnel passes its own damage and no score source)
 function damageAntWithPlayerAcid(j, amount = getPlayerBulletDamage(), source = 'bullet') {
@@ -5666,10 +5672,7 @@ function damageAntWithPlayerAcid(j, amount = getPlayerBulletDamage(), source = '
   calculateBonus();
   streakPoints += Math.round(comboPoints * antSize[j]);
   let scoreGained = addKillScore(100 + comboPoints, antSize[j], source);
-  // Only restore health if round is active and player is alive
-  if (end == false && health > 0) {
-    health += antSize[j];
-  }
+  healFromKill(antSize[j]);
   addDeathEffect(antX[j], antY[j], scoreGained);
   respawnAnt(j);
 }
@@ -6009,7 +6012,7 @@ function handleWindAttack() {
               calculateBonus();
               streakPoints += Math.round(comboPoints * antSize[i]);
               let scoreGained = addKillScore(100 + comboPoints, antSize[i], 'shockwave');
-              health += antSize[i];
+              healFromKill(antSize[i]);
               addDeathEffect(antX[i], antY[i], scoreGained);
               respawnAnt(i);
             }
