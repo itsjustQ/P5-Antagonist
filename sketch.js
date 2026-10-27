@@ -5461,7 +5461,7 @@ function beetleShoot() {
         playerBullets.splice(i, 1);
         continue;
       }
-      damageQueen(getPlayerBulletDamage());
+      damageQueen(getPlayerBulletDamage(), true);
       if (mode !== SHOT_MODE_PIERCE) {
         playerBullets.splice(i, 1);
         continue;
@@ -5735,7 +5735,7 @@ function explodePlayerBomb(x, y, mode) {
   for (let wall of enemyWalls) {
     if (dist(x, y, wall.x, wall.y) <= radius + wall.radius) damageEnemyWall(wall, getPlayerBulletDamage());
   }
-  if (isQueenHitAt(x, y, radius)) damageQueen(getPlayerBulletDamage());
+  if (isQueenHitAt(x, y, radius)) damageQueen(getPlayerBulletDamage(), true);
   playerBombBlasts.push({ x: x, y: y, radius: radius, mode: mode, life: 0 });
   if (!sSpit2.isPlaying()) sSpit2.play();
 }
@@ -9161,6 +9161,16 @@ const QUEEN_SCORE_PER_MISS = -1;          // an attack where no part ever got wi
 const QUEEN_MISS_RANGE = 70;
 const QUEEN_STREAM_RANGE = 250;           // Her Stream Fire's reach (from the edge of her body)
 const QUEEN_HIT_SPAWNS = 2;               // Extra stockpiled spawns she gets every time she's hit
+// Panic: a streak of QUEEN_PANIC_HITS bullet hits, each within QUEEN_PANIC_WINDOW frames of the last, sets off a free
+// defense (no cost, no cooldown change) so one unload can't kill her: one of these abilities if an ant of hers has it,
+// or else ants summoned in the way
+const QUEEN_PANIC_HITS = 2;
+const QOQ_PANIC_HITS = 5;                 // The Queen of Queens is built to soak up dozens of hits, so she holds out longer
+const QUEEN_PANIC_WINDOW = 45;
+const QUEEN_PANIC_ABILITIES = ['recoil', 'launch', 'mound', 'bunker', 'blink', 'portal', 'nest', 'ghost'];
+const QUEEN_PANIC_BLOCKERS = 4;           // Ants summoned (or blinked) into the line of fire
+const QUEEN_PANIC_SHIELD = 2;             // Nest: damage her shield soaks up...
+const QUEEN_PANIC_SHIELD_FRAMES = 300;    // ...before it fades
 // Beam: radius multiplier 4 and residue multiplier 3 on the ants' beam scale
 const QUEEN_BEAM_WIDTH = 12 + (4 - 0.5) / (3 - 0.5) * (50 - 12);   // BEAM_MIN/MAX_WIDTH scale: about 65px
 const QUEEN_BEAM_FRAMES = 15 + (3 - 0.5) / (3 - 0.5) * (60 - 15);  // BEAM_MIN/MAX_FRAMES scale: 60 frames
@@ -9210,7 +9220,7 @@ let queenDefeatedThisRound = false;
 let queenProjectiles = [];       // Her acid and the ants she fires like bullets
 let queenEffects = [];           // Beams, streams, planted explosions, volleys, rings
 let antDormant = [];             // Ants that died during a queen fight and wait for her to spawn them again (or wait in antRespawnQueue)
-const ANT_RESPAWN_GAP_FRAMES = 10;  // Outside queen fights, at most one ant respawns this often...
+const ANT_RESPAWN_GAP_FRAMES = 20;  // Outside queen fights, at most one ant respawns this often...
 let antRespawnQueue = [];        // ...and the rest of the dead ants wait here (dormant), first killed first back
 let antRespawnWait = 0;          // Frames until the next ant may respawn
 let antOrder = [];               // Ants the queen has ordered to walk to a spot: { x, y, expires }, or null
@@ -9443,8 +9453,8 @@ function placeSpawnedAnt(i, x, y) {
 
 // Spawn one of the round's ants (type = its index when the queen arrived). A dormant copy of it comes back first;
 // otherwise a new copy is made in a new ant slot. Returns the ant's index, or -1 if there's no room.
-function queenSpawnAnt(type, x, y) {
-  if (queen && queen.maxAlive && countAliveAnts() >= queen.maxAlive) return -1;
+function queenSpawnAnt(type, x, y, ignoreCap = false) {
+  if (!ignoreCap && queen && queen.maxAlive && countAliveAnts() >= queen.maxAlive) return -1;
   let i = -1;
   for (let k = 1; k <= enemyCount; k++) {
     if (antDormant[k] && antQueenType[k] === type) {
@@ -9571,8 +9581,8 @@ const QB_INPUTS = 40;
 const QB_HIDDEN = 12;
 const QUEEN_TOP_TYPES = 3;                     // She tracks the ideal spots of her best 3 ants
 const QB_OUT_BLEND = 2;                        // Outputs: move x, move y, then a weight for each top ant's spot,
-const QB_OUT_AIM = QB_OUT_BLEND + QUEEN_TOP_TYPES;   // ability aim x, aim y and formation turn,
-const QB_OUT_ALL_ORDER = QB_OUT_AIM + 3;             // order-everyone spot x, y,
+const QB_OUT_FORMATION = QB_OUT_BLEND + QUEEN_TOP_TYPES; // formation turn,
+const QB_OUT_ALL_ORDER = QB_OUT_FORMATION + 1;           // order-everyone spot x, y,
 const QB_OUT_PARAMS = QB_OUT_ALL_ORDER + 2;          // then one per strategy value, then one per ability
 const QT_INPUTS = 7;                           // Per-ant-type networks: the ant's own values...
 const QT_HIDDEN = 8;
@@ -9612,6 +9622,9 @@ const QUEEN_STRATEGY_RANGES = {
 };
 const QUEEN_STRATEGY_KEYS = Object.keys(QUEEN_STRATEGY_RANGES);
 const QB_OUT_ABILITIES = QB_OUT_PARAMS + QUEEN_STRATEGY_KEYS.length;
+// Her aim is kept out of the network on purpose: it only sees the beetle, its movement and her distance to it, and
+// the one thing she learns is how far ahead of it to lead (0 = straight at it, 1 = a full bullet flight's worth)
+const QUEEN_AIM_LEAD_RANGE = [0, 1];
 const QB_OUTPUTS = QB_OUT_ABILITIES + QUEEN_ABILITIES.length;
 
 function randomWeights(count, scale) {
@@ -9623,6 +9636,7 @@ function randomWeights(count, scale) {
 function createQueenBrain() {
   return {
     strategy: { ...QUEEN_STRATEGY_DEFAULTS },
+    aimLead: 0,
     w1: randomWeights(QB_HIDDEN * (QB_INPUTS + 1), 0.5),
     w2: new Array(QB_OUTPUTS * (QB_HIDDEN + 1)).fill(0),
     t1: randomWeights(QT_HIDDEN * (QT_ALL_INPUTS + 1), 0.5),
@@ -9635,6 +9649,7 @@ function createQueenBrain() {
 function cloneQueenBrain(brain) {
   return {
     strategy: { ...brain.strategy },
+    aimLead: brain.aimLead || 0,
     w1: brain.w1.slice(),
     w2: brain.w2.slice(),
     t1: brain.t1.slice(),
@@ -9654,6 +9669,8 @@ function mutateQueenBrain(brain, strength) {
     const [lo, hi] = QUEEN_STRATEGY_RANGES[key];
     brain.strategy[key] = constrain(brain.strategy[key] + randomGaussian() * 0.1 * strength * (hi - lo), lo, hi);
   }
+  const [lo, hi] = QUEEN_AIM_LEAD_RANGE;
+  brain.aimLead = constrain((brain.aimLead || 0) + randomGaussian() * 0.1 * strength * (hi - lo), lo, hi);
 }
 
 // Fully connected layer: rows of (inputs..., bias)
@@ -9845,19 +9862,15 @@ function updateQueenDecision() {
   queen.typeInfo = types;
   queen.bestType = best;
   // The Queen of Queens takes dozens of hits (each one mutates her brain), so her offsets get a tighter leash: she
-  // keeps moving around the beetle instead of drifting into a corner, and her abilities land near it
+  // keeps moving around the beetle instead of drifting into a corner
   const reach = queen.final ? QOQ_DECISION_REACH : 1;
-  const aimReach = queen.final ? QOQ_AIM_REACH : 1;
   queen.decision = {
     anchorX: anchorX,
     anchorY: anchorY,
     moveX: Math.tanh(out[0]) * getGameplayWidth() * reach,
     moveY: Math.tanh(out[1]) * getGameplayHeight() * reach,
-    // Abilities aim at a point relative to the beetle (at first the beetle itself), and formations of planted things
-    // (explosions, mines, turrets, mounds) turn by formationTurn from the aim direction
-    aimX: Math.tanh(out[QB_OUT_AIM]) * getGameplayWidth() * aimReach,
-    aimY: Math.tanh(out[QB_OUT_AIM + 1]) * getGameplayHeight() * aimReach,
-    formationTurn: Math.tanh(out[QB_OUT_AIM + 2]) * Math.PI,
+    // Formations of planted things (explosions, mines, turrets, mounds) turn by formationTurn from the aim direction
+    formationTurn: Math.tanh(out[QB_OUT_FORMATION]) * Math.PI,
     // Where an order to every ant goes, relative to the beetle: the spot she's heading for, shifted
     allOrderX: anchorX + Math.tanh(out[QB_OUT_ALL_ORDER]) * getGameplayWidth() * reach,
     allOrderY: anchorY + Math.tanh(out[QB_OUT_ALL_ORDER + 1]) * getGameplayHeight() * reach,
@@ -9929,6 +9942,10 @@ function startQueenFight() {
     introFrames: QUEEN_INTRO_FRAMES,
     moveDirX: 0,
     moveDirY: 1,
+    beetleVX: 0,
+    beetleVY: 0,
+    lastBeetleX: playerX,
+    lastBeetleY: playerY,
     vx: 0,
     vy: 0,
     airTimer: 0,
@@ -9953,6 +9970,9 @@ function startQueenFight() {
     dashHit: false,
     hitFlash: 0,
     lastHitTime: 0,
+    recentBulletHits: [],
+    shield: 0,
+    shieldFrames: 0,
     adaptFlash: 0,
     label: '',
     labelFrames: 0
@@ -9969,8 +9989,19 @@ function isQueenImmune() {
 }
 
 // Any damage from the beetle. Returns true if it landed.
-function damageQueen(amount) {
+function damageQueen(amount, fromBullet = false) {
   if (isQueenImmune() || end) return false;
+  if (queen.shield > 0) {
+    // Her nest shield soaks up what it can first
+    const absorbed = Math.min(queen.shield, amount);
+    queen.shield -= absorbed;
+    amount -= absorbed;
+    if (amount <= 0) {
+      if (!sShieldHit1.isPlaying() && !sShieldHit2.isPlaying()) (random() < 0.5 ? sShieldHit1 : sShieldHit2).play();
+      if (fromBullet) noteQueenBulletHit();
+      return true;
+    }
+  }
   queen.health -= amount;
   queen.hitFlash = 10;
   queen.lastHitTime = millis();
@@ -9981,8 +10012,146 @@ function damageQueen(amount) {
     killQueen();
   } else {
     adaptQueenBrain('hit');
+    if (fromBullet) noteQueenBulletHit();
   }
   return true;
+}
+
+// --- Panic ---
+
+// Count a bullet hit; enough of them close together and she panics
+function noteQueenBulletHit() {
+  const hits = queen.recentBulletHits;
+  if (hits.length > 0 && frameCount - hits[hits.length - 1] > QUEEN_PANIC_WINDOW) hits.length = 0; // Streak broken
+  hits.push(frameCount);
+  if (hits.length >= (queen.final ? QOQ_PANIC_HITS : QUEEN_PANIC_HITS)) {
+    queen.recentBulletHits = [];
+    queenPanic();
+  }
+}
+
+// A free defense: the panic ability her brain likes best out of the ones her living ants have, or else a wall of ants
+function queenPanic() {
+  const { available } = getQueenAvailableAbilities();
+  const logits = queen.decision.abilityLogits;
+  let key = null;
+  let bestValue = -Infinity;
+  for (const k of QUEEN_PANIC_ABILITIES) {
+    if (!available.has(QA[k])) continue;
+    const value = (logits[QA[k]] || 0) + Math.random() * 0.01;
+    if (value > bestValue) {
+      bestValue = value;
+      key = k;
+    }
+  }
+  if (key === 'blink' && queenBlinkBlockers() === 0) key = null; // Nobody could be moved
+  queen.label = (key ? QUEEN_ABILITIES[QA[key]].name : 'Guards') + '!';
+  queen.labelFrames = 90;
+  switch (key) {
+    case 'recoil':
+    case 'launch': {
+      // Sideways out of the line of fire, toward whichever side has more room
+      const a = getQueenDodgeAngle();
+      const speed = key === 'recoil' ? 16 : 7;
+      queen.vx = Math.cos(a) * speed;
+      queen.vy = Math.sin(a) * speed;
+      if (key === 'launch') {
+        queen.airDuration = 45;
+        queen.airTimer = 45;
+        queen.airPeak = 60;
+      }
+      break;
+    }
+    case 'mound':
+      for (const p of getQueenBlockSpots(3, MOUND_RADIUS + 10, MOUND_RADIUS * 2)) {
+        enemyWalls.push(makeQueenWall(p.x, p.y, MOUND_RADIUS, false, 1.5, 480));
+      }
+      break;
+    case 'bunker':
+      castQueenAbility('bunker', -1);
+      break;
+    case 'blink':
+      break; // Her ants were already moved into the way
+    case 'portal': {
+      // As far from the beetle as she can get
+      const b = getPlayAreaBounds(60);
+      let dest = { x: queen.x, y: queen.y };
+      for (const c of [[b.minX, b.minY], [b.maxX, b.minY], [b.maxX, b.maxY], [b.minX, b.maxY]]) {
+        if (dist(c[0], c[1], playerX, playerY) > dist(dest.x, dest.y, playerX, playerY)) dest = { x: c[0], y: c[1] };
+      }
+      spawnBlinkFlash(queen.x, queen.y, 60, true);
+      queen.x = dest.x;
+      queen.y = dest.y;
+      spawnBlinkFlash(queen.x, queen.y, 60, true);
+      break;
+    }
+    case 'nest':
+      enemyTerritories.push({ x: queen.x, y: queen.y, radius: QUEEN_AREA_RADIUS, nest: true, life: 0, maxLife: 600 });
+      queen.shield = QUEEN_PANIC_SHIELD;
+      queen.shieldFrames = QUEEN_PANIC_SHIELD_FRAMES;
+      break;
+    case 'ghost':
+      queen.ghostFrames = QUEEN_EFFECT_FRAMES;
+      break;
+    default: {
+      // Summon ants into the line of fire (over her alive cap: they're bodyguards, not reinforcements)
+      const penalties = new Map();
+      for (const p of getQueenBlockSpots(QUEEN_PANIC_BLOCKERS, 30, 26)) {
+        const rec = pickQueenSpawnType(penalties);
+        if (!rec) break;
+        queenSpawnAnt(rec.type, p.x, p.y, true);
+      }
+    }
+  }
+  queenEffects.push({ kind: 'ring', x: queen.x, y: queen.y, life: 0, frames: 20, maxR: getQueenBodyRadius() * 2.2, color: [255, 230, 120] });
+}
+
+// `count` spots in a row across the line from her to the beetle, `gap` px out from her body and `spacing` apart
+// (never more than half way to the beetle)
+function getQueenBlockSpots(count, gap, spacing) {
+  const a = angleToBeetle(queen.x, queen.y);
+  const r = Math.min(getQueenBodyRadius() + gap, dist(queen.x, queen.y, playerX, playerY) / 2);
+  const cx = queen.x + Math.cos(a) * r;
+  const cy = queen.y + Math.sin(a) * r;
+  const spots = [];
+  for (let k = 0; k < count; k++) {
+    const off = (k - (count - 1) / 2) * spacing;
+    spots.push(clampToPlayArea(cx - Math.sin(a) * off, cy + Math.cos(a) * off));
+  }
+  return spots;
+}
+
+// Square to the line of fire, on whichever side leaves her further from the edge of the map
+function getQueenDodgeAngle() {
+  const a = angleToBeetle(queen.x, queen.y);
+  const b = getPlayAreaBounds();
+  const room = (side) => {
+    const x = queen.x + Math.cos(a + side) * 120;
+    const y = queen.y + Math.sin(a + side) * 120;
+    return Math.min(x - b.minX, b.maxX - x, y - b.minY, b.maxY - y);
+  };
+  return room(Math.PI / 2) >= room(-Math.PI / 2) ? a + Math.PI / 2 : a - Math.PI / 2;
+}
+
+// Blink her nearest ants into the line of fire; returns how many moved
+function queenBlinkBlockers() {
+  const near = [];
+  for (let i = 1; i <= enemyCount; i++) {
+    if (antDormant[i] || antInBunker[i]) continue;
+    near.push(i);
+  }
+  near.sort((i, j) => dist(antX[i], antY[i], queen.x, queen.y) - dist(antX[j], antY[j], queen.x, queen.y));
+  const movers = near.slice(0, QUEEN_PANIC_BLOCKERS);
+  getQueenBlockSpots(movers.length, 30, 26).forEach((p, k) => {
+    const i = movers[k];
+    spawnBlinkFlash(antX[i], antY[i], 30, false);
+    antX[i] = p.x;
+    antY[i] = p.y;
+    antPrevX[i] = p.x;
+    antPrevY[i] = p.y;
+    spawnBlinkFlash(p.x, p.y, 30, false);
+  });
+  return movers.length;
 }
 
 // True if a point is within pad px of the queen's body (and she can be hit)
@@ -10052,6 +10221,11 @@ function updateQueen() {
   }
 
   queen.life++;
+  // The beetle's movement (smoothed), for leading her aim
+  queen.beetleVX = queen.beetleVX * 0.8 + (playerX - queen.lastBeetleX) * 0.2;
+  queen.beetleVY = queen.beetleVY * 0.8 + (playerY - queen.lastBeetleY) * 0.2;
+  queen.lastBeetleX = playerX;
+  queen.lastBeetleY = playerY;
   if (queen.introFrames > 0) queen.introFrames--;
   if (queen.hitFlash > 0) queen.hitFlash--;
   if (queen.adaptFlash > 0) queen.adaptFlash--;
@@ -10338,6 +10512,7 @@ function updateQueenStatus() {
   if (queen.refireFrames > 0) queen.refireFrames--;
   if (queen.camoFrames > 0) queen.camoFrames--;
   if (queen.ghostFrames > 0) queen.ghostFrames--;
+  if (queen.shieldFrames > 0 && --queen.shieldFrames <= 0) queen.shield = 0;
 
   if (queen.avengeFrames > 0) {
     queen.avengeFrames--;
@@ -10561,10 +10736,10 @@ function useQueenAbility() {
   if (queen && queen.final && QUEEN_HARMLESS_ABILITIES.has(key)) castQueenAbility('generic', -1);
 }
 
-// Where her abilities aim: a point the network picks relative to the beetle (starts on the beetle)
+// Where her abilities aim: the beetle, led along the way it's moving by her one learned aim value (no network)
 function getQueenAimPoint() {
-  const d = queen.decision;
-  return clampToPlayArea(playerX + d.aimX, playerY + d.aimY);
+  const lead = (queen.brain.aimLead || 0) * dist(queen.x, queen.y, playerX, playerY) / QUEEN_BULLET_SPEED;
+  return clampToPlayArea(playerX + queen.beetleVX * lead, playerY + queen.beetleVY * lead);
 }
 
 // Points of a fixed formation around (cx, cy), as [distance, angle from facing] pairs. If facing would push any of
@@ -10620,7 +10795,7 @@ function endQueenAttackPart(tracker) {
   if (tracker.checkWay && !tracker.everCloser) queen.segmentScore += QUEEN_SCORE_WRONG_WAY;
 }
 
-// The abilities themselves are fixed; the network only picks the aim point and which way formations face
+// The abilities themselves are fixed; the network only picks which way formations face (her aim lead is learned apart)
 // At 150% strength (the Queen of Queens under 15 health) her attacks are 150% the size too
 function getQueenAttackScale() {
   return queen && queen.strength > 1 ? queen.strength : 1;
@@ -11482,6 +11657,14 @@ function drawQueen() {
     noStroke();
     fill(255, 255, 255, 25 * queen.hitFlash);
     ellipse(0, 0, getQueenImageSize() * 0.8);
+  }
+  // Nest shield: the same light blue bubble her ants get
+  if (queen.shield > 0) {
+    const amount = queen.shield / QUEEN_PANIC_SHIELD * Math.min(1, queen.shieldFrames / 30);
+    fill(120, 200, 255, 40 * amount * alpha / 255);
+    stroke(150, 215, 255, (90 + 140 * amount) * alpha / 255);
+    strokeWeight(1 + 1.5 * amount);
+    ellipse(0, 0, getQueenImageSize() * 0.95);
   }
   pop();
 

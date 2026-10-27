@@ -53,7 +53,6 @@ const FINAL_GROUP_SIZE = 10;
 const QOQ_HEALTH = 50;
 const QOQ_ANT_SIZE = 6;                // She's the size of a size 6 ant
 const QOQ_DECISION_REACH = 0.25;       // Her brain can only move her / her orders this far off its plan (fraction of the arena)
-const QOQ_AIM_REACH = 0.1;             // ...and only aim this far off the beetle
 const QOQ_STUCK_FRAMES = 240;          // Sitting still this long (outside a bunker) resets her strategy
 const QOQ_SPAWN_FRAMES = 300;          // 10 ants every 5 seconds...
 const QOQ_ANTS_PER_SPAWN = 10;
