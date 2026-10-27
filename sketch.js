@@ -1693,6 +1693,7 @@ function draw() {
       handleWindAttack(); // Handle shockwave attack
       updateShockwaveVariants(); // Vortex pull, flight, shell shrapnel
       if (beetleDrawnOnTop) drawBeetle();
+      drawAirborneAnts(); // Ants in the air go over the beetle
       drawDeferredEnemyBullets(); // Airborne high arc bullets go over a flying beetle
       dashCollision(); // Check for dash collisions with ants
       handleAntKnockback(); // Handle knocked back ants
@@ -2674,10 +2675,26 @@ function drawStrikes(){
   }
 }
 
+// Ants up in the air this frame; their bodies are drawn after the beetle (drawAirborneAnts) so they're over it
+let airborneAntDraws = [];
+
 function drawEnemy(){
   //enemy one
-  for (let i = 1; i < enemyCount + 1; i++) {
-    if (antDormant[i]) continue;
+  airborneAntDraws = [];
+  for (let i = 1; i < enemyCount + 1; i++) drawAnt(i, false);
+  //debugLog(enemyIndex);
+}
+
+function drawAirborneAnts() {
+  for (const i of airborneAntDraws) {
+    if (antAirHeight[i] > 0) drawAnt(i, true);
+  }
+  airborneAntDraws = [];
+}
+
+// airPass: the ant's shadow was drawn on the ground pass; now draw its body up over the beetle
+function drawAnt(i, airPass) {
+    if (antDormant[i]) return;
     // Check if this ant should be visible
     let shouldDraw = true;
     let fadeAmount = 255;
@@ -2701,7 +2718,7 @@ function drawEnemy(){
     // Ants hiding in a bunker can't be seen at all (bunkers are blind holes)
     if (antInBunker[i]) shouldDraw = false;
 
-    if (shouldDraw) {
+    if (shouldDraw && !airPass) {
       // Ground shadow; shrinks and lightens as the ant rises
       let antShadowHeight = constrain(antAirHeight[i], 0, 30);
       let antShadowAlpha = map(antShadowHeight, 0, 30, 80, 40) * (fadeAmount / 255);
@@ -2709,6 +2726,15 @@ function drawEnemy(){
       angleMode(DEGREES);
       let antShadowAngle = atan2(playerY - antY[i], playerX - antX[i]);
       drawGroundShadow(antX[i], antY[i], antShadowScale * 0.6, antShadowScale * 0.26, antShadowAngle, antShadowAlpha);
+
+      // In the air: the body waits for the air pass
+      if (antAirHeight[i] > 0) {
+        airborneAntDraws.push(i);
+        return;
+      }
+    }
+
+    if (shouldDraw) {
 
       push();
         // Apply fade if Tiger Beetle is active (or a ghost stream ant is fading)
@@ -2800,10 +2826,6 @@ function drawEnemy(){
         pop();
       }
     }
-
-
-  }
-  //debugLog(enemyIndex);
 }
 
 // Health bar shown for 1 second after something gets hit (ants, mounds and bunkers), centered on x with its top
@@ -3725,12 +3747,13 @@ function drawPlayerHealthBar(barX, barY, barWidth, barHeight, alphaMult) {
 }
 
 function enemyInteraction1(){
-  if (isPlayerUntouchable()) return; // Flying over (or tunneling under) the ants
+  if (isPlayerBurrowed()) return; // Tunneling under the ants
 
   //enemy one interaction
   for (let i = 1; i < enemyCount + 1; i++) {
-    // Skip if ant is airborne (in the air, not just knocked back) or hiding in a bunker (or dormant in a queen fight)
-    if (isAntSheltered(i) || antDormant[i]) continue;
+    // Skip ants the beetle can't reach (in the air under a grounded beetle, on the ground under a flying one, or
+    // hiding in a bunker) or dormant in a queen fight
+    if (isAntOutOfBeetleReach(i) || antDormant[i]) continue;
     
     let antHitboxSize = 20.25 + (6.75 * antSize[i]);
     if(playerX > (antX[i] - antHitboxSize) && playerY > (antY[i] - antHitboxSize) && playerX < (antX[i] + antHitboxSize) && playerY < (antY[i] + antHitboxSize)) {
@@ -3830,16 +3853,16 @@ function enemyInteraction1(){
 }
 
 function dashCollision() {
-  // Only check for dash collisions when dashing (and on the ground)
-  if (!dash || isPlayerUntouchable()) return;
+  // Only check for dash collisions when dashing (and not burrowed)
+  if (!dash || isPlayerBurrowed()) return;
   
   // Use spatial grid to only check nearby ants
   let nearbyCells = getNearbyCells(playerX, playerY);
   
   for (let cell of nearbyCells) {
     for (let i of cell.ants) {
-      // Skip if ant is already knocked back (can only be hit once per dash) or airborne
-      if (antKnockedBack[i] || isAntSheltered(i)) continue;
+      // Skip if ant is already knocked back (can only be hit once per dash) or out of the beetle's reach
+      if (antKnockedBack[i] || isAntOutOfBeetleReach(i)) continue;
       
       let antHitboxSize = 20.25 + (6.75 * antSize[i]);
       if(playerX > (antX[i] - antHitboxSize) && playerY > (antY[i] - antHitboxSize) && 
@@ -4194,10 +4217,12 @@ function enemyShoot1() {
     for (let i = 1; i < enemyCount + 1; i++) {
       // Check if ant is in rapid fire sequence and ready to fire next bullet
       if (antRapidFireActive[i] && frameCount >= antRapidFireNextFrame[i]) {
-        // Aim THIS bullet from current positions
-        const bullet = createAntBullet(i, antX[i], antY[i], getBurstBulletSize(i));
-        enemyBullets[i].push(bullet);
-        applyFiringRecoil(i, bullet);
+        // Aim THIS bullet from current positions (a shot that would fall short is held, but still counts)
+        if (isAntTargetInRange(i)) {
+          const bullet = createAntBullet(i, antX[i], antY[i], getBurstBulletSize(i));
+          enemyBullets[i].push(bullet);
+          applyFiringRecoil(i, bullet);
+        }
         
         // Decrement count and schedule next bullet
         antRapidFireCount[i]--;
@@ -4233,8 +4258,9 @@ function enemyShoot1() {
         if (fireType === 4) {
           tryFireAntStream(i);
         }
-        // Use cooldown tracking instead of modulo for proper reset capability
-        else if (frameCount - antLastShotFrame[i] >= currentCooldown) {
+        // Use cooldown tracking instead of modulo for proper reset capability. Out of range, the ant holds its
+        // fire (staying loaded) until its bullet would make it at least 2/3 of the way to the aim point (or it's close in).
+        else if (frameCount - antLastShotFrame[i] >= currentCooldown && isAntTargetInRange(i)) {
           antLastShotFrame[i] = frameCount;
           
           // Toggle alternating cooldown state for next shot
@@ -4463,7 +4489,7 @@ function enemyShoot1() {
         // Check if bullet has exceeded its lifespan and should fade/disappear
         // High arc bullets (pathType === 1) only die when landing, not from lifespan
         // Accelerating bullets (pathType === 2) become immune to time death once they start accelerating
-        const FADE_DURATION = 30; // Frames to fade out
+        const FADE_DURATION = ENEMY_BULLET_FADE_FRAMES;
         const isImmuneToTimeDeath = bullet.pathType === 1 || (bullet.pathType === 2 && bullet.hasAccelerated);
         if (!isImmuneToTimeDeath && bullet.life > bullet.maxLife + FADE_DURATION) {
           // Check bullet death type (refired bullets have none)
@@ -7086,6 +7112,49 @@ function getBurstBulletSize(i) {
 // Build one bullet the way ant i fires it, launched from (originX, originY) at the ant's aim point.
 // Ants fire from where they stand; refire death types fire from where a bullet died.
 // spreadDegrees > 0 picks a random angle within that cone (burst fire).
+const ENEMY_BULLET_FADE_FRAMES = 30;      // An ant bullet fades out (still live) for this long after its maxLife
+const ANT_FIRING_RANGE_FRACTION = 2 / 3;  // Ants hold fire unless their bullet would get this far to the aim point
+const ANT_POINT_BLANK_RANGE = 200;        // ...or they're this close to the beetle or their aim point
+
+// How far a bullet ant i fires now would get toward its aim point before it's gone. Bullet speed scales with the
+// distance to the aim point and its life with its speed (see createAntBullet), so close shots can fall short.
+function getAntBulletReach(i) {
+  const pathType = getPathType(i);
+  if (pathType === 1) return Infinity; // High arcs land on the aim point
+  const fireType = getFireType(i);
+  const size = (fireType === 1 || fireType === 2) ? getBurstBulletSize(i) : bulletSize[i];
+  const flightSpeed = (bulletSize) => {
+    const k = bulletSpeed[i] * (bulletSize ** bulletSize);
+    const vx = (playerX + shotOffsetX[i] - antX[i] + 1) / k;
+    const vy = (playerY + shotOffsetY[i] - antY[i] + 1) / k;
+    return Math.sqrt(vx * vx + vy * vy);
+  };
+  const speed = flightSpeed(size);
+  let frames = speed * 100 + ENEMY_BULLET_FADE_FRAMES;
+  // Accelerating bullets stop dying of age once they speed up (beam bullets fire their beam then)
+  if (pathType === 2 && (bulletAccelerateDelay[i] || 60) < frames) return Infinity;
+  const explodes = explodeOnTermination[i] && bulletExplodeAfter[i] < frames;
+  if (explodes) frames = bulletExplodeAfter[i];
+
+  let reach = speed * frames;
+  // Delayed burst: the split bullets carry on at their own speed
+  const burstAt = Math.round(Math.min(bulletBurstDelay[i], DELAYED_BURST_MAX_DELAY));
+  if (fireType === 3 && burstAt < frames) {
+    const burstSpeed = flightSpeed(getBurstBulletSize(i));
+    reach = speed * burstAt + burstSpeed * (burstSpeed * 100 + ENEMY_BULLET_FADE_FRAMES);
+  }
+  if (pathType === 3) reach += speed * BLINK_SKIP_FRAMES; // The blink skips it ahead
+  if (explodes) reach += (20 + 40 * (size - 1)) * radiusMultiplier[i]; // Its blast (see spawnEnemyExplosion)
+  else if (triggerExplodeViaProximity[i]) reach += explosionProximity[i];
+  return reach;
+}
+
+function isAntTargetInRange(i) {
+  const aimDist = dist(antX[i], antY[i], playerX + shotOffsetX[i], playerY + shotOffsetY[i]);
+  if (aimDist <= ANT_POINT_BLANK_RANGE || dist(antX[i], antY[i], playerX, playerY) <= ANT_POINT_BLANK_RANGE) return true;
+  return getAntBulletReach(i) >= aimDist * ANT_FIRING_RANGE_FRACTION;
+}
+
 function createAntBullet(i, originX, originY, size, spreadDegrees = 0) {
   const targetX = playerX + shotOffsetX[i];
   const targetY = playerY + shotOffsetY[i];
@@ -8975,6 +9044,13 @@ function getEnemyWallAt(x, y, extra) {
 
 function isAntSheltered(i) {
   return antAirHeight[i] > 0 || !!antInBunker[i];
+}
+
+// The beetle's body only meets ants at its own level: a flying beetle hits ants up in the air, a grounded one
+// hits ants on the ground. Bunkered ants are out of reach either way.
+function isAntOutOfBeetleReach(i) {
+  if (antInBunker[i]) return true;
+  return isPlayerFlying() ? !(antAirHeight[i] > 0) : antAirHeight[i] > 0;
 }
 
 function enterBunker(i, wall) {
