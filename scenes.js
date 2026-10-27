@@ -565,13 +565,13 @@ class RoundScene {
         size: r * random(0.35, 0.6), color: [200, 200, 200] });
     }
   }
-  // A bullet. opts: { size, speed, aim:{x,y} or angle, aura:[r,g,b], life, fadeIn, ghost, accel, curve, homing: actor,
+  // A bullet. opts: { size, speed, aim:{x,y} or angle (a number, or a function read when it fires), aura:[r,g,b], life, fadeIn, ghost, accel, curve, homing: actor,
   //   hit: actor (pops on it), onHit(), color, split: { at, count } }
   bullet(t, from, opts) {
     this.at(t, () => {
       const ox = from.x !== undefined ? from.x : from[0];
       const oy = from.y !== undefined ? from.y : from[1];
-      let ang = opts.angle;
+      let ang = typeof opts.angle === 'function' ? opts.angle() : opts.angle;
       if (ang === undefined) {
         const aim = typeof opts.aim === 'function' ? opts.aim() : (opts.aim || this.beetle);
         ang = Math.atan2(aim.y - oy, aim.x - ox);
@@ -1404,6 +1404,7 @@ const ROUND_SCENES = [
       const c = sceneTwoAntChase(S, 'beam', [{ x: S.cx + 180, y: S.cy - 120 }, { x: S.cx + 180, y: S.cy + 120 }]);
       const b = S.beetle;
       const cross = { x: S.cx + 70, y: S.cy };
+      b.move(c.t - 6, 16, S.cx + 45, S.cy, 'linear'); // Still chasing, right up near where the beams cross
       S.beam(c.t + 5, c.a, { aim: cross, warn: 34, dur: 46, width: 26 });
       S.beam(c.t + 5, c.b, { aim: cross, warn: 34, dur: 46, width: 26 });
       b.emote(c.t + 12, '!', 40);
@@ -1429,7 +1430,7 @@ const ROUND_SCENES = [
       shooter.visible = false;
       S.beam(95, { x: S.W + 60, y: S.cy - 150 }, { aim: { x: -100, y: S.cy + 140 }, warn: 0, dur: 40, width: 30 });
       b.at(96, () => { b.look = 0; });
-      b.move(96, 10, S.cx - 40, S.cy - 30, 'snap');
+      b.move(96, 10, S.cx - 40, S.cy - 50, 'snap');
       S.shake(96, 10, 5);
       b.emote(100, '!!', 50);
       b.emote(130, 'sweat', 50);
@@ -1474,8 +1475,9 @@ const ROUND_SCENES = [
       c.b.fade(c.t + 4, 20, 0);
       b.emote(c.t + 30, '?', 80);
       b.face(c.t + 40, -Math.PI / 2).face(c.t + 70, Math.PI / 2).face(c.t + 100, 0);
-      S.stream(c.t + 112, c.a, { aim: { x: S.cx + 10, y: S.cy }, len: 220, dur: 60 });
-      S.stream(c.t + 112, c.b, { aim: { x: S.cx + 10, y: S.cy }, len: 220, dur: 60 });
+      b.move(c.t + 72, 34, S.cx + 40, S.cy, 'inOut'); // Creeping forward, looking for them
+      S.stream(c.t + 112, c.a, { aim: { x: S.cx + 40, y: S.cy }, len: 170, dur: 60 });
+      S.stream(c.t + 112, c.b, { aim: { x: S.cx + 40, y: S.cy }, len: 170, dur: 60 });
       b.move(c.t + 114, 16, S.cx, S.cy, 'out', { arc: 24 });
       b.emote(c.t + 116, '!', 40);
       b.emote(c.t + 140, 'sweat', 50);
@@ -1682,7 +1684,8 @@ const ROUND_SCENES = [
       const b = S.beetle;
       for (const a of [c.a, c.b]) {
         for (let k = -3; k <= 3; k++) {
-          S.bullet(c.t + 4, a, { angle: Math.atan2(S.cy - a.y, S.cx - 30 - a.x) + k * 0.16, speed: 4.2, life: 48, fadeOut: 14, sound: k === 0 });
+          // Aimed when it fires: at build time the ants are still off-screen to the left
+          S.bullet(c.t + 4, a, { angle: () => Math.atan2(S.cy - a.y, S.cx - 30 - a.x) + k * 0.16, speed: 4.2, life: 64, fadeOut: 14, sound: k === 0 });
         }
       }
       b.emote(c.t + 10, '!', 40);
@@ -1718,11 +1721,12 @@ const ROUND_SCENES = [
       last.y = S.cy;
       last.look = b;
       b.move(t, 30, S.cx + 20, S.cy, 'linear');
-      S.bullet(t + 4, last, { speed: 7, aim: { x: S.cx + 20, y: S.cy }, split: { at: 18, count: 6, life: 30 } });
+      const splitAt = { x: S.cx + 60, y: S.cy };
+      S.bullet(t + 4, last, { speed: dist(last.x, last.y, splitAt.x, splitAt.y) / 18, aim: splitAt, split: { at: 18, count: 6, life: 30 } });
       b.at(t + 23, () => { b.look = last; });
-      b.move(t + 24, 12, S.cx, S.cy, 'snap');
-      b.flash(t + 24, 14);
-      b.emote(t + 26, '!', 50);
+      b.move(t + 26, 12, S.cx, S.cy, 'snap');
+      b.flash(t + 26, 14);
+      b.emote(t + 28, '!', 50);
       S.sendHome(t + 60, [last]);
       const done = S.gather(t + 50, 'run');
       S.extend(done + 20);
@@ -1792,8 +1796,9 @@ const ROUND_SCENES = [
       const legs = [];
       const legTimes = [40, 40, 30, 30, 20, 20, 14, 14];
       let x = -100;
+      const closest = guard.x - 75; // Well inside its inner alarm radius by the last leg
       legTimes.forEach((d, k) => {
-        x += (S.W * 0.65 + 100) / legTimes.length;
+        x += (closest + 100) / legTimes.length;
         legs.push({ d: d, x: x, y: S.cy + (k % 2 ? 1 : -1) * (14 + k * 4) });
       });
       let lt = 0;
@@ -1933,10 +1938,10 @@ const ROUND_SCENES = [
       S.at(30, () => S.dust(S.cx - 40, S.cy + 20, 10));
       gunners.forEach((a, k) => S.bullet(55 + k * 6, a, { speed: 0.8, accel: 1.08, accelDelay: 50, maxSpeed: 14, aim: () => ({ x: b.x, y: b.y + (k - 1) * 30 }), life: 160 }));
       b.emote(65, '...', 50);
-      b.emote(115, '!', 40);
-      b.move(118, 12, S.cx - 40, S.cy - 90, 'snap');
-      b.move(140, 20, S.cx, S.cy, 'out');
-      b.emote(165, 'anger', 50);
+      b.emote(120, '!', 40);
+      b.move(124, 12, S.cx - 40, S.cy - 90, 'snap');
+      b.move(172, 20, S.cx, S.cy, 'out');
+      b.emote(194, 'anger', 50);
       S.sendHome(200, gunners);
       S.extend(260);
     }
@@ -1997,8 +2002,9 @@ const ROUND_SCENES = [
       bomber.y = S.cy;
       bomber.look = b;
       b.move(t, 30, S.cx + 30, S.cy, 'linear');
-      S.bullet(t + 2, bomber, { speed: 6, aim: { x: S.cx + 30, y: S.cy }, aura: [80, 220, 80], life: 24 });
-      S.at(t + 26, () => S.boom(S.cx + 70, S.cy, 70));
+      const blastAt = { x: S.cx + 70, y: S.cy };
+      S.bullet(t + 2, bomber, { speed: dist(bomber.x, bomber.y, blastAt.x, blastAt.y) / 24, aim: blastAt, aura: [80, 220, 80], life: 24 });
+      S.at(t + 26, () => S.boom(blastAt.x, blastAt.y, 70));
       S.shake(t + 26, 12, 6);
       b.at(t + 27, () => { b.look = bomber; });
       b.move(t + 27, 14, S.cx, S.cy, 'snap');
@@ -2033,23 +2039,31 @@ const ROUND_SCENES = [
   {
     id: 'launch', key: 'launch', need: p => p.has('launch'),
     build: S => {
-      // Every charge, it hops right over the beetle's head
+      // Every charge, it shoots and the recoil launches it up and away (backward, like the real thing), so the
+      // beetle charges through where it was standing
       const b = S.beetle;
       const hopper = S.feature(sceneHas('launch'), 1)[0];
-      hopper.x = S.cx + 120;
+      hopper.x = S.cx - 60;
       hopper.y = S.cy;
       hopper.look = b;
       b.x = -100;
       b.y = S.cy;
       b.look = hopper;
-      b.move(0, 50, S.cx - 120, S.cy, 'out');
-      const spots = [[S.cx - 200, S.cy - 20], [S.cx + 160, S.cy + 30], [S.cx - 180, S.cy + 10]];
+      let from = { x: S.cx - 230, y: S.cy };
+      b.move(0, 50, from.x, from.y, 'out');
+      let at = { x: hopper.x, y: hopper.y };
       let t = 60;
-      spots.forEach(([x, y], k) => {
-        b.move(t, 20, k % 2 === 0 ? S.cx + 100 : S.cx - 100, S.cy, 'in', { trail: true });
-        hopper.move(t + 6, 22, x, y, 'out', { arc: 70 });
+      [-0.5, 0.5].forEach(tilt => {
+        // Away from the charging beetle, tilted a little so it doesn't run off in a straight line
+        const away = Math.atan2(at.y - from.y, at.x - from.x) + tilt;
+        const land = { x: at.x + Math.cos(away) * 180, y: at.y + Math.sin(away) * 180 };
+        b.move(t, 20, at.x, at.y, 'in', { trail: true });
+        S.bullet(t + 4, hopper, { speed: 8, life: 30 });
+        hopper.move(t + 6, 24, land.x, land.y, 'out', { arc: 70 });
         S.at(t + 20, () => S.dust(b.x, b.y + 20, 6));
-        t += 50;
+        from = at;
+        at = land;
+        t += 55;
       });
       b.emote(t, 'anger', 70);
       b.shake(t, 30, 2);
@@ -2191,7 +2205,7 @@ const ROUND_SCENES = [
       legs.forEach(([x, y], k) => {
         builder.move(t, 30, x, y, 'out');
         S.place(t + 20, { kind: 'mound', x: S.W * (0.42 + k * 0.13), y: lerp(S.cy, y, 0.5), r: 26 }, 320);
-        b.move(t, 34, S.W * (0.32 + k * 0.13), lerp(S.cy, y, 0.5), 'in');
+        b.move(t, 34, S.W * (0.42 + k * 0.13) - 58, lerp(S.cy, y, 0.5), 'in'); // Up against the mound
         S.at(t + 34, () => S.dust(b.x + 30, b.y, 6));
         b.shake(t + 34, 10, 2);
         t += 45;

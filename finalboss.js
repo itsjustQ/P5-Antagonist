@@ -850,7 +850,7 @@ function updateStageShots() {
       if (t >= 1) {
         spawnSmokeImpact(s.tx, s.ty, s.radius, 7);
         queenEffects.push({ kind: 'ring', x: s.tx, y: s.ty, life: 0, frames: 24, maxR: s.radius * 1.4, color: [220, 150, 255] });
-        if (!isPlayerFlying() && dist(playerX, playerY, s.tx, s.ty) < s.radius) queenHitPlayer(s.damage);
+        if (!isPlayerUntouchable() && dist(playerX, playerY, s.tx, s.ty) < s.radius) queenHitPlayer(s.damage);
         shakeScreen(10, s.radius > 100 ? 7 : 3);
         S.shots.splice(k, 1);
       }
@@ -913,7 +913,7 @@ function updateStageShots() {
       S.shots.splice(k, 1);
       continue;
     }
-    if (!isPlayerFlying() && dist(s.x, s.y, playerX, playerY) < 22 + 6 * s.size) {
+    if (!isPlayerUntouchable() && dist(s.x, s.y, playerX, playerY) < 22 + 6 * s.size) {
       if (!tryDashDeflect(s.x, s.y)) {
         queenHitPlayer(s.size / (s.sizeScale || 1) * getBulletSpeedTier(s.dmgSpeed).damageMultiplier, false, { vx: s.vx, vy: s.vy });
         if (s.onHit) s.onHit();
@@ -936,11 +936,11 @@ function updateStageAreas() {
     a.life++;
     if (a.kind === 'stream') {
       // Acid floods the tunnel's whole section for 1.5 seconds
-      if (a.life > 12 && !isPlayerFlying() && inSection(a.sec, playerX, playerY)) queenHitPlayer(2 / 60, true);
+      if (a.life > 12 && !isPlayerUntouchable() && inSection(a.sec, playerX, playerY)) queenHitPlayer(2 / 60, true);
     } else if (a.kind === 'vacuum') {
       const T = a.tunnel;
       const d = dist(playerX, playerY, T.x, T.y);
-      if (!isPlayerFlying() && d > 1) {
+      if (!isPlayerUntouchable() && d > 1) {
         const pull = Math.min(5.5, Math.max(0, d - 34)) * Math.min(1, a.life / 20);
         const p = clampToPlayArea(playerX + (T.x - playerX) / d * pull, playerY + (T.y - playerY) / d * pull, 10);
         playerX = p.x;
@@ -1034,7 +1034,7 @@ function updateStageBeams() {
       playSpitSound();
       shakeScreen(12, 5);
     }
-    if (!b.hit && !isPlayerFlying() && Math.abs(playerY - T.y) < b.width / 2 + 20) {
+    if (!b.hit && !isPlayerUntouchable() && Math.abs(playerY - T.y) < b.width / 2 + 20) {
       b.hit = true;
       if (shield > 0) beamShieldFlashFrames = BEAM_HIT_FLASH_FRAMES;
       else beamHealthFlashFrames = BEAM_HIT_FLASH_FRAMES;
