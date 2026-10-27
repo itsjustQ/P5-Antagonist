@@ -2039,31 +2039,35 @@ const ROUND_SCENES = [
   {
     id: 'launch', key: 'launch', need: p => p.has('launch'),
     build: S => {
-      // Every charge, it shoots and the recoil launches it up and away (backward, like the real thing), so the
-      // beetle charges through where it was standing
+      // Every dash, it launches straight over the beetle's head: up in the air, nothing on the ground can touch it.
+      // They swap sides each time, the beetle dashing through the spot where the ant just was.
       const b = S.beetle;
       const hopper = S.feature(sceneHas('launch'), 1)[0];
-      hopper.x = S.cx - 60;
+      hopper.x = S.cx + 130;
       hopper.y = S.cy;
       hopper.look = b;
       b.x = -100;
       b.y = S.cy;
       b.look = hopper;
-      let from = { x: S.cx - 230, y: S.cy };
-      b.move(0, 50, from.x, from.y, 'out');
-      let at = { x: hopper.x, y: hopper.y };
+      let beetleAt = { x: S.cx - 130, y: S.cy };
+      let antAt = { x: hopper.x, y: hopper.y };
+      b.move(0, 50, beetleAt.x, beetleAt.y, 'out');
       let t = 60;
-      [-0.5, 0.5].forEach(tilt => {
-        // Away from the charging beetle, tilted a little so it doesn't run off in a straight line
-        const away = Math.atan2(at.y - from.y, at.x - from.x) + tilt;
-        const land = { x: at.x + Math.cos(away) * 180, y: at.y + Math.sin(away) * 180 };
-        b.move(t, 20, at.x, at.y, 'in', { trail: true });
-        S.bullet(t + 4, hopper, { speed: 8, life: 30 });
-        hopper.move(t + 6, 24, land.x, land.y, 'out', { arc: 70 });
-        S.at(t + 20, () => S.dust(b.x, b.y + 20, 6));
-        from = at;
-        at = land;
-        t += 55;
+      [20, -25, 10].forEach((dy, k) => {
+        const dir = Math.sign(antAt.x - beetleAt.x);
+        const dashTo = { x: antAt.x + dir * 60, y: antAt.y };   // Right through where the ant was standing
+        const land = { x: beetleAt.x - dir * 60, y: S.cy + dy }; // Behind where the beetle started
+        b.at(t, () => { b.look = 'move'; }); // Eyes on where it's dashing, then back on the ant once it stops
+        b.move(t, 18, dashTo.x, dashTo.y, 'in', { trail: true });
+        b.face(t + 20, hopper);
+        // Takes off as the beetle comes at it, at the top of its hop as the beetle passes underneath
+        hopper.move(t + 4, 24, land.x, land.y, 'out', { arc: 75 });
+        S.at(t + 18, () => S.dust(b.x, b.y + 20, 6, dir > 0 ? Math.PI : 0));
+        b.shake(t + 18, 8, 2);
+        if (k === 0) b.emote(t + 22, '?', 35);
+        beetleAt = dashTo;
+        antAt = land;
+        t += 50;
       });
       b.emote(t, 'anger', 70);
       b.shake(t, 30, 2);
