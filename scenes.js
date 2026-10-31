@@ -950,6 +950,8 @@ function getSceneAbilityKeys(i) {
   if (special === 1 && specialExplosion[i] < 1 && getPathType(i) === 1 && !stream) keys.push('airStrike');
   if (special === -2 && getDeathType(i) === 1 && !stream && !isBeamAccelerate(i)) keys.push('hiddenLandmine');
   if (special === -2 && isBeamAccelerate(i)) keys.push('ghostBeam');
+  // Portal stream ants teleport themselves rather than their shots, so they get their own scene instead of portal's
+  if (stream && keys.includes('portal')) keys[keys.indexOf('portal')] = 'portalStream';
   return keys;
 }
 
@@ -993,7 +995,7 @@ function resetRoundScenes() {
 }
 
 // Ability combinations with their own scenes
-const EXOTIC_SCENE_KEYS = new Set(['ghostAnts', 'explodingAnts', 'hoverAnts', 'airStrike', 'hiddenLandmine']);
+const EXOTIC_SCENE_KEYS = new Set(['ghostAnts', 'explodingAnts', 'hoverAnts', 'airStrike', 'hiddenLandmine', 'portalStream']);
 
 function pickRoundScene() {
   const present = noteSceneAbilities();
@@ -1537,6 +1539,72 @@ const ROUND_SCENES = [
       b.at(arrive + 5, () => { b.look = flyers[0]; });
       const done = S.gather(arrive + 40, 'run');
       S.extend(Math.max(done, arrive + 100) + 20);
+    }
+  },
+  {
+    id: 'portalStream', key: 'portalStream', need: p => p.has('portalStream'),
+    build: S => {
+      // It waits calmly as the beetle walks up... then steps through a portal behind it, charges up and lets
+      // loose, and the beetle only just gets out of the way
+      const b = S.beetle;
+      const ant = S.feature(sceneHas('portalStream'), 1)[0];
+      const stop = { x: S.cx + 10, y: S.cy };
+      const spot = { x: stop.x - 170, y: S.cy + 25 }; // Where it comes out, behind the beetle
+      ant.x = S.cx + 150;
+      ant.y = S.cy;
+      ant.look = b;
+      b.x = -100;
+      b.y = S.cy;
+      b.look = ant;
+      b.move(0, 110, stop.x, stop.y, 'out');
+      ant.emote(50, '...', 50);
+      const jump = 115;
+      ant.at(jump, () => {
+        S.addFx({ kind: 'portal', x: ant.x, y: ant.y, life: 26 });
+        ant.x = spot.x;
+        ant.y = spot.y;
+        ant.angle = Math.atan2(stop.y - spot.y, stop.x - spot.x);
+        S.addFx({ kind: 'portal', x: ant.x, y: ant.y, life: 26 });
+      });
+      b.emote(jump + 4, '?', 40);
+      // Charging up: acid gathers into a swelling glob at its mouth
+      const charge = jump + 8;
+      const fire = jump + 55;
+      const mouth = () => ({ x: ant.x + Math.cos(ant.angle) * 22, y: ant.y + Math.sin(ant.angle) * 22 });
+      for (let t = charge; t < fire; t += 2) {
+        S.at(t, () => {
+          const m = mouth();
+          const a = random(Math.PI * 2);
+          const d = random(30, 50);
+          S.addFx({ kind: 'particle', x: m.x + Math.cos(a) * d, y: m.y + Math.sin(a) * d, vx: -Math.cos(a) * d / 12,
+            vy: -Math.sin(a) * d / 12, g: 0, life: 12, size: random(5, 9), color: [150, 255, 60] });
+        });
+      }
+      S.overlay = (S, layer) => {
+        if (layer !== 'over' || S.t < charge || S.t > fire + 4) return;
+        const m = mouth();
+        const r = 26 * Math.min(1, (S.t - charge) / (fire - charge)) * (1 + 0.15 * Math.sin(S.t * 0.8));
+        push();
+        noStroke();
+        fill(110, 220, 40, 90);
+        ellipse(m.x, m.y, r * 1.8);
+        fill(215, 255, 150, 230);
+        ellipse(m.x, m.y, r);
+        pop();
+      };
+      ant.shake(charge + 12, fire - charge - 12, 2);
+      // Lets loose at where the beetle is standing, then holds its aim as the beetle jumps clear at the last moment
+      ant.at(fire, () => { ant.look = ant.angle; });
+      S.stream(fire, ant, { aim: { x: stop.x, y: stop.y }, len: 300, width: 26, dur: 70 });
+      b.emote(fire - 2, '!', 20);
+      b.move(fire + 5, 7, stop.x + 10, stop.y - 65, 'snap', { arc: 12 });
+      b.flash(fire + 5, 10);
+      b.emote(fire + 16, 'sweat', 60);
+      b.face(fire + 20, ant);
+      b.emote(fire + 80, 'anger', 50);
+      S.sendHome(fire + 85, [ant]);
+      const done = S.gather(fire + 80, 'run');
+      S.extend(done + 20);
     }
   },
   {

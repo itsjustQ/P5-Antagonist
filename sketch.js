@@ -656,6 +656,7 @@ let beamShieldFlashFrames = 0; // Frames left of the blue shield flash from a be
 let enemyStreams = []; // Acid streams sprayed by stream fire ants (rapid fire tier 2); never bullets
 let antStream = []; // The stream each ant is currently firing (fusing, charging or spraying), or null
 let antStreamEndFrame = []; // frameCount each ant last stopped spraying (ghost stream ants fade back in from it)
+let antPortalSprayFrame = []; // Portal stream ants: frameCount they may spray after teleporting (see portalStreamAnt)
 let antSelfDestructFuse = []; // Proximity explosion stream ants: { life, lives } while their self-destruct fuse burns, or null
 let enemySmokeImpacts = []; // Grey smoke puffs from explosions and exploding streams (visual only)
 let enemyTerritories = []; // Territory / nest areas left by dead bullets
@@ -7768,6 +7769,18 @@ function tryFireAntStream(i) {
   if (antStream[i]) return; // Still firing; the cooldown starts once the stream finishes
   if (frameCount - antLastShotFrame[i] < bulletCooldown[i]) return;
 
+  // Portal stream ants teleport first, then get a moment to settle (and the beetle a moment's warning).
+  // A wait that's long gone stale (stunned or killed meanwhile) means teleporting again.
+  if (getPathType(i) === 3 && pathBlink[i] >= 1) {
+    const sprayAt = antPortalSprayFrame[i];
+    if (sprayAt === undefined || frameCount > sprayAt + PORTAL_STREAM_STALE) {
+      portalStreamAnt(i);
+      antPortalSprayFrame[i] = frameCount + PORTAL_STREAM_DELAY;
+      return;
+    }
+    if (frameCount < sprayAt) return;
+    antPortalSprayFrame[i] = undefined;
+  }
   const stream = createAntStream(i);
   enemyStreams.push(stream);
   antStream[i] = stream;
@@ -7801,8 +7814,8 @@ function createAntStream(i) {
     arcDuration: Math.max(1, bulletArcDuration[i] || HIGH_ARC_MIN_DURATION),
     splitAtApex: isSplitArc(i),
     beam: beam,
-    blink: pathType === 3,                       // Blink / portal streams jump ahead partway along (see blinkStreamNode)
-    portal: pathType === 3 && pathBlink[i] >= 1,
+    blink: pathType === 3 && pathBlink[i] < 1,   // Blink streams jump ahead partway along (see blinkStreamNode);
+                                                 // portal stream ants teleport themselves instead (portalStreamAnt)
     blinkDistance: getStreamBlinkDistance(i, range),
     lastBlinkFlash: -BLINK_STREAM_FLASH_EVERY,
     emitEvery: 1,   // Frames between sprayed bits (high arcs spray less often, see below)
@@ -8701,7 +8714,9 @@ const ALARM_OUTER_BOOST = 1.5;
 const ALARM_INNER_BOOST = 2;
 const MAX_COOLDOWN_BOOST = 3;              // Alarm and territory boosts multiply, up to this
 const AVENGE_RADIUS = 180;               // Avenge: deaths within this distance make the ant fire again
-const BLINK_MIN_DELAY = 10;                // Blink / portal: frames after firing before the jump (genetic stat)
+const PORTAL_STREAM_DELAY = 20;            // Portal stream ants: frames between teleporting and spraying
+const PORTAL_STREAM_STALE = 10;            // ...and how late that spray can be before they teleport again
+const BLINK_MIN_DELAY = 10;               // Blink / portal: frames after firing before the jump (genetic stat)
 const BLINK_MAX_DELAY = 120;
 const BLINK_DEFAULT_DELAY = 60;
 const BLINK_SKIP_FRAMES = 30;              // A blinking bullet reappears where it would be this many frames later
@@ -8873,22 +8888,27 @@ function blinkBullet(bullet) {
   spawnBlinkFlash(bullet.x, bullet.y - (bullet.airHeight || 0), 20 * bullet.size, bullet.portal);
 }
 
-// Blink streams: a bit of stream jumps BLINK_STREAM_JUMP ahead the way it was sprayed (portal streams turn
-// toward the target as they come out). Its distance flowed doesn't move on, so the stream reaches further.
+// Blink streams: a bit of stream jumps BLINK_STREAM_JUMP ahead the way it was sprayed. Its distance flowed
+// doesn't move on, so the stream reaches further.
 function blinkStreamNode(stream, node) {
   node.x += Math.cos(node.heading) * BLINK_STREAM_JUMP;
   node.y += Math.sin(node.heading) * BLINK_STREAM_JUMP;
   node.blinked = true;
-  if (stream.portal) {
-    const aimX = playerX + (shotOffsetX[stream.owner] || 0);
-    const aimY = playerY + (shotOffsetY[stream.owner] || 0);
-    node.heading = Math.atan2(aimY - node.y, aimX - node.x);
-    node.startHeading = node.heading;
-  }
   if (stream.life - stream.lastBlinkFlash >= BLINK_STREAM_FLASH_EVERY) {
     stream.lastBlinkFlash = stream.life;
-    spawnBlinkFlash(node.x, node.y, stream.width, stream.portal);
+    spawnBlinkFlash(node.x, node.y, stream.width, false);
   }
+}
+
+// Portal stream ants: right before spraying, the ant itself teleports to a spot around the beetle - at its
+// angle from spawn, its distance from anchor away - or the closest on-screen spot to it
+function portalStreamAnt(i) {
+  spawnBlinkFlash(antX[i], antY[i], 30, true);
+  antX[i] = constrain(playerX + Math.cos(angleFromSpawn[i]) * distanceFromAnchor[i],
+    sideBuffer, getGameplayWidth() - sideBuffer);
+  antY[i] = constrain(playerY + Math.sin(angleFromSpawn[i]) * distanceFromAnchor[i],
+    scoreBarHeight + 15, getGameplayHeight() - expBarHeight - expBarBuffer);
+  spawnBlinkFlash(antX[i], antY[i], 30, true);
 }
 
 // Blink streams: how far along the stream (px flowed) bits jump. The blink delay picks the point the same way
@@ -16025,6 +16045,7 @@ function clearRoundEffects() {
   enemyStreams = [];
   antStream = [];
   antStreamEndFrame = [];
+  antPortalSprayFrame = [];
   antSelfDestructFuse = [];
   enemySmokeImpacts = [];
   enemyTerritories = [];
@@ -18927,6 +18948,7 @@ function buildDexExoticEntries() {
     ['flickerLandmine', 'Flickering Landmines', 'Camouflage bullets become landmines that keep flickering in and out of sight.', 'Camouflage + Landmine', 'flickerLandmine', i => getSpecialType(i) === 2 && mines(i)],
     ['twinBeam', 'Twin Beam Ants', "Explosive beam bullets don't explode: their beam fires both ways at once and burns like an explosion.", 'Explosion + Beam', 'twinBeam', i => explosive(i) && isBeamAccelerate(i) && !stream(i)],
     ['beamStream', 'Laser Hose Ants', 'Beam stream ants fire a beam straight on from wherever their stream ends, for as long as the stream keeps arriving there.', 'Beam + Stream', 'beamStream', i => isBeamAccelerate(i) && stream(i)],
+    ['portalStream', 'Warp Sprayer Ants', "Portal stream ants don't send their stream through a portal: they step through one themselves, coming out at their own spot around the beetle right before they spray.", 'Portal + Stream', 'portalStream', i => getPathType(i) === 3 && pathBlink[i] >= 1 && stream(i)],
     ['sprinkler', 'Sprinkler Ants', 'Accelerating stream ants throw particles off the end of their stream that fan out to the edge of the screen.', 'Accelerate + Stream', 'sprinkler', i => getPathType(i) === 2 && !isBeamAccelerate(i) && stream(i)],
     ['clusterBomb', 'Cluster Bomb Ants', 'One lofted bullet splits into a burst, then every bullet of the burst splits into 3 more at the top of its arc. Arcs are timed so the two splits never happen at once.', 'Delayed Burst + Split Arc', 'clusterBomb', i => getFireType(i) === 3 && isSplitArc(i)]
   ];
@@ -20014,6 +20036,28 @@ const DEX_SCENES = {
     const f0 = p < 0.7 ? 0 : (p - 0.7) / 0.3;
     dexStream(DEX_ANT_X + 12, DEX_MID_Y, end, DEX_MID_Y, f0, f1);
     if (f1 >= 1 && p < 0.95) dexBeam(end, DEX_MID_Y, DEX_PIC + 10, DEX_MID_Y, 8, 230);
+  },
+  portalStream: g => {
+    const p = dexPhase(g);
+    const col = [255, 120, 255];
+    const by = DEX_MID_Y + 15, ax = DEX_BEETLE_X - 50, ay = DEX_MID_Y - 25; // Its spot around the beetle
+    const jumpAt = 0.25;
+    dexBeetle(DEX_BEETLE_X, by);
+    if (p < jumpAt) {
+      dexAnt(DEX_ANT_X, DEX_MID_Y);
+      return;
+    }
+    const t = (p - jumpAt) / (1 - jumpAt);
+    if (t < 0.2) {
+      dexFlash(DEX_ANT_X, DEX_MID_Y, 12 * (1 - t * 5) + 3, col, 180 * (1 - t * 5));
+      dexFlash(ax, ay, 14 * t * 5 + 3, col, 220 * (1 - t * 2.5));
+    }
+    const aim = Math.atan2(by - ay, DEX_BEETLE_X - ax);
+    dexAnt(ax, ay, 1, aim);
+    if (t > 0.1 && t < 0.9) {
+      dexStream(ax + Math.cos(aim) * 12, ay + Math.sin(aim) * 12, DEX_BEETLE_X - 6, by - 3,
+        t < 0.65 ? 0 : (t - 0.65) / 0.25, Math.min(1, (t - 0.1) / 0.2));
+    }
   },
   sprinkler: g => {
     const p = dexPhase(g);
