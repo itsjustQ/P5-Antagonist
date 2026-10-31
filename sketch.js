@@ -11941,21 +11941,28 @@ function drawQueenHud() {
 // available to spend on permanent upgrades. Bought upgrades are applied at the start of every single player run.
 const QUEENS_REQUIRED_TO_ADVANCE = [5, 10, 20, 30, 40, 60, 80, 100, 120, 150]; // Total queens to move on from difficulty 1-10 (10: the nest)
 const UPGRADE_NAMES = ['Walking Speed', 'Dash Speed', 'Dash Cooldown', 'Add Shield', 'Add Bullets', 'Shield Regeneration',
-  'Bullet Reload', 'Bullet Speed', 'Free-Angle Aiming', 'Tiger Beetle', 'Oogpister Beetle', 'Horns', 'Potent Acid',
+  'Bullet Reload', 'Bullet Speed', 'Free-Angle Aiming', 'Rivacindela hudsoni (Tiger Beetle)', 'Anthia sexmaculata (Oogpister Beetle)', 'Horns', 'Potent Acid',
   'Shockwave', 'Shockwave Radius', 'Shockwave Damage', 'Shockwave Cooldown', 'Shockwave Knockback', 'Bullet Deflection',
   'Health Regeneration', 'Runt Hunter', 'Increased Metabolism', 'EXP Boost', 'Combo Surge', 'Dash Harvest',
   'Shockwave Harvest', 'Bullet Harvest', 'Spray Acid', 'Spray Length', 'Spray Width', 'Piercing Acid', 'Piercing Depth',
-  'Impact Bomb', 'Timed Bomb', 'Proximity Bomb', 'Blast Radius', 'Lady Beetle', 'Aphid Health', 'Aphid Spawn Rate',
+  'Impact Bomb', 'Timed Bomb', 'Proximity Bomb', 'Blast Radius', 'Coccinella septempunctata (Lady Beetle)', 'Aphid Health', 'Aphid Spawn Rate',
   'Speedy Aphids', 'Armored Aphids', 'Wise Aphids', 'Healthy Aphids', 'Lucky Aphids', 'Mound Ring', 'Bunker', 'Vortex', 'Flight and Slam', 'Mound Health', 'Flight Duration', 'Starting Health', 'Dash Deflection', 'Shell Shrapnel', 'Shrapnel Count', 'Burrow'];
 const UPGRADE_PREREQUISITE_TEXT = {
   5: 'Add Shield', 6: 'Add Bullets', 7: 'Add Bullets', 8: 'Add Bullets, Bullet Reload, Bullet Speed',
   9: 'Dash Cooldown maxed', 10: 'Bullet Reload 3+', 12: 'Add Bullets', 14: 'Shockwave', 15: 'Shockwave',
   16: 'Shockwave', 18: 'Shockwave', 25: 'Shockwave', 26: 'Add Bullets', 27: 'Add Bullets', 28: 'Spray Acid',
   29: 'Spray Acid', 30: 'Add Bullets', 31: 'Piercing Acid', 32: 'Add Bullets', 33: 'Impact Bomb',
-  34: 'Timed Bomb', 35: 'Impact Bomb', 37: 'Lady Beetle', 38: 'Lady Beetle', 39: 'Lady Beetle', 40: 'Lady Beetle',
-  41: 'Lady Beetle', 42: 'Lady Beetle', 43: 'Lady Beetle', 44: 'Shockwave', 45: 'Shockwave', 46: 'Shockwave',
+  34: 'Timed Bomb', 35: 'Impact Bomb', 37: 'Coccinella septempunctata (Lady Beetle)', 38: 'Coccinella septempunctata (Lady Beetle)', 39: 'Coccinella septempunctata (Lady Beetle)', 40: 'Coccinella septempunctata (Lady Beetle)',
+  41: 'Coccinella septempunctata (Lady Beetle)', 42: 'Coccinella septempunctata (Lady Beetle)', 43: 'Coccinella septempunctata (Lady Beetle)', 44: 'Shockwave', 45: 'Shockwave', 46: 'Shockwave',
   47: 'Shockwave', 48: 'Mound Ring or Bunker', 49: 'Flight and Slam', 52: 'Add Shield', 53: 'Shell Shrapnel', 54: 'Bunker'
 };
+
+// Sets the text size, shrinking it below size when needed so str fits in maxWidth (long scientific names)
+function fitTextSize(str, size, maxWidth) {
+  textSize(size);
+  const w = textWidth(str);
+  if (w > maxWidth) textSize(size * maxWidth / w);
+}
 
 function getTotalQueensCollected() {
   return getItem('queensTotalCollected') || 0;
@@ -12161,14 +12168,26 @@ function drawQueenShop() {
     noStroke();
     const textColor = selected ? 15 : (status === 'locked' ? 120 : 235);
     fill(textColor);
-    textSize(16);
-    textAlign(LEFT, CENTER);
-    text(UPGRADE_NAMES[id], r.x + 14, r.y + r.h / 2);
-    textAlign(RIGHT, CENTER);
-    textSize(14);
     let right;
     if (status === 'max') right = `Lv ${levels[id]}/${UPGRADE_MAX_LEVELS[id]}  MAX`;
     else right = `Lv ${levels[id]}/${UPGRADE_MAX_LEVELS[id]}  ♛${getPermanentUpgradeCost(id, levels[id] + 1)}`;
+    textSize(14);
+    const nameW = r.w - 36 - textWidth(right);
+    textAlign(LEFT, CENTER);
+    fitTextSize(UPGRADE_NAMES[id], 16, nameW);
+    const split = UPGRADE_NAMES[id].indexOf(' (');
+    if (textSize() < 13 && split > 0) {
+      // Too long for one line: scientific name on top, common name under it
+      const sci = UPGRADE_NAMES[id].slice(0, split), common = UPGRADE_NAMES[id].slice(split + 1);
+      fitTextSize(sci, 13, nameW);
+      text(sci, r.x + 14, r.y + r.h / 2 - 7);
+      fitTextSize(common, 13, nameW);
+      text(common, r.x + 14, r.y + r.h / 2 + 7);
+    } else {
+      text(UPGRADE_NAMES[id], r.x + 14, r.y + r.h / 2);
+    }
+    textAlign(RIGHT, CENTER);
+    textSize(14);
     if (!selected) fill(status === 'poor' ? color(255, 120, 120) : (status === 'max' ? color(140, 230, 140) : color(textColor)));
     text(right, r.x + r.w - 12, r.y + r.h / 2);
   }
@@ -14763,13 +14782,13 @@ function drawUpgradeScreen() {
       maxLevel: 1
     },
     {
-      title: 'Tiger Beetle',
-      description: 'Transform into a tiger beetle! Dash becomes a toggle instead of a burst. While dashing, threats become invisible but flash briefly.',
+      title: 'Rivacindela hudsoni (Tiger Beetle)',
+      description: 'Transform into Rivacindela hudsoni, the tiger beetle! Dash becomes a toggle instead of a burst. While dashing, threats become invisible but flash briefly.',
       level: upgrade10Level,
       maxLevel: 1
     },
     {
-      title: 'Oogpister Beetle',
+      title: 'Anthia sexmaculata (Oogpister Beetle)',
       description: '20% chance to instantly reload 1 bullet when killing an ant by eating it. Requires Bullet Reload level 3+.',
       level: upgrade11Level,
       maxLevel: 1
@@ -14925,50 +14944,50 @@ function drawUpgradeScreen() {
       maxLevel: 3
     },
     {
-      title: 'Lady Beetle',
+      title: 'Coccinella septempunctata (Lady Beetle)',
       description: 'Aphids appear on the field. Eat one for 2 health. Ants that stay near one for a while get 0.5 health.',
       level: upgrade37Level,
       maxLevel: 1
     },
     {
       title: 'Aphid Health',
-      description: 'Aphids heal more: +1 for you and +0.25 for ants per level (2→5, 0.5→1.25). Requires Lady Beetle.',
+      description: 'Aphids heal more: +1 for you and +0.25 for ants per level (2→5, 0.5→1.25). Requires Coccinella septempunctata (Lady Beetle).',
       level: upgrade38Level,
       maxLevel: 3
     },
     {
       title: 'Aphid Spawn Rate',
-      description: 'Aphids appear more often (every 20s→15s→10s). Requires Lady Beetle.',
+      description: 'Aphids appear more often (every 20s→15s→10s). Requires Coccinella septempunctata (Lady Beetle).',
       level: upgrade39Level,
       maxLevel: 2
     },
     {
       title: 'Speedy Aphids',
-      description: 'Yellow aphids (10%) double movement speed for 5 seconds. Ants near them get the same. Requires Lady Beetle.',
+      description: 'Yellow aphids (10%) double movement speed for 5 seconds. Ants near them get the same. Requires Coccinella septempunctata (Lady Beetle).',
       level: upgrade40Level,
       maxLevel: 1
     },
     {
       title: 'Armored Aphids',
-      description: 'Blue aphids (10%) halve damage taken for 5 seconds. Ants near them get the same. Requires Lady Beetle.',
+      description: 'Blue aphids (10%) halve damage taken for 5 seconds. Ants near them get the same. Requires Coccinella septempunctata (Lady Beetle).',
       level: upgrade41Level,
       maxLevel: 1
     },
     {
       title: 'Wise Aphids',
-      description: 'Purple aphids (10%) double EXP for 5 seconds. Ants near them max out one stat for 5 seconds. Requires Lady Beetle.',
+      description: 'Purple aphids (10%) double EXP for 5 seconds. Ants near them max out one stat for 5 seconds. Requires Coccinella septempunctata (Lady Beetle).',
       level: upgrade42Level,
       maxLevel: 1
     },
     {
       title: 'Healthy Aphids',
-      description: 'Pink aphids (10%) double bullet, shield, health and cooldown regeneration for 5 seconds. Ants near them get the same. Requires Lady Beetle.',
+      description: 'Pink aphids (10%) double bullet, shield, health and cooldown regeneration for 5 seconds. Ants near them get the same. Requires Coccinella septempunctata (Lady Beetle).',
       level: upgrade43Level,
       maxLevel: 1
     },
     {
       title: 'Lucky Aphids',
-      description: 'Orange aphids (5%) give an extra reroll. Ants near them get a random ability for 5 seconds. Requires Lady Beetle.',
+      description: 'Orange aphids (5%) give an extra reroll. Ants near them get a random ability for 5 seconds. Requires Coccinella septempunctata (Lady Beetle).',
       level: upgrade44Level,
       maxLevel: 1
     },
@@ -15100,7 +15119,7 @@ function drawUpgradeScreen() {
         return level > 0 ? 'Aim with mouse/right stick. Current: ON' : 'Aim with mouse/right stick. Current: OFF → Next: ON';
       }
       case 9: { // Tiger Beetle
-        return level > 0 ? 'Tiger Beetle form unlocked. Current: ON' : 'Tiger Beetle form (dash toggles). Current: OFF → Next: ON';
+        return level > 0 ? 'Rivacindela hudsoni (Tiger Beetle) form unlocked. Current: ON' : 'Rivacindela hudsoni (Tiger Beetle) form (dash toggles). Current: OFF → Next: ON';
       }
       case 10: { // Oogpister Beetle
         return level > 0 ? '20% chance to reload 1 bullet on kill. Current: ON' : '20% chance to reload 1 bullet on kill. Current: OFF → Next: ON';
@@ -15406,7 +15425,7 @@ function drawUpgradeScreen() {
       } else {
         fill(255);  // White text on dark background
       }
-      textSize(28);
+      fitTextSize(upgrades[i].title, 28, cardWidth - 30);
       textAlign(CENTER, CENTER);
       text(upgrades[i].title, cardX, cardY - cardHeight * 0.28);
 
@@ -15758,7 +15777,7 @@ function applyUpgrade(upgradeIndex) {
   
   //TODO: Add actual upgrade effects based on actualUpgradeId (0-19)
   let levels = [upgrade1Level, upgrade2Level, upgrade3Level, upgrade4Level, upgrade5Level, upgrade6Level, upgrade7Level, upgrade8Level, upgrade9Level, upgrade10Level, upgrade11Level, upgrade12Level, upgrade13Level, upgrade14Level, upgrade15Level, upgrade16Level, upgrade17Level, upgrade18Level, upgrade19Level, upgrade20Level, upgrade21Level, upgrade22Level, upgrade23Level, upgrade24Level, upgrade25Level, upgrade26Level, upgrade27Level, upgrade28Level, upgrade29Level, upgrade30Level, upgrade31Level, upgrade32Level, upgrade33Level, upgrade34Level, upgrade35Level, upgrade36Level, upgrade37Level, upgrade38Level, upgrade39Level, upgrade40Level, upgrade41Level, upgrade42Level, upgrade43Level, upgrade44Level, upgrade45Level, upgrade46Level, upgrade47Level, upgrade48Level, upgrade49Level, upgrade50Level, upgrade51Level, upgrade52Level, upgrade53Level, upgrade54Level, upgrade55Level];
-  let upgradeNames = ['Walking Speed', 'Dash Speed', 'Dash Cooldown', 'Add Shield', 'Add Bullets', 'Shield Regeneration', 'Bullet Reload', 'Bullet Speed', 'Free-Angle Aiming', 'Tiger Beetle', 'Oogpister Beetle', 'Horns', 'Potent Acid', 'Shockwave', 'Shockwave Radius', 'Shockwave Damage', 'Shockwave Cooldown', 'Shockwave Knockback', 'Bullet Deflection', 'Health Regeneration', 'Runt Hunter', 'Increased Metabolism', 'EXP Boost', 'Combo Surge', 'Dash Harvest', 'Shockwave Harvest', 'Bullet Harvest', 'Spray Acid', 'Spray Length', 'Spray Width', 'Piercing Acid', 'Piercing Depth', 'Impact Bomb', 'Timed Bomb', 'Proximity Bomb', 'Blast Radius', 'Lady Beetle', 'Aphid Health', 'Aphid Spawn Rate', 'Speedy Aphids', 'Armored Aphids', 'Wise Aphids', 'Healthy Aphids', 'Lucky Aphids', 'Mound Ring', 'Bunker', 'Vortex', 'Flight and Slam', 'Mound Health', 'Flight Duration', 'Starting Health', 'Dash Deflection', 'Shell Shrapnel', 'Shrapnel Count', 'Burrow'];
+  let upgradeNames = ['Walking Speed', 'Dash Speed', 'Dash Cooldown', 'Add Shield', 'Add Bullets', 'Shield Regeneration', 'Bullet Reload', 'Bullet Speed', 'Free-Angle Aiming', 'Rivacindela hudsoni (Tiger Beetle)', 'Anthia sexmaculata (Oogpister Beetle)', 'Horns', 'Potent Acid', 'Shockwave', 'Shockwave Radius', 'Shockwave Damage', 'Shockwave Cooldown', 'Shockwave Knockback', 'Bullet Deflection', 'Health Regeneration', 'Runt Hunter', 'Increased Metabolism', 'EXP Boost', 'Combo Surge', 'Dash Harvest', 'Shockwave Harvest', 'Bullet Harvest', 'Spray Acid', 'Spray Length', 'Spray Width', 'Piercing Acid', 'Piercing Depth', 'Impact Bomb', 'Timed Bomb', 'Proximity Bomb', 'Blast Radius', 'Coccinella septempunctata (Lady Beetle)', 'Aphid Health', 'Aphid Spawn Rate', 'Speedy Aphids', 'Armored Aphids', 'Wise Aphids', 'Healthy Aphids', 'Lucky Aphids', 'Mound Ring', 'Bunker', 'Vortex', 'Flight and Slam', 'Mound Health', 'Flight Duration', 'Starting Health', 'Dash Deflection', 'Shell Shrapnel', 'Shrapnel Count', 'Burrow'];
   debugLog(`${upgradeNames[actualUpgradeId]} selected! Level: ${levels[actualUpgradeId]}`);
   
   // Update upgrade booleans
@@ -18507,7 +18526,7 @@ function drawDexCard(entry, x, top, w) {
     return;
   }
   fill(10);
-  textSize(entry.name.length > 26 ? 21 : 24);
+  fitTextSize(entry.name, entry.name.length > 26 ? 21 : 24, tw);
   text(entry.name, tx, top + 38);
   textAlign(LEFT, TOP);
   textSize(15);
@@ -18939,8 +18958,8 @@ function buildDexExoticEntries() {
   const mines = i => getDeathType(i) === 1 && !stream(i) && !isBeamAccelerate(i);
   const list = [
     ['airStrike', 'Air Strike Ants', 'High arc bullets with a timed fuse can go off in mid-air, raining a bigger blast down on the beetle from above.', 'Time Explosion + High Arc', 'airStrike', i => timed(i) && getPathType(i) === 1 && !stream(i)],
-    ['explodingAnts', 'Exploding Ants', 'Proximity explosion stream ants burst their streams, and if the beetle stays close they light a fuse and blow themselves up in a huge explosion.', 'Proximity Explosion + Stream', 'explodingAnts', i => getSpecialType(i) === 1 && specialExplosion[i] >= 1 && stream(i)],
-    ['ghostAnts', 'Ghost Ants', 'Ghost stream ants fade out of sight just before they spray, and only fade back in once the stream stops.', 'Ghost Bullets + Stream', 'ghostAnts', i => getSpecialType(i) === -2 && stream(i)],
+    ['explodingAnts', 'Colobopsis explodens (Exploding Ants)', 'Proximity explosion stream ants burst their streams, and if the beetle stays close they light a fuse and blow themselves up in a huge explosion.', 'Proximity Explosion + Stream', 'explodingAnts', i => getSpecialType(i) === 1 && specialExplosion[i] >= 1 && stream(i)],
+    ['ghostAnts', 'Tapinoma melanocephalum (Ghost Ants)', 'Ghost stream ants fade out of sight just before they spray, and only fade back in once the stream stops.', 'Ghost Bullets + Stream', 'ghostAnts', i => getSpecialType(i) === -2 && stream(i)],
     ['hoverAnts', 'Hover Ants', 'Launch stream ants rise high into the air while they spray, untouchable above the spot they burn.', 'Launch + Stream', 'hoverAnts', i => getSpecialType(i) === -3 && stream(i)],
     ['explodingLandmine', 'Exploding Landmines', 'Explosive bullets become landmines that blow up instead of just burning the beetle.', 'Explosion + Landmine', 'explodingLandmine', i => explosive(i) && mines(i)],
     ['hiddenLandmine', 'Hidden Landmines', 'Ghost bullets become landmines that stay invisible until the beetle is right on top of them.', 'Ghost Bullets + Landmine', 'hiddenLandmine', i => getSpecialType(i) === -2 && mines(i)],
@@ -21740,8 +21759,8 @@ function drawDevTools() {
         { name: 'Bullet Reload', level: currentUpgrades.upgrade7, maxLevel: 5, id: 6 },
         { name: 'Bullet Speed', level: currentUpgrades.upgrade8, maxLevel: 5, id: 7 },
         { name: 'Free-Angle Aiming', level: currentUpgrades.upgrade9, maxLevel: 1, id: 8 },
-        { name: 'Tiger Beetle', level: currentUpgrades.upgrade10, maxLevel: 1, id: 9 },
-        { name: 'Oogpister Beetle', level: currentUpgrades.upgrade11, maxLevel: 1, id: 10 },
+        { name: 'Rivacindela hudsoni (Tiger Beetle)', level: currentUpgrades.upgrade10, maxLevel: 1, id: 9 },
+        { name: 'Anthia sexmaculata (Oogpister Beetle)', level: currentUpgrades.upgrade11, maxLevel: 1, id: 10 },
         { name: 'Horns', level: currentUpgrades.upgrade12, maxLevel: 4, id: 11 },
         { name: 'Potent Acid', level: currentUpgrades.upgrade13, maxLevel: 4, id: 12 },
         { name: 'Shockwave', level: currentUpgrades.upgrade14, maxLevel: 1, id: 13 },
@@ -21767,7 +21786,7 @@ function drawDevTools() {
         { name: 'Timed Bomb', level: currentUpgrades.upgrade34, maxLevel: 1, id: 33 },
         { name: 'Proximity Bomb', level: currentUpgrades.upgrade35, maxLevel: 1, id: 34 },
         { name: 'Blast Radius', level: currentUpgrades.upgrade36, maxLevel: 3, id: 35 },
-        { name: 'Lady Beetle', level: currentUpgrades.upgrade37, maxLevel: 1, id: 36 },
+        { name: 'Coccinella septempunctata (Lady Beetle)', level: currentUpgrades.upgrade37, maxLevel: 1, id: 36 },
         { name: 'Aphid Health', level: currentUpgrades.upgrade38, maxLevel: 3, id: 37 },
         { name: 'Aphid Spawn Rate', level: currentUpgrades.upgrade39, maxLevel: 2, id: 38 },
         { name: 'Speedy Aphids', level: currentUpgrades.upgrade40, maxLevel: 1, id: 39 },
@@ -21928,7 +21947,7 @@ function drawDevTools() {
       // Upgrade name
       noStroke();
       textAlign(LEFT, TOP);
-      textSize(15);
+      fitTextSize(upgrade.name, 15, cardWidth - 24);
       if (devToolsSelectedUpgrade === i) {
         fill(10); // Dark text on white
       } else {
