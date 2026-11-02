@@ -784,8 +784,12 @@ let upgrade56Level = 0; // Beam Deflection (max 1): half the beams that would hi
 let upgrade57Level = 0; // Rainbow Aphids (max 1, requires Lady Beetle): 1% of aphids make the beetle invincible for 10 seconds
 let upgrade58Level = 0; // Dash Gust (max 1, requires Dash Speed 3): the air 50px around a dashing beetle hits like a shockwave
 let upgrade59Level = 0; // Dash Blast (max 1, requires Dash Speed 3): coming out of a dash sets off a shockwave
-const UPGRADE_COUNT = 59;
-const UPGRADE_MAX_LEVELS = [4, 5, 5, 9, 8, 5, 5, 5, 1, 1, 1, 4, 4, 1, 5, 5, 5, 3, 4, 5, 1, 7, 10, 4, 1, 1, 1, 1, 4, 4, 1, 9, 1, 1, 1, 3, 1, 3, 2, 1, 1, 1, 1, 1, 1, 1, 1, 1, 3, 5, 4, 1, 1, 2, 1, 1, 1, 1, 1];
+let upgrade60Level = 0; // Sceptobius lativentris (max 1, requires Shockwave): chemical shockwave variant, every ant skips its next shot
+let upgrade61Level = 0; // Lomechusoides strumosus (max 1, requires Sceptobius): chemical shockwave also lures ants in to feed the beetle
+let upgrade62Level = 0; // Homing Deprogramming (max 1, requires Shockwave): homing bullets a shockwave doesn't deflect fly straight
+let upgrade63Level = 0; // Homing Redirect (max 1, requires Homing Deprogramming): deflected homing bullets home in on enemies
+const UPGRADE_COUNT = 63;
+const UPGRADE_MAX_LEVELS = [4, 5, 5, 9, 8, 5, 5, 5, 1, 1, 1, 4, 4, 1, 5, 5, 5, 3, 4, 5, 1, 7, 10, 4, 1, 1, 1, 1, 4, 4, 1, 9, 1, 1, 1, 3, 1, 3, 2, 1, 1, 1, 1, 1, 1, 1, 1, 1, 3, 5, 4, 1, 1, 2, 1, 1, 1, 1, 1, 1, 1, 1, 1];
 let displayedUpgrades = [];  // Array of up to 3 randomly selected upgrade indices (0-9)
 
 // Pre-game upgrade menu variables (insane difficulty 8-10)
@@ -1701,6 +1705,7 @@ function draw() {
       updateDashShockwaves(); // Dash Gust and Dash Blast
       handleWindAttack(); // Handle shockwave attack
       updateShockwaveVariants(); // Vortex pull, flight, shell shrapnel
+      updateRoveBeetles(); // Chemical shockwave: skipped shots, lured ants feeding the beetle
       if (beetleDrawnOnTop) drawBeetle();
       drawAirborneAnts(); // Ants in the air go over the beetle
       drawDeferredEnemyBullets(); // Airborne high arc bullets go over a flying beetle
@@ -1926,6 +1931,10 @@ function resetRunState() {
   upgrade57Level = 0;
   upgrade58Level = 0;
   upgrade59Level = 0;
+  upgrade60Level = 0;
+  upgrade61Level = 0;
+  upgrade62Level = 0;
+  upgrade63Level = 0;
   upgradeRerolls = UPGRADE_REROLLS_PER_RUN;
   displayedUpgrades = [];
   updateUpgradeBooleans();  // Reset all upgrade booleans to false
@@ -3144,16 +3153,30 @@ function drawBeetle(){
       noFill();
       strokeWeight(2);
       
+      // Grey air, or a purple haze for the rove beetle's chemical shockwave
+      const ring = (grey) => windAttackChemical
+        ? [ROVE_CHEMICAL_COLOR[0] * grey / 150, ROVE_CHEMICAL_COLOR[1] * grey / 150, ROVE_CHEMICAL_COLOR[2] * grey / 150]
+        : [grey, grey, grey];
+      if (windAttackChemical) {
+        noStroke();
+        fill(ROVE_CHEMICAL_COLOR[0], ROVE_CHEMICAL_COLOR[1], ROVE_CHEMICAL_COLOR[2], windAttackAlpha * 0.18);
+        ellipse(0, 0, currentRadius * 2, currentRadius * 2);
+        noFill();
+      }
+
       // Outer circle
-      stroke(150, 150, 150, windAttackAlpha * 0.4);
+      let c = ring(150);
+      stroke(c[0], c[1], c[2], windAttackAlpha * 0.4);
       ellipse(0, 0, currentRadius * 2 + 10, currentRadius * 2 + 10);
       
       // Main circle
-      stroke(120, 120, 120, windAttackAlpha * 0.7);
+      c = ring(120);
+      stroke(c[0], c[1], c[2], windAttackAlpha * 0.7);
       ellipse(0, 0, currentRadius * 2, currentRadius * 2);
       
       // Inner circle  
-      stroke(100, 100, 100, windAttackAlpha);
+      c = ring(100);
+      stroke(c[0], c[1], c[2], windAttackAlpha);
       strokeWeight(3);
       ellipse(0, 0, currentRadius * 2 - 10, currentRadius * 2 - 10);
       
@@ -4097,8 +4120,8 @@ function drawEnemyBulletBody(bullet, i, bulletStealth, bulletFadeAmount) {
     pop();
   }
 
-  // Homing bullets: red pulsing aura
-  if (bullet.pathType === -2) {
+  // Homing bullets: red pulsing aura (gone once Homing Deprogramming has switched it off)
+  if (bullet.pathType === -2 && !bullet.deprogrammed) {
     push();
     noStroke();
     let homingFlashSpeed = map(abs(bullet.curveStrength), 0.015, 0.1, 3, 12);
@@ -4287,8 +4310,9 @@ function enemyShoot1() {
         }
       }
       
-      // Only skip shooting new bullets if ant is stunned (or dormant in a queen fight), but still update existing bullets
-      if (!antStunned[i] && !antDormant[i]) {
+      // Only skip shooting new bullets if ant is stunned (or dormant in a queen fight, or lured in by a rove
+      // beetle), but still update existing bullets
+      if (!antStunned[i] && !antDormant[i] && !antLure[i]) {
         // Determine cooldown based on fire type
         let currentCooldown = bulletCooldown[i];
         const fireType = getFireType(i);
@@ -4314,6 +4338,12 @@ function enemyShoot1() {
         }
         // Use cooldown tracking instead of modulo for proper reset capability. Out of range, the ant holds its
         // fire (staying loaded) until its bullet would make it at least 2/3 of the way to the aim point (or it's close in).
+        else if (frameCount - antLastShotFrame[i] >= currentCooldown && isAntTargetInRange(i) && antSkipShot[i]) {
+          // Rove beetle chemicals: this shot fizzles and the ant waits out its cooldown again
+          antLastShotFrame[i] = frameCount;
+          fizzleAntShot(i);
+          if (fireType === 6) onAvengeAntFired(i); // Its avenge shot is spent
+        }
         else if (frameCount - antLastShotFrame[i] >= currentCooldown && isAntTargetInRange(i)) {
           antLastShotFrame[i] = frameCount;
           
@@ -4438,7 +4468,7 @@ function enemyShoot1() {
         // Homing curve (-2): Gradually turn toward player. The velocity is rotated, never
         // scaled, so the bullet keeps its full speed through a turn (a 180 swings +x
         // momentum through y before it becomes -x, instead of braking and reversing)
-        if (pathType === -2) {
+        if (pathType === -2 && !bullet.deprogrammed) {
           const homingTurnRate = 0.04; // Max radians turned per frame
           const speedMag = Math.sqrt(bullet.speedX * bullet.speedX + bullet.speedY * bullet.speedY);
           if (speedMag > 0 && (playerX !== bullet.x || playerY !== bullet.y)) {
@@ -4662,7 +4692,7 @@ function enemyShoot1() {
           // Bullets pass right over a burrowed beetle
           if (isPlayerBurrowed()) continue;
           // Dash Deflection: turned into one of the beetle's bullets instead
-          if (tryDashDeflect(bullet.x, bullet.y)) {
+          if (tryDashDeflect(bullet.x, bullet.y, bullet)) {
             enemyBullets[i].splice(b, 1);
             continue;
           }
@@ -5271,7 +5301,7 @@ function detectKeyboardInput(){
         if (playerX > sideBuffer + (currentMoveSpeed - 0.1)){
           playerX -= currentMoveSpeed;
         }
-        if (followTarget[i] === true && !antDormant[i] && !antOrder[i]){
+        if (followTarget[i] === true && !antDormant[i] && !antOrder[i] && !antLure[i]){
           if (followBeetle[i] === true){
             if (antX[i] > sideBuffer + ((antSpeed[i]) -.01)){
               antX[i] -= (antSpeed[i]);
@@ -5290,7 +5320,7 @@ function detectKeyboardInput(){
         if (playerX < getGameplayWidth() - sideBuffer - (currentMoveSpeed - 0.1)){
           playerX += currentMoveSpeed;
         }
-        if (followTarget[i] === true && !antDormant[i] && !antOrder[i]){
+        if (followTarget[i] === true && !antDormant[i] && !antOrder[i] && !antLure[i]){
           if (followBeetle[i] === true){
             if (antX[i] < getGameplayWidth() - sideBuffer - ((antSpeed[i]) -.01)){
               antX[i] += (antSpeed[i]);
@@ -5309,7 +5339,7 @@ function detectKeyboardInput(){
         if (playerY > (scoreBarHeight + 25) + (currentMoveSpeed - 0.01)){
           playerY -= currentMoveSpeed;
         }
-        if (followTarget[i] === true && !antDormant[i] && !antOrder[i]){
+        if (followTarget[i] === true && !antDormant[i] && !antOrder[i] && !antLure[i]){
           if (followBeetle[i] === true){
             if (antY[i] > (scoreBarHeight + 15) + ((antSpeed[i]) -.01)){
               antY[i] -= (antSpeed[i]);
@@ -5328,7 +5358,7 @@ function detectKeyboardInput(){
         if (playerY < getGameplayHeight() - expBarHeight - expBarBuffer - (currentMoveSpeed - 0.1)){
           playerY += currentMoveSpeed;
         }
-        if (followTarget[i] === true && !antDormant[i] && !antOrder[i]){
+        if (followTarget[i] === true && !antDormant[i] && !antOrder[i] && !antLure[i]){
           if (followBeetle[i] === true){
             if (antY[i] < getGameplayHeight() - expBarHeight - expBarBuffer - ((antSpeed[i]) -.01)){
               antY[i] += (antSpeed[i]);
@@ -5382,7 +5412,7 @@ function detectKeyboardInput(){
   
   // Handle followAnt + followTarget ants (follow nearest ant's movement vector)
   for (let i = 1; i <= enemyCount; i++) {
-    if (followTarget[i] === true && followAnt[i] === true && !antDormant[i] && !antOrder[i]) {
+    if (followTarget[i] === true && followAnt[i] === true && !antDormant[i] && !antOrder[i] && !antLure[i]) {
       let nearest = getNearestAnt(i);
       if (nearest !== -1) {
         let dx = antMoveX[nearest];
@@ -5496,6 +5526,7 @@ function beetleShoot() {
     b.life = (b.life || 0) + 1;
     let prevX = b.x;
     let prevY = b.y;
+    if (b.redirect) steerRedirectedBullet(b);
 
     // Move bullet in its facing direction
     // Check if using free aim (arbitrary angle) or cardinal directions
@@ -5561,6 +5592,12 @@ function beetleShoot() {
         continue;
       }
       b.hitQueen = true;
+    }
+
+    // Homing Redirect: destroys any ant bullet, landmine or turret it touches
+    if (b.redirect && hitRedirectTargets(b)) {
+      playerBullets.splice(i, 1);
+      continue;
     }
 
     // bullet collisions - use spatial grid for optimization
@@ -5784,6 +5821,13 @@ function drawPlayerBullet(b, mode) {
   angleMode(DEGREES);
   translate(b.x, b.y);
   rotate(b.rotation);
+  if (b.redirect) {
+    // Homing Redirect: a pulsing shell-blue aura while it hunts its target
+    noStroke();
+    const pulse = 0.5 + 0.5 * Math.sin(b.life * 0.3);
+    fill(SHELL_BLUE_LIGHT[0], SHELL_BLUE_LIGHT[1], SHELL_BLUE_LIGHT[2], 70 + 70 * pulse);
+    ellipse(0, 0, 26 + 4 * pulse, 26 + 4 * pulse);
+  }
   if (mode === SHOT_MODE_DEFAULT) {
     imageMode(CENTER);
     image(bulletImage, 0, 0, 20, 20);
@@ -5999,6 +6043,7 @@ function handleWindAttack() {
 
     if (windAttackAnimRadius >= maxRadius) {
       applyShockwaveImpact(maxRadius, getShockwaveDamage() * windAttackDamageScale, null, windAttackKillSource);
+      if (windAttackChemical) releaseRoveChemicals();
 
       // Shockwave attack is done, start fade
       windAttackActive = false;
@@ -6062,11 +6107,16 @@ function applyShockwaveImpact(maxRadius, windDamage, once = null, killSource = '
           playerBullets.push({
             x: bullet.x,
             y: bullet.y,
-            rotation: targetAngle
+            rotation: targetAngle,
+            redirect: isRedirectedHoming(bullet)
           });
           
           // Mark bullet for removal (will be removed in main bullet loop)
           bullet.deflected = true;
+        } else if (upgrade62Level > 0 && bullet.pathType === -2 && !bullet.deprogrammed) {
+          // Homing Deprogramming: it stops turning and flies straight on
+          bullet.deprogrammed = true;
+          speedRings.push({ x: bullet.x, y: bullet.y - (bullet.airHeight || 0), size: 6, maxSize: 22, alpha: 200, life: 0, color: [190, 190, 190] });
         }
       }
     }
@@ -6217,6 +6267,101 @@ function drawDashGust() {
   pop();
 }
 
+// --- Rove beetles (chemical shockwave) ---
+// Sceptobius lativentris: when the chemical shockwave goes off, every ant skips its next shot (it still waits out
+// its cooldown, then the shot fizzles and it waits another). Lomechusoides strumosus: ants within ROVE_LURE_RADIUS
+// also walk straight at the beetle like a keep distance ant, stop ROVE_FEED_DISTANCE away and feed it for
+// ROVE_FEED_FRAMES (healing it by their size in total), then go back to normal. Lured ants don't shoot.
+const ROVE_CHEMICAL_COLOR = [175, 110, 225];
+const ROVE_LURE_RADIUS = 300;
+const ROVE_FEED_DISTANCE = 50;
+const ROVE_FEED_FRAMES = 20;
+const ROVE_LURE_MAX_FRAMES = 420;         // An ant that can't reach the beetle in 7 seconds gives up
+let antSkipShot = [];                     // The ant's next shot fizzles (Sceptobius lativentris)
+let antLure = [];                         // Lomechusoides strumosus: { expires, fed } while lured to the beetle, or null
+
+function releaseRoveChemicals() {
+  for (let i = 1; i <= enemyCount; i++) {
+    if (antDormant[i]) continue;
+    antSkipShot[i] = true;
+    if (upgrade61Level > 0 && !antInBunker[i] && dist(playerX, playerY, antX[i], antY[i]) <= ROVE_LURE_RADIUS) {
+      antLure[i] = { expires: frameCount + ROVE_LURE_MAX_FRAMES, fed: 0 };
+      antOrder[i] = null; // The chemicals win over the queen's orders
+    }
+  }
+}
+
+// Called instead of firing when an ant with antSkipShot would shoot
+function fizzleAntShot(i) {
+  antSkipShot[i] = false;
+  speedRings.push({ x: antX[i], y: antY[i], size: 6, maxSize: 26, alpha: 255, life: 0, color: ROVE_CHEMICAL_COLOR });
+}
+
+function updateRoveBeetles() {
+  for (let i = 1; i <= enemyCount; i++) {
+    const lure = antLure[i];
+    if (lure) updateAntLure(i, lure);
+  }
+  drawRoveChemicals();
+}
+
+function updateAntLure(i, lure) {
+  if (end || antDormant[i] || antInBunker[i] || (lure.fed === 0 && frameCount >= lure.expires)) {
+    antLure[i] = null;
+    return;
+  }
+  if (antKnockedBack[i]) return; // Thrown by the blast first, then they come back
+
+  // The keep distance approach, anchored on the beetle at ROVE_FEED_DISTANCE
+  const dx = playerX - antX[i];
+  const dy = playerY - antY[i];
+  const d = Math.sqrt(dx * dx + dy * dy);
+  if (d > ROVE_FEED_DISTANCE + 5) {
+    antX[i] += dx / d * antSpeed[i];
+    antY[i] += dy / d * antSpeed[i];
+  } else if (d < ROVE_FEED_DISTANCE - 5 && d > 0) {
+    antX[i] -= dx / d * antSpeed[i];
+    antY[i] -= dy / d * antSpeed[i];
+  }
+  antX[i] = constrain(antX[i], sideBuffer, getGameplayWidth() - sideBuffer);
+  antY[i] = constrain(antY[i], scoreBarHeight + 15, getGameplayHeight() - expBarHeight - expBarBuffer);
+
+  // Feeding: once it has arrived it stays for ROVE_FEED_FRAMES, healing the beetle a little each frame
+  if (lure.fed > 0 || d <= ROVE_FEED_DISTANCE + 5) {
+    lure.fed++;
+    healFromKill(antSize[i] / ROVE_FEED_FRAMES);
+    if (lure.fed % 5 === 1) {
+      speedRings.push({ x: lerp(antX[i], playerX, 0.5), y: lerp(antY[i], playerY, 0.5), size: 4, maxSize: 14, alpha: 200, life: 0, color: [110, 240, 120] });
+    }
+    if (lure.fed >= ROVE_FEED_FRAMES) antLure[i] = null;
+  }
+}
+
+// A chemical haze over ants whose next shot will fizzle, and a trail of it from lured ants to the beetle
+function drawRoveChemicals() {
+  const c = ROVE_CHEMICAL_COLOR;
+  push();
+  noStroke();
+  for (let i = 1; i <= enemyCount; i++) {
+    if (antDormant[i]) continue;
+    if (antSkipShot[i]) {
+      const pulse = 0.5 + 0.5 * Math.sin((frameCount + i * 13) * 0.15);
+      fill(c[0], c[1], c[2], 45 + 35 * pulse);
+      ellipse(antX[i], antY[i] - antAirHeight[i], 34 * antSize[i] + 6 * pulse, 34 * antSize[i] + 6 * pulse);
+    }
+    if (antLure[i]) {
+      stroke(c[0], c[1], c[2], antLure[i].fed > 0 ? 150 : 70);
+      strokeWeight(2);
+      drawingContext.setLineDash([4, 6]);
+      drawingContext.lineDashOffset = -frameCount * 0.6;
+      line(antX[i], antY[i], playerX, playerY);
+      drawingContext.setLineDash([]);
+      noStroke();
+    }
+  }
+  pop();
+}
+
 // ========== SHOCKWAVE VARIANTS ==========
 // R / left bumper cycles through the unlocked variants (holding it goes back to the original shockwave), the same
 // way Q / left trigger cycles shot modes. All variants share the shockwave cooldown, scaled by their multiplier.
@@ -6226,13 +6371,15 @@ const SHOCKWAVE_BUNKER = 2;
 const SHOCKWAVE_VORTEX = 3;
 const SHOCKWAVE_FLIGHT = 4;
 const SHOCKWAVE_BURROW = 5;
+const SHOCKWAVE_CHEMICAL = 6;
 const SHOCKWAVE_VARIANTS = [
   { name: 'Shockwave', color: [180, 180, 180], cooldown: 1, upgrade: -1 },
   { name: 'Mound Ring', color: [150, 110, 65], cooldown: 2, upgrade: 44 },
   { name: 'Bunker', color: [70, 45, 20], cooldown: 2, upgrade: 45 },
   { name: 'Vortex', color: [110, 170, 255], cooldown: 1.5, upgrade: 46 },
   { name: 'Flight and Slam', color: [255, 200, 70], cooldown: 3, upgrade: 47 },
-  { name: 'Burrow', color: [120, 85, 50], cooldown: 3, upgrade: 54 }
+  { name: 'Burrow', color: [120, 85, 50], cooldown: 3, upgrade: 54 },
+  { name: 'Chemical Shockwave', color: [175, 110, 225], cooldown: 2, upgrade: 59 }
 ];
 const PLAYER_MOUND_FRAMES = 180;          // Mound Ring mounds last 3 seconds (or until destroyed)
 const PLAYER_BUNKER_FRAMES = 180;         // The beetle hides for 3 seconds
@@ -6265,6 +6412,7 @@ let windAttackCooldownMax = 2.25;         // Full length of the current cooldown
 let windAttackRadiusScale = 1;
 let windAttackDamageScale = 1;
 let windAttackKillSource = 'shockwave'; // Dash Blast's shockwave counts its kills as dash kills
+let windAttackChemical = false;           // The current shockwave is Sceptobius lativentris's chemical one
 let playerWalls = [];                     // Mounds and the bunker the beetle makes (ants and their bullets can hit them)
 let playerMoundRings = [];                // Mound Ring arenas: { x, y, radius, count, mounds, inside, playerInside }
 let playerBunker = null;                  // The bunker wall the beetle is hiding in
@@ -6386,6 +6534,7 @@ function triggerShockwave() {
     case SHOCKWAVE_VORTEX: startVortex(); break;
     case SHOCKWAVE_FLIGHT: startFlight(); break;
     case SHOCKWAVE_BURROW: startBurrow(); break;
+    case SHOCKWAVE_CHEMICAL: startShockwaveBlast(1, 1); windAttackChemical = true; break;
     default: startShockwaveBlast(1, 1);
   }
 }
@@ -6400,6 +6549,7 @@ function startShockwaveBlast(radiusScale, damageScale, killSource = 'shockwave')
   windAttackRadiusScale = radiusScale;
   windAttackDamageScale = damageScale;
   windAttackKillSource = killSource;
+  windAttackChemical = false;
 }
 
 // --- Player mounds and bunker ---
@@ -6929,11 +7079,137 @@ function getEnemyBulletHitSpeed(bullet) {
 // --- Dash Deflection ---
 
 // While dashing, a bullet about to hit the beetle can turn into one of its own (shockwave deflection chance)
-function tryDashDeflect(x, y) {
+function tryDashDeflect(x, y, bullet = null) {
   if (!dash || upgrade52Level === 0 || random() >= getDeflectChance()) return false;
-  playerBullets.push({ x: x, y: y, rotation: Math.atan2(y - playerY, x - playerX) * 180 / Math.PI });
+  playerBullets.push({ x: x, y: y, rotation: Math.atan2(y - playerY, x - playerX) * 180 / Math.PI, redirect: isRedirectedHoming(bullet) });
   speedRings.push({ x: x, y: y, size: 8, maxSize: 30, alpha: 255, life: 0, color: SHELL_BLUE_LIGHT }); // The shell's blue
   return true;
+}
+
+// --- Homing Redirect ---
+// A deflected homing bullet becomes a beetle bullet that homes in on the nearest enemy thing: an ant, ant bullet,
+// landmine, turret, mound or bunker. It picks a new target whenever its current one is gone. Ants, mounds and
+// bunkers take a normal bullet hit (the usual player bullet collisions); bullets, landmines and turrets it touches
+// are destroyed outright.
+const REDIRECT_TURN_DEGREES = 8;          // Max turn per frame...
+const REDIRECT_CLOSE_TURN_DEGREES = 20;   // ...and within REDIRECT_CLOSE_RANGE, so it can't circle its target
+const REDIRECT_CLOSE_RANGE = 80;
+const REDIRECT_MAX_LIFE = 360;            // Gives up after 6 seconds without hitting anything
+
+function isRedirectedHoming(bullet) {
+  return upgrade63Level > 0 && !!bullet && bullet.pathType === -2;
+}
+
+// Where a target is (bullets are where they're drawn, up in their arc), or null once it's gone
+function getRedirectTargetPos(t) {
+  if (!t) return null;
+  switch (t.kind) {
+    case 'ant':
+      if (antDormant[t.i] || antLives[t.i] !== t.lives || antHealth[t.i] <= 0 || isAntSheltered(t.i)) return null;
+      return { x: antX[t.i], y: antY[t.i] };
+    case 'bullet':
+      if (t.bullet.deflected || !enemyBullets[t.owner] || !enemyBullets[t.owner].includes(t.bullet)) return null;
+      return { x: t.bullet.x, y: t.bullet.y - (t.bullet.airHeight || 0) };
+    case 'mine':
+      if (t.mine.deflected || !landMines.includes(t.mine)) return null;
+      return { x: t.mine.x, y: t.mine.y };
+    case 'turret':
+      if (t.refire.shotsLeft <= 0 || !deathRefires.includes(t.refire)) return null;
+      return { x: t.refire.x, y: t.refire.y };
+    case 'wall':
+      if (t.wall.health <= 0 || !enemyWalls.includes(t.wall)) return null;
+      return { x: t.wall.x, y: t.wall.y };
+  }
+  return null;
+}
+
+function findRedirectTarget(x, y) {
+  let best = null;
+  let bestD = Infinity;
+  const consider = (t, tx, ty) => {
+    const d = (tx - x) * (tx - x) + (ty - y) * (ty - y);
+    if (d < bestD) {
+      bestD = d;
+      best = t;
+    }
+  };
+  for (let i = 1; i <= enemyCount; i++) {
+    if (antDormant[i] || antHealth[i] <= 0 || isAntSheltered(i)) continue;
+    consider({ kind: 'ant', i: i, lives: antLives[i] }, antX[i], antY[i]);
+  }
+  for (let o = 0; o < enemyBullets.length; o++) {
+    if (!enemyBullets[o]) continue;
+    for (const bullet of enemyBullets[o]) {
+      if (bullet.deflected || bullet.delayFrames > 0) continue;
+      consider({ kind: 'bullet', owner: o, bullet: bullet }, bullet.x, bullet.y - (bullet.airHeight || 0));
+    }
+  }
+  for (const mine of landMines) {
+    if (!mine.isPlayerMine && !mine.deflected) consider({ kind: 'mine', mine: mine }, mine.x, mine.y);
+  }
+  for (const refire of deathRefires) {
+    if (refire.isTurret && refire.shotsLeft > 0) consider({ kind: 'turret', refire: refire }, refire.x, refire.y);
+  }
+  for (const wall of enemyWalls) {
+    if (wall.health > 0) consider({ kind: 'wall', wall: wall }, wall.x, wall.y);
+  }
+  return best;
+}
+
+// Turn toward the target (finding a new one if it's gone). Rotation is in degrees, like every beetle bullet.
+function steerRedirectedBullet(b) {
+  let pos = getRedirectTargetPos(b.target);
+  if (!pos) {
+    b.target = findRedirectTarget(b.x, b.y);
+    pos = getRedirectTargetPos(b.target);
+  }
+  if (!pos) return; // Nothing left to hunt: flies straight
+  const want = Math.atan2(pos.y - b.y, pos.x - b.x) * 180 / Math.PI;
+  let diff = want - b.rotation;
+  while (diff > 180) diff -= 360;
+  while (diff < -180) diff += 360;
+  const close = dist(b.x, b.y, pos.x, pos.y) < REDIRECT_CLOSE_RANGE;
+  const maxTurn = close ? REDIRECT_CLOSE_TURN_DEGREES : REDIRECT_TURN_DEGREES;
+  b.rotation += constrain(diff, -maxTurn, maxTurn);
+}
+
+// Destroy the first ant bullet, landmine or turret the redirected bullet touches. True if it hit one (or timed out).
+function hitRedirectTargets(b) {
+  if (b.life >= REDIRECT_MAX_LIFE) return true;
+  for (let o = 0; o < enemyBullets.length; o++) {
+    if (!enemyBullets[o]) continue;
+    for (const bullet of enemyBullets[o]) {
+      if (bullet.deflected || bullet.delayFrames > 0) continue;
+      const reach = 8 + 6 * (bullet.size || 1);
+      if (dist(b.x, b.y, bullet.x, bullet.y - (bullet.airHeight || 0)) < reach) {
+        bullet.deflected = true; // Removed in the enemy bullet loop, with no death effect
+        spawnRedirectHit(bullet.x, bullet.y - (bullet.airHeight || 0));
+        return true;
+      }
+    }
+  }
+  for (const mine of landMines) {
+    if (mine.isPlayerMine || mine.deflected) continue;
+    if (dist(b.x, b.y, mine.x, mine.y) < 8 + 8 * (mine.size || 1)) {
+      mine.deflected = true; // Removed in the landmine loop without going off
+      spawnRedirectHit(mine.x, mine.y);
+      return true;
+    }
+  }
+  for (let r = deathRefires.length - 1; r >= 0; r--) {
+    const refire = deathRefires[r];
+    if (!refire.isTurret || refire.shotsLeft <= 0) continue;
+    if (dist(b.x, b.y, refire.x, refire.y) < 6 + 8 * refire.size) {
+      deathRefires.splice(r, 1);
+      spawnRedirectHit(refire.x, refire.y);
+      return true;
+    }
+  }
+  return false;
+}
+
+function spawnRedirectHit(x, y) {
+  speedRings.push({ x: x, y: y, size: 8, maxSize: 34, alpha: 255, life: 0, color: SHELL_BLUE_LIGHT });
 }
 
 // --- Shell Shrapnel ---
@@ -8047,6 +8323,12 @@ function wrapAngle(a) {
 function tryFireAntStream(i) {
   if (antStream[i]) return; // Still firing; the cooldown starts once the stream finishes
   if (frameCount - antLastShotFrame[i] < bulletCooldown[i]) return;
+  if (antSkipShot[i]) {
+    // Rove beetle chemicals: this stream fizzles and the ant waits out its cooldown again
+    antLastShotFrame[i] = frameCount;
+    fizzleAntShot(i);
+    return;
+  }
 
   // Portal stream ants teleport first, then get a moment to settle (and the beetle a moment's warning).
   // A wait that's long gone stale (stunned or killed meanwhile) means teleporting again.
@@ -9147,6 +9429,8 @@ function onAntDied(i) {
   antAvengeQueue[i] = 0;
   antAvengeArmed[i] = false;
   antHitReloadFlashFrame[i] = undefined;
+  antSkipShot[i] = false;
+  antLure[i] = null;
   releaseAntFromBunker(i, false);
   for (let k = 1; k <= enemyCount; k++) {
     if (k === i || antDormant[k] || getFireType(k) !== 6) continue;
@@ -12300,7 +12584,7 @@ const UPGRADE_NAMES = ['Walking Speed', 'Dash Speed', 'Dash Cooldown', 'Add Shie
   'Health Regeneration', 'Runt Hunter', 'Increased Metabolism', 'EXP Boost', 'Combo Surge', 'Dash Harvest',
   'Shockwave Harvest', 'Bullet Harvest', 'Spray Acid', 'Spray Length', 'Spray Width', 'Piercing Acid', 'Piercing Depth',
   'Impact Bomb', 'Timed Bomb', 'Proximity Bomb', 'Blast Radius', 'Coccinella septempunctata (Lady Beetle)', 'Aphid Health', 'Aphid Spawn Rate',
-  'Speedy Aphids', 'Armored Aphids', 'Wise Aphids', 'Healthy Aphids', 'Lucky Aphids', 'Mound Ring', 'Bunker', 'Vortex', 'Flight and Slam', 'Mound Health', 'Flight Duration', 'Starting Health', 'Dash Deflection', 'Shell Shrapnel', 'Shrapnel Count', 'Burrow', 'Beam Deflection', 'Rainbow Aphids', 'Dash Gust', 'Dash Blast'];
+  'Speedy Aphids', 'Armored Aphids', 'Wise Aphids', 'Healthy Aphids', 'Lucky Aphids', 'Mound Ring', 'Bunker', 'Vortex', 'Flight and Slam', 'Mound Health', 'Flight Duration', 'Starting Health', 'Dash Deflection', 'Shell Shrapnel', 'Shrapnel Count', 'Burrow', 'Beam Deflection', 'Rainbow Aphids', 'Dash Gust', 'Dash Blast', 'Sceptobius lativentris (Rove Beetle)', 'Lomechusoides strumosus (Rove Beetle)', 'Homing Deprogramming', 'Homing Redirect'];
 const UPGRADE_PREREQUISITE_TEXT = {
   5: 'Add Shield', 6: 'Add Bullets', 7: 'Add Bullets', 8: 'Add Bullets, Bullet Reload, Bullet Speed',
   9: 'Dash Cooldown maxed', 10: 'Bullet Reload 3+', 12: 'Add Bullets', 14: 'Shockwave', 15: 'Shockwave',
@@ -12309,7 +12593,8 @@ const UPGRADE_PREREQUISITE_TEXT = {
   34: 'Timed Bomb', 35: 'Impact Bomb', 37: 'Coccinella septempunctata (Lady Beetle)', 38: 'Coccinella septempunctata (Lady Beetle)', 39: 'Coccinella septempunctata (Lady Beetle)', 40: 'Coccinella septempunctata (Lady Beetle)',
   41: 'Coccinella septempunctata (Lady Beetle)', 42: 'Coccinella septempunctata (Lady Beetle)', 43: 'Coccinella septempunctata (Lady Beetle)', 44: 'Shockwave', 45: 'Shockwave', 46: 'Shockwave',
   47: 'Shockwave', 48: 'Mound Ring or Bunker', 49: 'Flight and Slam', 52: 'Add Shield', 53: 'Shell Shrapnel', 54: 'Bunker',
-  56: 'Coccinella septempunctata (Lady Beetle)', 57: 'Dash Speed 3', 58: 'Dash Speed 3'
+  56: 'Coccinella septempunctata (Lady Beetle)', 57: 'Dash Speed 3', 58: 'Dash Speed 3',
+  59: 'Shockwave', 60: 'Sceptobius lativentris (Rove Beetle)', 61: 'Shockwave', 62: 'Homing Deprogramming'
 };
 
 // Sets the text size, shrinking it below size when needed so str fits in maxWidth (long scientific names)
@@ -12357,7 +12642,7 @@ function getPermanentUpgradeLevels() {
 function getUpgradeRarityTier(id) {
   if (id === 20) return 'Ultra Rare';
   if (id >= 24 && id <= 26) return 'Very Rare';
-  if (id === 19 || (id >= 21 && id <= 23) || (id >= 27 && id <= 49) || (id >= 51 && id <= 58)) return 'Medium';
+  if (id === 19 || (id >= 21 && id <= 23) || (id >= 27 && id <= 49) || (id >= 51 && id <= 62)) return 'Medium';
   if (!isCoreUpgrade(id)) return 'Uncommon';
   return 'Common';
 }
@@ -12420,7 +12705,11 @@ const PERMANENT_UPGRADE_COSTS = [
   [6],                             // Beam Deflection
   [12],                            // Rainbow Aphids
   [12],                            // Dash Gust
-  [12]                             // Dash Blast
+  [12],                            // Dash Blast
+  [12],                            // Sceptobius lativentris
+  [12],                            // Lomechusoides strumosus
+  [6],                             // Homing Deprogramming
+  [6]                              // Homing Redirect
 ];
 
 function getPermanentUpgradeCost(id, level) {
@@ -14328,7 +14617,7 @@ function drawAphidEffectRings() {
 function autonomousAntMovement(){
   for (let i = 1; i <= enemyCount; i++) {
     // Skip knocked back ants - they use knockback movement instead (and ants hiding in a bunker)
-    if (antKnockedBack[i] || antInBunker[i] || antDormant[i] || antOrder[i]) continue;
+    if (antKnockedBack[i] || antInBunker[i] || antDormant[i] || antOrder[i] || antLure[i]) continue;
     
     if (findLocation[i] === true){
       if (followTarget[i] === true){
@@ -14350,7 +14639,7 @@ function autonomousAntMovement(){
   }
   for (let i = 1; i <= enemyCount; i++) {
     // Skip knocked back ants and ants hiding in a bunker
-    if (antKnockedBack[i] || antInBunker[i] || antDormant[i] || antOrder[i]) continue;
+    if (antKnockedBack[i] || antInBunker[i] || antDormant[i] || antOrder[i] || antLure[i]) continue;
     
     if (!keepDistance[i]) continue; // only handle autonomous keep-distance ants
 
@@ -15760,6 +16049,30 @@ function drawUpgradeScreen() {
       description: 'Coming out of a dash sets off an explosive impact that acts like your shockwave. Kills count as dash kills. Requires Dash Speed level 3.',
       level: upgrade59Level,
       maxLevel: 1
+    },
+    {
+      title: 'Sceptobius lativentris (Rove Beetle)',
+      description: 'Shockwave variant (R / LB to switch): a shockwave laced with rove beetle chemicals. When it goes off, every ant skips its next shot. 2x cooldown. Requires Shockwave.',
+      level: upgrade60Level,
+      maxLevel: 1
+    },
+    {
+      title: 'Lomechusoides strumosus (Rove Beetle)',
+      description: 'Your chemical shockwave also draws every ant within 300 pixels in to feed you: they stop 50 pixels away for a moment, each healing you by its size, then go back to fighting. Requires Sceptobius lativentris (Rove Beetle).',
+      level: upgrade61Level,
+      maxLevel: 1
+    },
+    {
+      title: 'Homing Deprogramming',
+      description: 'Homing bullets caught in your shockwave that it doesn\'t deflect stop turning and fly straight. Requires Shockwave.',
+      level: upgrade62Level,
+      maxLevel: 1
+    },
+    {
+      title: 'Homing Redirect',
+      description: 'Deflected homing bullets home in on the nearest ant, bullet, landmine, turret, mound or bunker, picking a new target if theirs dies. Requires Homing Deprogramming.',
+      level: upgrade63Level,
+      maxLevel: 1
     }
   ];
   
@@ -16232,8 +16545,8 @@ function getUpgradeRarity(upgradeId) {
   if (upgradeId >= 24 && upgradeId <= 26) return { label: 'VERY RARE', weight: 0.2, color: [200, 90, 255] };
   // Medium rare: Health Regeneration, economy (Metabolism, EXP Boost, Combo Surge), all special shot upgrades,
   // Lady Beetle with all its aphid upgrades, the shockwave variants with their upgrades, Dash and Beam Deflection, Shell Shrapnel,
-  // and Dash Gust and Dash Blast
-  if (upgradeId === 19 || (upgradeId >= 21 && upgradeId <= 23) || (upgradeId >= 27 && upgradeId <= 49) || (upgradeId >= 51 && upgradeId <= 58)) {
+  // Dash Gust and Dash Blast, the rove beetles and the homing deprogramming chain
+  if (upgradeId === 19 || (upgradeId >= 21 && upgradeId <= 23) || (upgradeId >= 27 && upgradeId <= 49) || (upgradeId >= 51 && upgradeId <= 62)) {
     return { label: '', weight: 0.5, color: null };
   }
   if (!isCoreUpgrade(upgradeId)) return { label: '', weight: 0.9, color: null };  // Uncommon
@@ -16242,7 +16555,7 @@ function getUpgradeRarity(upgradeId) {
 
 // Upgrade levels by id (0-55)
 function getCurrentUpgradeLevels() {
-  return [upgrade1Level, upgrade2Level, upgrade3Level, upgrade4Level, upgrade5Level, upgrade6Level, upgrade7Level, upgrade8Level, upgrade9Level, upgrade10Level, upgrade11Level, upgrade12Level, upgrade13Level, upgrade14Level, upgrade15Level, upgrade16Level, upgrade17Level, upgrade18Level, upgrade19Level, upgrade20Level, upgrade21Level, upgrade22Level, upgrade23Level, upgrade24Level, upgrade25Level, upgrade26Level, upgrade27Level, upgrade28Level, upgrade29Level, upgrade30Level, upgrade31Level, upgrade32Level, upgrade33Level, upgrade34Level, upgrade35Level, upgrade36Level, upgrade37Level, upgrade38Level, upgrade39Level, upgrade40Level, upgrade41Level, upgrade42Level, upgrade43Level, upgrade44Level, upgrade45Level, upgrade46Level, upgrade47Level, upgrade48Level, upgrade49Level, upgrade50Level, upgrade51Level, upgrade52Level, upgrade53Level, upgrade54Level, upgrade55Level, upgrade56Level, upgrade57Level, upgrade58Level, upgrade59Level];
+  return [upgrade1Level, upgrade2Level, upgrade3Level, upgrade4Level, upgrade5Level, upgrade6Level, upgrade7Level, upgrade8Level, upgrade9Level, upgrade10Level, upgrade11Level, upgrade12Level, upgrade13Level, upgrade14Level, upgrade15Level, upgrade16Level, upgrade17Level, upgrade18Level, upgrade19Level, upgrade20Level, upgrade21Level, upgrade22Level, upgrade23Level, upgrade24Level, upgrade25Level, upgrade26Level, upgrade27Level, upgrade28Level, upgrade29Level, upgrade30Level, upgrade31Level, upgrade32Level, upgrade33Level, upgrade34Level, upgrade35Level, upgrade36Level, upgrade37Level, upgrade38Level, upgrade39Level, upgrade40Level, upgrade41Level, upgrade42Level, upgrade43Level, upgrade44Level, upgrade45Level, upgrade46Level, upgrade47Level, upgrade48Level, upgrade49Level, upgrade50Level, upgrade51Level, upgrade52Level, upgrade53Level, upgrade54Level, upgrade55Level, upgrade56Level, upgrade57Level, upgrade58Level, upgrade59Level, upgrade60Level, upgrade61Level, upgrade62Level, upgrade63Level];
 }
 
 // Whether an upgrade's prerequisites are met (lv = upgrade levels by id). Also used by the Queen Upgrades shop.
@@ -16278,6 +16591,9 @@ function upgradePrereqsMet(i, lv) {
   if (i === 54 && lv[45] === 0) return false;  // Burrow requires Bunker
   if (i === 56 && lv[36] === 0) return false;  // Rainbow Aphids require Lady Beetle
   if ((i === 57 || i === 58) && lv[1] < 3) return false;  // Dash Gust and Dash Blast require Dash Speed 3
+  if ((i === 59 || i === 61) && lv[13] === 0) return false;  // Sceptobius and Homing Deprogramming require Shockwave
+  if (i === 60 && lv[59] === 0) return false;  // Lomechusoides requires Sceptobius
+  if (i === 62 && lv[61] === 0) return false;  // Homing Redirect requires Homing Deprogramming
   return true;
 }
 
@@ -16296,7 +16612,7 @@ function pickUpgradeOptions(exclude = []) {
     displayedUpgrades = forced;
     return;
   }
-  let upgradeLevels = [upgrade1Level, upgrade2Level, upgrade3Level, upgrade4Level, upgrade5Level, upgrade6Level, upgrade7Level, upgrade8Level, upgrade9Level, upgrade10Level, upgrade11Level, upgrade12Level, upgrade13Level, upgrade14Level, upgrade15Level, upgrade16Level, upgrade17Level, upgrade18Level, upgrade19Level, upgrade20Level, upgrade21Level, upgrade22Level, upgrade23Level, upgrade24Level, upgrade25Level, upgrade26Level, upgrade27Level, upgrade28Level, upgrade29Level, upgrade30Level, upgrade31Level, upgrade32Level, upgrade33Level, upgrade34Level, upgrade35Level, upgrade36Level, upgrade37Level, upgrade38Level, upgrade39Level, upgrade40Level, upgrade41Level, upgrade42Level, upgrade43Level, upgrade44Level, upgrade45Level, upgrade46Level, upgrade47Level, upgrade48Level, upgrade49Level, upgrade50Level, upgrade51Level, upgrade52Level, upgrade53Level, upgrade54Level, upgrade55Level, upgrade56Level, upgrade57Level, upgrade58Level, upgrade59Level];
+  let upgradeLevels = [upgrade1Level, upgrade2Level, upgrade3Level, upgrade4Level, upgrade5Level, upgrade6Level, upgrade7Level, upgrade8Level, upgrade9Level, upgrade10Level, upgrade11Level, upgrade12Level, upgrade13Level, upgrade14Level, upgrade15Level, upgrade16Level, upgrade17Level, upgrade18Level, upgrade19Level, upgrade20Level, upgrade21Level, upgrade22Level, upgrade23Level, upgrade24Level, upgrade25Level, upgrade26Level, upgrade27Level, upgrade28Level, upgrade29Level, upgrade30Level, upgrade31Level, upgrade32Level, upgrade33Level, upgrade34Level, upgrade35Level, upgrade36Level, upgrade37Level, upgrade38Level, upgrade39Level, upgrade40Level, upgrade41Level, upgrade42Level, upgrade43Level, upgrade44Level, upgrade45Level, upgrade46Level, upgrade47Level, upgrade48Level, upgrade49Level, upgrade50Level, upgrade51Level, upgrade52Level, upgrade53Level, upgrade54Level, upgrade55Level, upgrade56Level, upgrade57Level, upgrade58Level, upgrade59Level, upgrade60Level, upgrade61Level, upgrade62Level, upgrade63Level];
   let availableUpgrades = [];
   for (let i = 0; i < UPGRADE_COUNT; i++) {
     if (upgradeLevels[i] < UPGRADE_MAX_LEVELS[i] && isUpgradeUnlocked(i)) {
@@ -16327,7 +16643,7 @@ function pickUpgradeOptions(exclude = []) {
 function canRerollUpgrades() {
   if (upgradeRerolls <= 0) return false;
   if (isTutorialRun() && !tutorialAllowsReroll()) return false;
-  let upgradeLevels = [upgrade1Level, upgrade2Level, upgrade3Level, upgrade4Level, upgrade5Level, upgrade6Level, upgrade7Level, upgrade8Level, upgrade9Level, upgrade10Level, upgrade11Level, upgrade12Level, upgrade13Level, upgrade14Level, upgrade15Level, upgrade16Level, upgrade17Level, upgrade18Level, upgrade19Level, upgrade20Level, upgrade21Level, upgrade22Level, upgrade23Level, upgrade24Level, upgrade25Level, upgrade26Level, upgrade27Level, upgrade28Level, upgrade29Level, upgrade30Level, upgrade31Level, upgrade32Level, upgrade33Level, upgrade34Level, upgrade35Level, upgrade36Level, upgrade37Level, upgrade38Level, upgrade39Level, upgrade40Level, upgrade41Level, upgrade42Level, upgrade43Level, upgrade44Level, upgrade45Level, upgrade46Level, upgrade47Level, upgrade48Level, upgrade49Level, upgrade50Level, upgrade51Level, upgrade52Level, upgrade53Level, upgrade54Level, upgrade55Level, upgrade56Level, upgrade57Level, upgrade58Level, upgrade59Level];
+  let upgradeLevels = [upgrade1Level, upgrade2Level, upgrade3Level, upgrade4Level, upgrade5Level, upgrade6Level, upgrade7Level, upgrade8Level, upgrade9Level, upgrade10Level, upgrade11Level, upgrade12Level, upgrade13Level, upgrade14Level, upgrade15Level, upgrade16Level, upgrade17Level, upgrade18Level, upgrade19Level, upgrade20Level, upgrade21Level, upgrade22Level, upgrade23Level, upgrade24Level, upgrade25Level, upgrade26Level, upgrade27Level, upgrade28Level, upgrade29Level, upgrade30Level, upgrade31Level, upgrade32Level, upgrade33Level, upgrade34Level, upgrade35Level, upgrade36Level, upgrade37Level, upgrade38Level, upgrade39Level, upgrade40Level, upgrade41Level, upgrade42Level, upgrade43Level, upgrade44Level, upgrade45Level, upgrade46Level, upgrade47Level, upgrade48Level, upgrade49Level, upgrade50Level, upgrade51Level, upgrade52Level, upgrade53Level, upgrade54Level, upgrade55Level, upgrade56Level, upgrade57Level, upgrade58Level, upgrade59Level, upgrade60Level, upgrade61Level, upgrade62Level, upgrade63Level];
   for (let i = 0; i < UPGRADE_COUNT; i++) {
     if (upgradeLevels[i] < UPGRADE_MAX_LEVELS[i] && isUpgradeUnlocked(i) && !displayedUpgrades.includes(i)) return true;
   }
@@ -16467,6 +16783,14 @@ function applyUpgrade(upgradeIndex) {
     upgrade58Level++;
   } else if (actualUpgradeId === 58 && upgrade59Level < upgradeMaxLevels[58]) {
     upgrade59Level++;
+  } else if (actualUpgradeId === 59 && upgrade60Level < upgradeMaxLevels[59]) {
+    upgrade60Level++;
+  } else if (actualUpgradeId === 60 && upgrade61Level < upgradeMaxLevels[60]) {
+    upgrade61Level++;
+  } else if (actualUpgradeId === 61 && upgrade62Level < upgradeMaxLevels[61]) {
+    upgrade62Level++;
+  } else if (actualUpgradeId === 62 && upgrade63Level < upgradeMaxLevels[62]) {
+    upgrade63Level++;
   }
   
   // Level up the EXP system
@@ -16492,8 +16816,8 @@ function applyUpgrade(upgradeIndex) {
   }
   
   //TODO: Add actual upgrade effects based on actualUpgradeId (0-19)
-  let levels = [upgrade1Level, upgrade2Level, upgrade3Level, upgrade4Level, upgrade5Level, upgrade6Level, upgrade7Level, upgrade8Level, upgrade9Level, upgrade10Level, upgrade11Level, upgrade12Level, upgrade13Level, upgrade14Level, upgrade15Level, upgrade16Level, upgrade17Level, upgrade18Level, upgrade19Level, upgrade20Level, upgrade21Level, upgrade22Level, upgrade23Level, upgrade24Level, upgrade25Level, upgrade26Level, upgrade27Level, upgrade28Level, upgrade29Level, upgrade30Level, upgrade31Level, upgrade32Level, upgrade33Level, upgrade34Level, upgrade35Level, upgrade36Level, upgrade37Level, upgrade38Level, upgrade39Level, upgrade40Level, upgrade41Level, upgrade42Level, upgrade43Level, upgrade44Level, upgrade45Level, upgrade46Level, upgrade47Level, upgrade48Level, upgrade49Level, upgrade50Level, upgrade51Level, upgrade52Level, upgrade53Level, upgrade54Level, upgrade55Level, upgrade56Level, upgrade57Level, upgrade58Level, upgrade59Level];
-  let upgradeNames = ['Walking Speed', 'Dash Speed', 'Dash Cooldown', 'Add Shield', 'Add Bullets', 'Shield Regeneration', 'Bullet Reload', 'Bullet Speed', 'Free-Angle Aiming', 'Rivacindela hudsoni (Tiger Beetle)', 'Anthia sexmaculata (Oogpister Beetle)', 'Horns', 'Potent Acid', 'Shockwave', 'Shockwave Radius', 'Shockwave Damage', 'Shockwave Cooldown', 'Shockwave Knockback', 'Bullet Deflection', 'Health Regeneration', 'Runt Hunter', 'Increased Metabolism', 'EXP Boost', 'Combo Surge', 'Dash Harvest', 'Shockwave Harvest', 'Bullet Harvest', 'Spray Acid', 'Spray Length', 'Spray Width', 'Piercing Acid', 'Piercing Depth', 'Impact Bomb', 'Timed Bomb', 'Proximity Bomb', 'Blast Radius', 'Coccinella septempunctata (Lady Beetle)', 'Aphid Health', 'Aphid Spawn Rate', 'Speedy Aphids', 'Armored Aphids', 'Wise Aphids', 'Healthy Aphids', 'Lucky Aphids', 'Mound Ring', 'Bunker', 'Vortex', 'Flight and Slam', 'Mound Health', 'Flight Duration', 'Starting Health', 'Dash Deflection', 'Shell Shrapnel', 'Shrapnel Count', 'Burrow', 'Beam Deflection', 'Rainbow Aphids', 'Dash Gust', 'Dash Blast'];
+  let levels = [upgrade1Level, upgrade2Level, upgrade3Level, upgrade4Level, upgrade5Level, upgrade6Level, upgrade7Level, upgrade8Level, upgrade9Level, upgrade10Level, upgrade11Level, upgrade12Level, upgrade13Level, upgrade14Level, upgrade15Level, upgrade16Level, upgrade17Level, upgrade18Level, upgrade19Level, upgrade20Level, upgrade21Level, upgrade22Level, upgrade23Level, upgrade24Level, upgrade25Level, upgrade26Level, upgrade27Level, upgrade28Level, upgrade29Level, upgrade30Level, upgrade31Level, upgrade32Level, upgrade33Level, upgrade34Level, upgrade35Level, upgrade36Level, upgrade37Level, upgrade38Level, upgrade39Level, upgrade40Level, upgrade41Level, upgrade42Level, upgrade43Level, upgrade44Level, upgrade45Level, upgrade46Level, upgrade47Level, upgrade48Level, upgrade49Level, upgrade50Level, upgrade51Level, upgrade52Level, upgrade53Level, upgrade54Level, upgrade55Level, upgrade56Level, upgrade57Level, upgrade58Level, upgrade59Level, upgrade60Level, upgrade61Level, upgrade62Level, upgrade63Level];
+  let upgradeNames = ['Walking Speed', 'Dash Speed', 'Dash Cooldown', 'Add Shield', 'Add Bullets', 'Shield Regeneration', 'Bullet Reload', 'Bullet Speed', 'Free-Angle Aiming', 'Rivacindela hudsoni (Tiger Beetle)', 'Anthia sexmaculata (Oogpister Beetle)', 'Horns', 'Potent Acid', 'Shockwave', 'Shockwave Radius', 'Shockwave Damage', 'Shockwave Cooldown', 'Shockwave Knockback', 'Bullet Deflection', 'Health Regeneration', 'Runt Hunter', 'Increased Metabolism', 'EXP Boost', 'Combo Surge', 'Dash Harvest', 'Shockwave Harvest', 'Bullet Harvest', 'Spray Acid', 'Spray Length', 'Spray Width', 'Piercing Acid', 'Piercing Depth', 'Impact Bomb', 'Timed Bomb', 'Proximity Bomb', 'Blast Radius', 'Coccinella septempunctata (Lady Beetle)', 'Aphid Health', 'Aphid Spawn Rate', 'Speedy Aphids', 'Armored Aphids', 'Wise Aphids', 'Healthy Aphids', 'Lucky Aphids', 'Mound Ring', 'Bunker', 'Vortex', 'Flight and Slam', 'Mound Health', 'Flight Duration', 'Starting Health', 'Dash Deflection', 'Shell Shrapnel', 'Shrapnel Count', 'Burrow', 'Beam Deflection', 'Rainbow Aphids', 'Dash Gust', 'Dash Blast', 'Sceptobius lativentris (Rove Beetle)', 'Lomechusoides strumosus (Rove Beetle)', 'Homing Deprogramming', 'Homing Redirect'];
   debugLog(`${upgradeNames[actualUpgradeId]} selected! Level: ${levels[actualUpgradeId]}`);
   
   // Update upgrade booleans
@@ -16785,6 +17109,8 @@ function clearRoundEffects() {
   antStreamEndFrame = [];
   antPortalSprayFrame = [];
   antSelfDestructFuse = [];
+  antSkipShot = [];
+  antLure = [];
   enemySmokeImpacts = [];
   enemyTerritories = [];
   enemyWalls = [];
@@ -21203,6 +21529,10 @@ function savePlayerState(playerIndex) {
   p.upgrade57 = upgrade57Level;
   p.upgrade58 = upgrade58Level;
   p.upgrade59 = upgrade59Level;
+  p.upgrade60 = upgrade60Level;
+  p.upgrade61 = upgrade61Level;
+  p.upgrade62 = upgrade62Level;
+  p.upgrade63 = upgrade63Level;
   p.upgradeRerolls = upgradeRerolls;
   
   // Save experience
@@ -21287,6 +21617,10 @@ function loadPlayerState(playerIndex) {
   upgrade57Level = p.upgrade57 || 0;
   upgrade58Level = p.upgrade58 || 0;
   upgrade59Level = p.upgrade59 || 0;
+  upgrade60Level = p.upgrade60 || 0;
+  upgrade61Level = p.upgrade61 || 0;
+  upgrade62Level = p.upgrade62 || 0;
+  upgrade63Level = p.upgrade63 || 0;
   upgradeRerolls = p.upgradeRerolls !== undefined ? p.upgradeRerolls : UPGRADE_REROLLS_PER_RUN;
   resetShotMode(); // Each player's turn starts on the default shot
   resetShockwaveVariant(); // ...and the original shockwave, with nothing left over from the last player
@@ -22448,7 +22782,11 @@ function drawDevTools() {
         upgrade56: upgrade56Level,
         upgrade57: upgrade57Level,
         upgrade58: upgrade58Level,
-        upgrade59: upgrade59Level
+        upgrade59: upgrade59Level,
+        upgrade60: upgrade60Level,
+        upgrade61: upgrade61Level,
+        upgrade62: upgrade62Level,
+        upgrade63: upgrade63Level
       };
     } else if (devToolsTab === 'multi') {
       // Multiplayer mode - get upgrades from selected player
@@ -22512,7 +22850,11 @@ function drawDevTools() {
           upgrade56: players[devToolsPlayerTab].upgrade56 || 0,
           upgrade57: players[devToolsPlayerTab].upgrade57 || 0,
           upgrade58: players[devToolsPlayerTab].upgrade58 || 0,
-          upgrade59: players[devToolsPlayerTab].upgrade59 || 0
+          upgrade59: players[devToolsPlayerTab].upgrade59 || 0,
+          upgrade60: players[devToolsPlayerTab].upgrade60 || 0,
+          upgrade61: players[devToolsPlayerTab].upgrade61 || 0,
+          upgrade62: players[devToolsPlayerTab].upgrade62 || 0,
+          upgrade63: players[devToolsPlayerTab].upgrade63 || 0
         };
       } else {
         // Player doesn't exist, show zeros
@@ -22522,7 +22864,7 @@ function drawDevTools() {
           upgrade11: 0, upgrade12: 0, upgrade13: 0, upgrade14: 0, upgrade15: 0,
           upgrade16: 0, upgrade17: 0, upgrade18: 0, upgrade19: 0, upgrade20: 0,
           upgrade21: 0, upgrade22: 0, upgrade23: 0, upgrade24: 0, upgrade25: 0, upgrade26: 0, upgrade27: 0,
-          upgrade28: 0, upgrade29: 0, upgrade30: 0, upgrade31: 0, upgrade32: 0, upgrade33: 0, upgrade34: 0, upgrade35: 0, upgrade36: 0, upgrade37: 0, upgrade38: 0, upgrade39: 0, upgrade40: 0, upgrade41: 0, upgrade42: 0, upgrade43: 0, upgrade44: 0, upgrade45: 0, upgrade46: 0, upgrade47: 0, upgrade48: 0, upgrade49: 0, upgrade50: 0, upgrade51: 0, upgrade52: 0, upgrade53: 0, upgrade54: 0, upgrade55: 0, upgrade56: 0, upgrade57: 0, upgrade58: 0, upgrade59: 0
+          upgrade28: 0, upgrade29: 0, upgrade30: 0, upgrade31: 0, upgrade32: 0, upgrade33: 0, upgrade34: 0, upgrade35: 0, upgrade36: 0, upgrade37: 0, upgrade38: 0, upgrade39: 0, upgrade40: 0, upgrade41: 0, upgrade42: 0, upgrade43: 0, upgrade44: 0, upgrade45: 0, upgrade46: 0, upgrade47: 0, upgrade48: 0, upgrade49: 0, upgrade50: 0, upgrade51: 0, upgrade52: 0, upgrade53: 0, upgrade54: 0, upgrade55: 0, upgrade56: 0, upgrade57: 0, upgrade58: 0, upgrade59: 0, upgrade60: 0, upgrade61: 0, upgrade62: 0, upgrade63: 0
         };
       }
     }
@@ -22589,7 +22931,11 @@ function drawDevTools() {
         { name: 'Beam Deflection', level: currentUpgrades.upgrade56, maxLevel: 1, id: 55 },
         { name: 'Rainbow Aphids', level: currentUpgrades.upgrade57, maxLevel: 1, id: 56 },
         { name: 'Dash Gust', level: currentUpgrades.upgrade58, maxLevel: 1, id: 57 },
-        { name: 'Dash Blast', level: currentUpgrades.upgrade59, maxLevel: 1, id: 58 }
+        { name: 'Dash Blast', level: currentUpgrades.upgrade59, maxLevel: 1, id: 58 },
+        { name: 'Sceptobius lativentris (Rove Beetle)', level: currentUpgrades.upgrade60, maxLevel: 1, id: 59 },
+        { name: 'Lomechusoides strumosus (Rove Beetle)', level: currentUpgrades.upgrade61, maxLevel: 1, id: 60 },
+        { name: 'Homing Deprogramming', level: currentUpgrades.upgrade62, maxLevel: 1, id: 61 },
+        { name: 'Homing Redirect', level: currentUpgrades.upgrade63, maxLevel: 1, id: 62 }
       ];
     
     // Handle player sub-tab switching in multiplayer mode
@@ -22821,7 +23167,7 @@ function toggleDevUpgrade(upgradeId) {
   
   if (devToolsTab === 'single') {
     let upgradeLevels = [upgrade1Level, upgrade2Level, upgrade3Level, upgrade4Level, upgrade5Level, 
-                         upgrade6Level, upgrade7Level, upgrade8Level, upgrade9Level, upgrade10Level, upgrade11Level, upgrade12Level, upgrade13Level, upgrade14Level, upgrade15Level, upgrade16Level, upgrade17Level, upgrade18Level, upgrade19Level, upgrade20Level, upgrade21Level, upgrade22Level, upgrade23Level, upgrade24Level, upgrade25Level, upgrade26Level, upgrade27Level, upgrade28Level, upgrade29Level, upgrade30Level, upgrade31Level, upgrade32Level, upgrade33Level, upgrade34Level, upgrade35Level, upgrade36Level, upgrade37Level, upgrade38Level, upgrade39Level, upgrade40Level, upgrade41Level, upgrade42Level, upgrade43Level, upgrade44Level, upgrade45Level, upgrade46Level, upgrade47Level, upgrade48Level, upgrade49Level, upgrade50Level, upgrade51Level, upgrade52Level, upgrade53Level, upgrade54Level, upgrade55Level, upgrade56Level, upgrade57Level, upgrade58Level, upgrade59Level];
+                         upgrade6Level, upgrade7Level, upgrade8Level, upgrade9Level, upgrade10Level, upgrade11Level, upgrade12Level, upgrade13Level, upgrade14Level, upgrade15Level, upgrade16Level, upgrade17Level, upgrade18Level, upgrade19Level, upgrade20Level, upgrade21Level, upgrade22Level, upgrade23Level, upgrade24Level, upgrade25Level, upgrade26Level, upgrade27Level, upgrade28Level, upgrade29Level, upgrade30Level, upgrade31Level, upgrade32Level, upgrade33Level, upgrade34Level, upgrade35Level, upgrade36Level, upgrade37Level, upgrade38Level, upgrade39Level, upgrade40Level, upgrade41Level, upgrade42Level, upgrade43Level, upgrade44Level, upgrade45Level, upgrade46Level, upgrade47Level, upgrade48Level, upgrade49Level, upgrade50Level, upgrade51Level, upgrade52Level, upgrade53Level, upgrade54Level, upgrade55Level, upgrade56Level, upgrade57Level, upgrade58Level, upgrade59Level, upgrade60Level, upgrade61Level, upgrade62Level, upgrade63Level];
     currentLevel = upgradeLevels[upgradeId];
   } else {
     // Multiplayer - get from selected player
@@ -22885,7 +23231,11 @@ function toggleDevUpgrade(upgradeId) {
         players[devToolsPlayerTab].upgrade56 || 0,
         players[devToolsPlayerTab].upgrade57 || 0,
         players[devToolsPlayerTab].upgrade58 || 0,
-        players[devToolsPlayerTab].upgrade59 || 0
+        players[devToolsPlayerTab].upgrade59 || 0,
+        players[devToolsPlayerTab].upgrade60 || 0,
+        players[devToolsPlayerTab].upgrade61 || 0,
+        players[devToolsPlayerTab].upgrade62 || 0,
+        players[devToolsPlayerTab].upgrade63 || 0
       ];
       currentLevel = playerUpgrades[upgradeId];
     }
@@ -22960,7 +23310,7 @@ function activateDevPrerequisites(upgradeId, targetLevel) {
   let getCurrentLevel = (id) => {
     if (devToolsTab === 'single') {
       let levels = [upgrade1Level, upgrade2Level, upgrade3Level, upgrade4Level, upgrade5Level, 
-                    upgrade6Level, upgrade7Level, upgrade8Level, upgrade9Level, upgrade10Level, upgrade11Level, upgrade12Level, upgrade13Level, upgrade14Level, upgrade15Level, upgrade16Level, upgrade17Level, upgrade18Level, upgrade19Level, upgrade20Level, upgrade21Level, upgrade22Level, upgrade23Level, upgrade24Level, upgrade25Level, upgrade26Level, upgrade27Level, upgrade28Level, upgrade29Level, upgrade30Level, upgrade31Level, upgrade32Level, upgrade33Level, upgrade34Level, upgrade35Level, upgrade36Level, upgrade37Level, upgrade38Level, upgrade39Level, upgrade40Level, upgrade41Level, upgrade42Level, upgrade43Level, upgrade44Level, upgrade45Level, upgrade46Level, upgrade47Level, upgrade48Level, upgrade49Level, upgrade50Level, upgrade51Level, upgrade52Level, upgrade53Level, upgrade54Level, upgrade55Level, upgrade56Level, upgrade57Level, upgrade58Level, upgrade59Level];
+                    upgrade6Level, upgrade7Level, upgrade8Level, upgrade9Level, upgrade10Level, upgrade11Level, upgrade12Level, upgrade13Level, upgrade14Level, upgrade15Level, upgrade16Level, upgrade17Level, upgrade18Level, upgrade19Level, upgrade20Level, upgrade21Level, upgrade22Level, upgrade23Level, upgrade24Level, upgrade25Level, upgrade26Level, upgrade27Level, upgrade28Level, upgrade29Level, upgrade30Level, upgrade31Level, upgrade32Level, upgrade33Level, upgrade34Level, upgrade35Level, upgrade36Level, upgrade37Level, upgrade38Level, upgrade39Level, upgrade40Level, upgrade41Level, upgrade42Level, upgrade43Level, upgrade44Level, upgrade45Level, upgrade46Level, upgrade47Level, upgrade48Level, upgrade49Level, upgrade50Level, upgrade51Level, upgrade52Level, upgrade53Level, upgrade54Level, upgrade55Level, upgrade56Level, upgrade57Level, upgrade58Level, upgrade59Level, upgrade60Level, upgrade61Level, upgrade62Level, upgrade63Level];
       return levels[id];
     } else if (players[devToolsPlayerTab]) {
       let playerLevels = [
@@ -23022,7 +23372,11 @@ function activateDevPrerequisites(upgradeId, targetLevel) {
         players[devToolsPlayerTab].upgrade56 || 0,
         players[devToolsPlayerTab].upgrade57 || 0,
         players[devToolsPlayerTab].upgrade58 || 0,
-        players[devToolsPlayerTab].upgrade59 || 0
+        players[devToolsPlayerTab].upgrade59 || 0,
+        players[devToolsPlayerTab].upgrade60 || 0,
+        players[devToolsPlayerTab].upgrade61 || 0,
+        players[devToolsPlayerTab].upgrade62 || 0,
+        players[devToolsPlayerTab].upgrade63 || 0
       ];
       return playerLevels[id];
     }
@@ -23140,6 +23494,15 @@ function activateDevPrerequisites(upgradeId, targetLevel) {
   }
   if ((upgradeId === 57 || upgradeId === 58) && getCurrentLevel(1) < 3) {
     setDevUpgradeLevel(1, 3);  // Dash Gust and Dash Blast require Dash Speed 3
+  }
+  if (upgradeId >= 59 && upgradeId <= 62 && getCurrentLevel(13) === 0) {
+    setDevUpgradeLevel(13, 1);  // The rove beetles and homing upgrades require Shockwave
+  }
+  if (upgradeId === 60 && getCurrentLevel(59) === 0) {
+    setDevUpgradeLevel(59, 1);  // Lomechusoides requires Sceptobius
+  }
+  if (upgradeId === 62 && getCurrentLevel(61) === 0) {
+    setDevUpgradeLevel(61, 1);  // Homing Redirect requires Homing Deprogramming
   }
 }
 
@@ -23273,6 +23636,13 @@ function deactivateDevDependentUpgrades(upgradeId) {
     setDevUpgradeLevel(25, 0); // Shockwave Harvest
     for (let id = 44; id <= 49; id++) setDevUpgradeLevel(id, 0); // Shockwave variants and their upgrades
     setDevUpgradeLevel(54, 0);
+    for (let id = 59; id <= 62; id++) setDevUpgradeLevel(id, 0); // Rove beetles and homing upgrades
+  }
+  if (upgradeId === 59) {
+    setDevUpgradeLevel(60, 0); // Lomechusoides needs Sceptobius
+  }
+  if (upgradeId === 61) {
+    setDevUpgradeLevel(62, 0); // Homing Redirect needs Homing Deprogramming
   }
 }
 
@@ -23337,6 +23707,10 @@ function setUpgradeLevel(upgradeId, level) {
   else if (upgradeId === 56) upgrade57Level = level;
   else if (upgradeId === 57) upgrade58Level = level;
   else if (upgradeId === 58) upgrade59Level = level;
+  else if (upgradeId === 59) upgrade60Level = level;
+  else if (upgradeId === 60) upgrade61Level = level;
+  else if (upgradeId === 61) upgrade62Level = level;
+  else if (upgradeId === 62) upgrade63Level = level;
   
   // Apply the changes to game stats
   updateUpgradeBooleans();
@@ -23405,6 +23779,10 @@ function setDevUpgradeLevel(upgradeId, level) {
     else if (upgradeId === 56) upgrade57Level = level;
     else if (upgradeId === 57) upgrade58Level = level;
     else if (upgradeId === 58) upgrade59Level = level;
+    else if (upgradeId === 59) upgrade60Level = level;
+    else if (upgradeId === 60) upgrade61Level = level;
+    else if (upgradeId === 61) upgrade62Level = level;
+    else if (upgradeId === 62) upgrade63Level = level;
     
     // Apply the changes to game stats
     updateUpgradeBooleans();
@@ -23470,6 +23848,10 @@ function setDevUpgradeLevel(upgradeId, level) {
       else if (upgradeId === 56) players[devToolsPlayerTab].upgrade57 = level;
       else if (upgradeId === 57) players[devToolsPlayerTab].upgrade58 = level;
       else if (upgradeId === 58) players[devToolsPlayerTab].upgrade59 = level;
+      else if (upgradeId === 59) players[devToolsPlayerTab].upgrade60 = level;
+      else if (upgradeId === 60) players[devToolsPlayerTab].upgrade61 = level;
+      else if (upgradeId === 61) players[devToolsPlayerTab].upgrade62 = level;
+      else if (upgradeId === 62) players[devToolsPlayerTab].upgrade63 = level;
       
       // Update player's stats based on their new upgrade levels
       updatePlayerStats(devToolsPlayerTab);
