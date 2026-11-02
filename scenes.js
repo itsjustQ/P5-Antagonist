@@ -108,16 +108,30 @@ class SceneActor {
   }
   emote(t, type, dur = 60) {
     this.emotes.push({ t: t, type: type, dur: dur });
+    if (this.kind === 'beetle' && (type === '!' || type === '!?')) this.at(t, () => rumble(50, 0, 0.15)); // Startled
     this.scene.extend(t);
     return this;
   }
-  flash(t, dur = 12) { return this.at(t, () => { this.flashUntil = this.scene.t + dur; }); }
-  shake(t, dur, amp = 3) { return this.at(t, () => { this.shakeUntil = this.scene.t + dur; this.shakeAmp = amp; }); }
+  flash(t, dur = 12) {
+    return this.at(t, () => {
+      this.flashUntil = this.scene.t + dur;
+      if (this.kind === 'beetle') rumble(90, 0.2, 0.4); // A close call (or a hit) on the beetle
+    });
+  }
+  // The controller buzzes along (the beetle's own shakes harder than an ant's)
+  shake(t, dur, amp = 3) {
+    return this.at(t, () => {
+      this.shakeUntil = this.scene.t + dur;
+      this.shakeAmp = amp;
+      rumble(dur * 1000 / 60, 0, (this.kind === 'beetle' ? 0.1 : 0.05) * amp);
+    });
+  }
   digUp(t0, dur = 34) {
     this.visible = false;
     this.at(t0, () => {
       this.visible = true;
       this.dig = { t0: t0, dur: dur };
+      rumble(60, 0, 0.1);
       this.scene.dirt(this.x, this.y, 10 + 4 * this.size);
     });
     this.scene.extend(t0 + dur);
@@ -135,6 +149,7 @@ class SceneActor {
     return this.at(t, () => {
       this.visible = false;
       this.scene.poof(this.x, this.y, kind === 'squash' ? 26 : 18, kind === 'explode');
+      rumble(60, 0.1, 0.25);
     });
   }
 
@@ -160,6 +175,8 @@ class SceneActor {
         m.started = true;
         m.sx = this.x;
         m.sy = this.y;
+        // The beetle dashing or darting out of the way gets a quick kick
+        if (this.kind === 'beetle' && (m.trail || m.ease === 'snap')) rumble(70, 0.12, 0.3);
       }
       const f = constrain((t - m.t0) / m.dur, 0, 1);
       const e = sceneEase(m.ease, f);
@@ -433,7 +450,7 @@ class RoundScene {
     this.events.push({ t: t, fn: fn, done: false });
     this.extend(t);
   }
-  shake(t, dur, amp = 6) { this.at(t, () => { this.shakeUntil = this.t + dur; this.shakeAmp = amp; }); }
+  shake(t, dur, amp = 6) { this.at(t, () => { this.shakeUntil = this.t + dur; this.shakeAmp = amp; rumbleForShake(dur, amp); }); }
   flash(t, dur = 10) { this.at(t, () => { this.flashUntil = this.t + dur; this.flashDur = dur; }); }
 
   // Round ants that have an ability (most points first), to star in the scene
@@ -706,16 +723,29 @@ function stepSceneFx(S, f) {
       }
       f.x += f.vx;
       f.y += f.vy;
+      // A faint buzz as one whizzes past the beetle (once each)
+      if (!f.whizzed && S.beetle.visible && dist(f.x, f.y, S.beetle.x, S.beetle.y - S.beetle.air) < 60) {
+        f.whizzed = true;
+        rumble(45, 0, 0.1 + 0.05 * Math.min(f.size, 2));
+      }
       if (f.hit && f.hit.visible && dist(f.x, f.y, f.hit.x, f.hit.y - f.hit.air) < 22 + 6 * f.size) {
         f.hit.flashUntil = S.t + 14;
         S.addFx({ kind: 'ring', x: f.x, y: f.y, life: 12, r: 26, color: [120, 255, 120] });
         if (f.onHit) f.onHit(f);
+        if (f.hit === S.beetle) rumble(110, 0.3, 0.5);
         if (typeof sShieldHit1 !== 'undefined' && !sHit1.isPlaying()) sHit1.play();
         return false;
       }
       return f.age < f.life && f.x > -200 && f.x < S.W + 200 && f.y > -200 && f.y < S.H + 200;
     }
     case 'stream':
+      if (f.age === 1) rumble(f.life * 1000 / 60, 0, 0.18); // A steady hiss while it sprays
+      return f.age < f.life;
+    case 'beam':
+      if (f.age === f.warn) rumble(f.dur * 1000 / 60, 0.08, 0.25); // It fires
+      return f.age < f.life;
+    case 'portal':
+      if (f.age === 1) rumble(40, 0, 0.12);
       return f.age < f.life;
     default:
       return f.age < (f.life || 30);
@@ -1110,6 +1140,7 @@ function drawRoundSceneFrame() {
 }
 
 function finishRoundScene() {
+  if (roundScene && roundScene.t < roundScene.duration) stopRumble(); // Skipped: don't keep rumbling into the countdown
   roundScene = null;
   roundScenePending = false;
   roundIntroTimer = ROUND_INTRO_FRAMES;
@@ -1248,7 +1279,7 @@ const ROUND_SCENES = [
       b.look = prey;
       b.path(0, 55, [[S.W * 0.18, S.cy - 10], [S.W * 0.42, S.cy + 20]], 'linear');
       b.move(110, 22, S.cx, S.cy, 'out');
-      S.at(130, () => S.dust(S.cx, S.cy + 20, 8));
+      S.at(130, () => { S.dust(S.cx, S.cy + 20, 8); rumble(90, 0.1, 0.25); }); // Skids to a stop
       b.face(132, 0);
       b.emote(134, '!', 50);
       b.at(150, () => { b.look = S.roster.length ? S.roster[Math.floor(S.roster.length / 2)] : 0; });
@@ -1389,7 +1420,9 @@ const ROUND_SCENES = [
         }
       };
       for (let k = 0; k < 18; k++) b.at(k * 10, () => { b.y = S.cy + Math.sin(k) * 2; });
-      S.at(180, () => S.dust(S.cx - 20, S.cy + 20, 12, Math.PI));
+      // A low hum as it tears through the forest, then a thump as it stops dead
+      for (let k = 0; k < 18; k++) S.at(k * 10, () => rumble(200, 0.05, 0.15));
+      S.at(180, () => { S.dust(S.cx - 20, S.cy + 20, 12, Math.PI); rumble(160, 0.35, 0.5); });
       S.flash(180, 6);
       b.emote(190, '!', 50);
       S.crowd().forEach((a, k) => a.emote(188 + (k % 6) * 2, '!', 40));
@@ -1535,6 +1568,13 @@ const ROUND_SCENES = [
         S.stream(t0, a, { angle: Math.atan2(from.y - a.home.y, from.x - a.home.x) + 0.5, len: 60, width: 18, dur: 70 });
         a.face(t0 + 70, b);
       });
+      // A heavy rumble rolls in with them, building as more take to the air, until the last one lands
+      const flyStart = arrive - 10;
+      const flyEnd = flyStart + (flyers.length - 1) * 8 + 70;
+      for (let t = flyStart; t < flyEnd; t += 8) {
+        const up = Math.min(1, (t - flyStart) / 40);
+        S.at(t, () => rumble(200, 0.35 + 0.4 * up, 0.3 + 0.2 * up));
+      }
       b.emote(arrive, '!', 50);
       b.at(arrive + 5, () => { b.look = flyers[0]; });
       const done = S.gather(arrive + 40, 'run');
@@ -1602,6 +1642,7 @@ const ROUND_SCENES = [
       b.emote(fire + 16, 'sweat', 60);
       b.face(fire + 20, ant);
       b.emote(fire + 80, 'anger', 50);
+      b.move(fire + 85, 30, S.cx, S.cy); // Back to the middle, still glaring at it
       S.sendHome(fire + 85, [ant]);
       const done = S.gather(fire + 80, 'run');
       S.extend(done + 20);
@@ -2170,6 +2211,7 @@ const ROUND_SCENES = [
       b.at(222, () => { b.look = layer; });
       b.emote(224, '!', 40);
       S.at(255, () => { S.ground = S.ground.filter(g => g.kind !== 'mine'); });
+      b.move(258, 16, S.cx, S.cy); // A careful step back to where the mine was
       S.sendHome(250, [layer]);
       const done = S.gather(250, 'run');
       S.extend(done + 20);

@@ -447,6 +447,7 @@ function beginStageAttack(forcedKey) {
 function shakeScreen(frames, amp) {
   screenShake.frames = Math.max(screenShake.frames, frames);
   screenShake.amp = Math.max(screenShake.frames > 0 ? screenShake.amp : 0, amp);
+  rumbleForShake(frames, amp);
 }
 
 function getScreenShake() {

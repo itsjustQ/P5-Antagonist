@@ -1358,6 +1358,7 @@ function updatePauseRequest() {
   if (!pausePressedThisFrame || end || roundIntroTimer > 0 || isTutorialPaused() || tutorial && tutorial.cardPending) return;
   gamePauseSnapshot = get();
   gamePaused = true;
+  stopRumble();
   pauseMusicWasPlaying = gamemusic && gamemusic.isPlaying();
   if (pauseMusicWasPlaying) gamemusic.pause();
 }
@@ -6759,6 +6760,9 @@ function updateFlight() {
   if (!isPlayerFlying()) return;
   if (slamWindupFrame > 0) {
     slamWindupFrame++;
+    // A buzz that builds as it rises, then the landing thumps (its screen shake)
+    const riseFrames = SLAM_WINDUP_FRAMES - SLAM_DROP_FRAMES;
+    if (slamWindupFrame <= riseFrames && slamWindupFrame % 6 === 0) rumble(120, 0, 0.1 + 0.4 * slamWindupFrame / riseFrames);
     if (slamWindupFrame >= SLAM_WINDUP_FRAMES) landSlam();
     return;
   }
@@ -14537,6 +14541,10 @@ function spawnBeetleHitEffect(fromX, fromY, vx, vy, tier, shielded) {
     y: playerY - dirY * 14,
     dirX: dirX, dirY: dirY, style: style, sparks: sparks, shielded: shielded, life: 0
   });
+  // Every hit gets a kick, harder as the bullet's faster; the shield softens it to a buzz
+  const kick = constrain(tier, 1, 5) / 5;
+  if (shielded) rumble(50 + tier * 15, 0, 0.15 + kick * 0.35);
+  else rumble(70 + tier * 25, kick * 0.8, 0.25 + kick * 0.6);
   if (style.shake > 0) shakeScreen(6 + tier * 2, style.shake);
 }
 
@@ -18064,6 +18072,7 @@ function drawCinematicTitle() {
   let slam = constrain(t / 10, 0, 1);
   let zoom = lerp(1.6, 1, slam * slam);
   let shake = t >= 10 ? max(0, 1 - (t - 10) / 20) * 10 : 0;
+  if (t === 10) rumbleForShake(30, 10); // The title lands
   push();
   translate((left + right) / 2 + random(-shake, shake), baseline - size * 0.35 + random(-shake, shake));
   scale(zoom);
@@ -20884,6 +20893,51 @@ function updateGamepad() {
   if (!gamepad) {
     gamepadConnected = false;
   }
+}
+
+// ========== HAPTICS ==========
+// Controller rumble for hits, blasts and cutscene beats. A new rumble only cuts off the one playing if it's at
+// least as strong (or that one is over), so a flurry of small hits doesn't cut a big blast short.
+const HAPTIC_FULL_SHAKE = 8;   // A screen shake this hard rumbles at full strength
+const HAPTIC_MAX_MS = 700;
+let hapticUntil = 0;
+let hapticStrength = 0;
+
+// strong: the big low motor, weak: the small buzzy one (0-1 each)
+function rumble(ms, strong, weak = strong) {
+  if (!gamepad) return;
+  strong = constrain(strong, 0, 1);
+  weak = constrain(weak, 0, 1);
+  const strength = Math.max(strong, weak);
+  const now = performance.now();
+  if (strength <= 0) return;
+  if (now < hapticUntil) {
+    if (strength < hapticStrength - 0.02) return;
+    // Shakes asked for every frame (beams): keep the one playing until it's half over
+    if (strength <= hapticStrength + 0.02 && hapticUntil - now > ms / 2) return;
+  }
+  ms = Math.min(Math.round(ms), HAPTIC_MAX_MS);
+  hapticUntil = now + ms;
+  hapticStrength = strength;
+  const actuator = gamepad.vibrationActuator;
+  if (actuator && actuator.playEffect) {
+    actuator.playEffect('dual-rumble', { startDelay: 0, duration: ms, strongMagnitude: strong, weakMagnitude: weak }).catch(() => {});
+  } else if (gamepad.hapticActuators && gamepad.hapticActuators[0]) {
+    gamepad.hapticActuators[0].pulse(strength, ms); // Firefox
+  }
+}
+
+function stopRumble() {
+  hapticUntil = 0;
+  hapticStrength = 0;
+  const actuator = gamepad && gamepad.vibrationActuator;
+  if (actuator && actuator.reset) actuator.reset().catch(() => {});
+}
+
+// A rumble to go with a screen shake of amp px over frames: soft shakes buzz, hard ones thump
+function rumbleForShake(frames, amp) {
+  const f = constrain(amp / HAPTIC_FULL_SHAKE, 0, 1);
+  rumble(frames * 1000 / 60, f, 0.1 + f * 0.9);
 }
 
 // Check if left/A is pressed (keyboard A/Left or gamepad left stick left)
