@@ -651,6 +651,7 @@ let enemyGroundImpacts = [];
 let enemySmears = []; // Lingering damage patches left by fading bullets (smear death type)
 let deathRefires = []; // Spots where dead bullets fire again (refire / turret death types)
 let enemyBeams = []; // Beams fired by beam bullets (accelerate tier 2) when they would start accelerating
+let playerBeams = []; // Beams the beetle's shell turned back (Beam Deflection)
 let beamHealthFlashFrames = 0; // Frames left of the red damage flash from a beam hit
 let beamShieldFlashFrames = 0; // Frames left of the blue shield flash from a beam hit
 let enemyStreams = []; // Acid streams sprayed by stream fire ants (rapid fire tier 2); never bullets
@@ -779,8 +780,9 @@ let upgrade52Level = 0; // Dash Deflection (max 1): dashing deflects bullets wit
 let upgrade53Level = 0; // Shell Shrapnel (max 1, requires Add Shield): losing a shield to a bullet throws shrapnel back
 let upgrade54Level = 0; // Shrapnel Count (max 2, 1→3 pieces per shield, requires Shell Shrapnel)
 let upgrade55Level = 0; // Burrow (max 1, requires Bunker): shockwave variant, dig underground then burst out with a shockwave
-const UPGRADE_COUNT = 55;
-const UPGRADE_MAX_LEVELS = [4, 5, 5, 9, 8, 5, 5, 5, 1, 1, 1, 4, 4, 1, 5, 5, 5, 3, 4, 5, 1, 7, 10, 4, 1, 1, 1, 1, 4, 4, 1, 9, 1, 1, 1, 3, 1, 3, 2, 1, 1, 1, 1, 1, 1, 1, 1, 1, 3, 5, 4, 1, 1, 2, 1];
+let upgrade56Level = 0; // Beam Deflection (max 1): half the beams that would hit the beetle glance off its shell
+const UPGRADE_COUNT = 56;
+const UPGRADE_MAX_LEVELS = [4, 5, 5, 9, 8, 5, 5, 5, 1, 1, 1, 4, 4, 1, 5, 5, 5, 3, 4, 5, 1, 7, 10, 4, 1, 1, 1, 1, 4, 4, 1, 9, 1, 1, 1, 3, 1, 3, 2, 1, 1, 1, 1, 1, 1, 1, 1, 1, 3, 5, 4, 1, 1, 2, 1, 1];
 let displayedUpgrades = [];  // Array of up to 3 randomly selected upgrade indices (0-9)
 
 // Pre-game upgrade menu variables (insane difficulty 8-10)
@@ -1684,6 +1686,7 @@ function draw() {
       drawEnemyExplosions();
       drawEnemyGroundImpacts();
       updateEnemyBeams();
+      updatePlayerBeams(); // Beam Deflection
       updateEnemyStreams();
       drawBlinkFlashes();
       drawEnemySmokeImpacts();
@@ -1705,6 +1708,7 @@ function draw() {
       resolvePlayerWallCollisions();
       drawDeathEffects();
       drawSpeedRings();
+      drawBeetleHitEffects();
       updateComboSparks();
       drawQueenOverlays();
       drawFinalStageOverlays();
@@ -1736,8 +1740,10 @@ function draw() {
       }
       
       // Health regeneration - if player hasn't taken damage for 200 frames
+      healthRegenActive = false;
       if (upgrade20Level > 0 && end == false) {
         if (frameCount - playerLastDamageFrame >= 200 && health < 30) {
+          healthRegenActive = true;
           // Regeneration rates: 0.001, 0.005, 0.01, 0.05, 0.1
           let regenRates = [0.001, 0.005, 0.01, 0.05, 0.1];
           let regenAmount = regenRates[upgrade20Level - 1] * getPlayerRegenMultiplier();
@@ -1746,6 +1752,7 @@ function draw() {
           health = min(health + regenAmount * regenMultiplier, 30);
         }
       }
+      drawHealthEdgeEffects(); // Low health pulse and regeneration pluses
 
       // Cap health and show the health bar whenever it changes
       health = min(health, MAX_HEALTH);
@@ -1910,12 +1917,14 @@ function resetRunState() {
   upgrade53Level = 0;
   upgrade54Level = 0;
   upgrade55Level = 0;
+  upgrade56Level = 0;
   upgradeRerolls = UPGRADE_REROLLS_PER_RUN;
   displayedUpgrades = [];
   updateUpgradeBooleans();  // Reset all upgrade booleans to false
 
   // Queens: hit count, beaten queens and the inherited strategy only last one run
   queenHitCount = 0;
+  queenWarningFrames = 0;
   queensDefeatedThisRun = 0;
   queenInheritedBrain = null;
   lastBeetleShotFrame = -9999;
@@ -2596,8 +2605,8 @@ function updateScoreAndTimer() {
     updateDifficultyRecord(currentRunScore, level);
   }
 
-  // The round timer stops while a queen is out: only killing her ends the round
-  if (!end && !isQueenFight()) {
+  // The round timer stops while a queen is out (or on her way): only killing her ends the round
+  if (!end && !isQueenFight() && queenWarningFrames === 0) {
     timeCount -= (1 / 100);
   }
 }
@@ -2611,7 +2620,7 @@ function drawRoundTimer() {
   textSize(32);
   stroke(0);
   strokeWeight(4);
-  if (isQueenFight()) {
+  if (isQueenFight() || queenWarningFrames > 0) {
     fill(220, 150, 255);
     text('QUEEN', 18, 14);
     pop();
@@ -3871,6 +3880,7 @@ function dashCollision() {
         
         // Deal damage based on Horns upgrade (1 + 0.2 per level)
         let dashDamage = 1 + (upgrade12Level * 0.2);
+        if (antSize[i] >= DASH_HIT_SHAKE_SIZE) shakeScreen(DASH_HIT_SHAKE_FRAMES, DASH_HIT_SHAKE);
         damageAnt(i, dashDamage);
         antLastHitTime[i] = millis();
         
@@ -4043,6 +4053,8 @@ function drawEnemyBulletBody(bullet, i, bulletStealth, bulletFadeAmount) {
   const isAccelerating = bullet.pathType === 2;
   const hasAccelerated = isAccelerating && bullet.hasAccelerated;
 
+  if (bullet.beamOnAccelerate) drawBeamBulletAimLine(bullet, i, bulletStealth);
+
   // Draw all auras under the bullet image
   if (bullet.knockbackBullet) {
     push();
@@ -4203,6 +4215,27 @@ function drawEnemyBulletBody(bullet, i, bulletStealth, bulletFadeAmount) {
     ellipse(bullet.x, bullet.y - bullet.airHeight, turretCoreSize, turretCoreSize);
     pop();
   }
+}
+
+// Beam bullets: an aiming line (like the queen's beam) along the way the beam will fire, for the last
+// BEAM_AIM_LINE_FRAMES before it does, getting brighter and thicker. Explosive beams fire both ways.
+function drawBeamBulletAimLine(bullet, i, bulletStealth) {
+  const fireAt = bullet.accelerateDelay || 60;
+  const aimFrom = fireAt - BEAM_AIM_LINE_FRAMES;
+  if (bullet.life < aimFrom) return;
+  const speed = Math.sqrt(bullet.speedX * bullet.speedX + bullet.speedY * bullet.speedY);
+  if (speed <= 0) return;
+  const dirX = bullet.speedX / speed;
+  const dirY = bullet.speedY / speed;
+  const t = constrain((bullet.life - aimFrom) / BEAM_AIM_LINE_FRAMES, 0, 1);
+  const forward = getDistanceToPlayAreaEdge(bullet.x, bullet.y, dirX, dirY);
+  const twoWay = explodeOnTermination[i] || triggerExplodeViaProximity[i];
+  const backward = twoWay ? getDistanceToPlayAreaEdge(bullet.x, bullet.y, -dirX, -dirY) : 0;
+  push();
+  stroke(255, 60, 60, (60 + 160 * t) * bulletStealth);
+  strokeWeight(1 + 2 * t);
+  line(bullet.x - dirX * backward, bullet.y - dirY * backward, bullet.x + dirX * forward, bullet.y + dirY * forward);
+  pop();
 }
 
 // Airborne high arc bullets held back this frame so they're drawn over the flying beetle
@@ -4481,6 +4514,10 @@ function enemyShoot1() {
         if (shouldExplode) {
           if (shouldSpawnArcLink) {
             spawnEnemyArcExplosionLink(bullet.x, bullet.y - bullet.airHeight, bullet.y, bullet.size, explosionRadiusScale);
+            // Big air strikes rain down hard
+            if (bullet.size >= AIRSTRIKE_SHAKE_SIZE) {
+              shakeNear(bullet.x, bullet.y, 60, map(bullet.size, AIRSTRIKE_SHAKE_SIZE, 3, AIRSTRIKE_SHAKE[0], AIRSTRIKE_SHAKE[1], true));
+            }
           }
           spawnEnemyExplosion(bullet.x, bullet.y, bullet.size, i, explosionRadiusScale);
           enemyBullets[i].splice(b, 1);
@@ -5094,6 +5131,9 @@ function handlePlayerHit(i, isKnockbackBullet = false, bulletX = 0, bulletY = 0,
       }
     }
 
+    if (!isMine) {
+      spawnBeetleHitEffect(bulletX, bulletY, hitInfo ? hitInfo.vx : 0, hitInfo ? hitInfo.vy : 0, speedTier.knockbackTier, shield > 0);
+    }
     onAntHitPlayer(i);
     onPlayerDamaged(damage);
     if (shield > 0){
@@ -5765,6 +5805,7 @@ function explodePlayerBomb(x, y, mode) {
   if (isQueenHitAt(x, y, radius)) damageQueen(getPlayerBulletDamage(), true);
   playerBombBlasts.push({ x: x, y: y, radius: radius, mode: mode, life: 0 });
   if (!sSpit2.isPlaying()) sSpit2.play();
+  shakeForExplosion(x, y, radius);
 }
 
 function updatePlayerBombBlasts() {
@@ -5999,6 +6040,8 @@ function handleWindAttack() {
         }
       }
       
+      deflectEnemyStreams(maxRadius, deflectChance);
+
       // Deal damage to ants within shockwave radius using spatial grid
       let windDamage = getShockwaveDamage() * windAttackDamageScale;
       let knockbackMultiplier = 4; // 4, 6, 8, 10 in 3 steps
@@ -6262,6 +6305,9 @@ function triggerShockwave() {
 }
 
 function startShockwaveBlast(radiusScale, damageScale) {
+  if (upgrade15Level >= SHOCKWAVE_SHAKE_LEVEL) {
+    shakeScreen(12, SHOCKWAVE_SHAKE[Math.min(upgrade15Level, 5) - SHOCKWAVE_SHAKE_LEVEL]);
+  }
   windAttackActive = true;
   windAttackAnimRadius = 0;
   windAttackAlpha = 255;
@@ -6463,6 +6509,7 @@ function enterPlayerBunker() {
 function exitPlayerBunker(broken) {
   playerBunker = null;
   if (!broken) return;
+  shakeScreen(BUNKER_BREAK_SHAKE_FRAMES, BUNKER_BREAK_SHAKE);
   const a = (isAiming && freeAimEnabled ? aimAngle : playerRotationValue) * Math.PI / 180;
   knockPlayerFrom(playerX - Math.cos(a), playerY - Math.sin(a), BUNKER_EJECT_SPEED);
 }
@@ -6618,6 +6665,7 @@ function landSlam() {
   for (const ring of playerMoundRings) ring.playerInside = dist(playerX, playerY, ring.x, ring.y) < ring.radius;
   startShockwaveBlast(SLAM_MULTIPLIER, SLAM_MULTIPLIER);
   spawnSmokeImpact(playerX, playerY, getShockwaveRadius() * 0.6, 6);
+  shakeScreen(SLAM_SHAKE_FRAMES, SLAM_SHAKE);
 }
 
 function updateFlight() {
@@ -7099,6 +7147,12 @@ const BEAM_MAX_FRAMES = 60;               // Beam path type: duration at the hig
 const BEAM_HIT_SPEED = 10;                // Beam path type: beam hits deal damage as high-speed (FAST tier) bullets
 const BEAM_HIT_FLASH_FRAMES = 8;          // Beam path type: how long the damage flash holds after a beam hit
 const BEAM_CHARGE_RING_PERIOD = 24;       // Beam path type: frames for a charging ring to close in on its bullet
+const BEAM_AIM_LINE_FRAMES = 30;          // Beam path type: the aiming line shows this long before the beam fires
+const BEAM_DEFLECT_CHANCE = 0.5;          // Beam Deflection: share of beams the beetle's shell turns back
+const BEAM_GLANCE_MIN_ANGLE = Math.PI * 35 / 180;  // Beam Deflection: least a beam glances off straight back
+const BEAM_GLANCE_SWEEP = Math.PI * 70 / 180;      // ...plus this much per beam-half-width the beetle is off its middle
+const BEAM_GLANCE_MAX_ANGLE = Math.PI * 150 / 180; // ...up to this much
+const PLAYER_BEAM_COLORS = { glow: [70, 160, 255], core: [225, 240, 255] }; // Deflected beams: the shell's blue
 
 // Bullets in a burst / rapid volley (2-5)
 function getBurstBulletCount(i) {
@@ -7601,6 +7655,17 @@ function spawnEnemyBeam(bullet) {
     hasHit: false // A beam hits the beetle at most once
   });
 
+  // Wide beams shake the screen, by how close they pass to the beetle
+  const radiusMult = radiusMultiplier[owner] || 1;
+  if (radiusMult > BEAM_SHAKE_RADIUS) {
+    const beamEnd1X = bullet.x - dirX * backward;
+    const beamEnd1Y = bullet.y - dirY * backward;
+    const beamEnd2X = bullet.x + dirX * forward;
+    const beamEnd2Y = bullet.y + dirY * forward;
+    const along = constrain((playerX - beamEnd1X) * dirX + (playerY - beamEnd1Y) * dirY, 0, forward + backward);
+    shakeNear(beamEnd1X + dirX * along, beamEnd1Y + dirY * along, 0, map(radiusMult, BEAM_SHAKE_RADIUS, 3, 2, 3.5, true));
+  }
+
   // Flash where the beam fires from
   speedRings.push({
     x: bullet.x,
@@ -7633,9 +7698,30 @@ function updateEnemyBeams() {
 
     const touching = dist(playerX, playerY, closestX, closestY) <= beam.width / 2 + 25;
 
-    // Explosive beams: every frame the beetle is inside, do a tick of explosion damage
-    if (beam.explosive && touching) {
+    // Explosive beams: every frame the beetle is inside, do a tick of explosion damage (not once it's deflected)
+    if (beam.explosive && touching && !beam.deflected) {
       handleExplosionDamage(beam.size, beam.owner);
+    }
+
+    // Which way the beam runs from where it fired toward the beetle (explosive beams fire both ways)
+    const side = (playerX - beam.x) * beam.dirX + (playerY - beam.y) * beam.dirY >= 0 ? 1 : -1;
+    if (!beam.hasHit && touching && tryBeamDeflect()) {
+      // Beam Deflection: the beam glances off the beetle's shell for as long as the beetle stays in it
+      beam.hasHit = true;
+      beam.deflected = true;
+      beam.reflection = spawnPlayerBeam(beam.width, beam.maxLife - beam.life);
+    }
+    // Draw the beam up to the shell while it's glancing off it
+    let drawX1 = beam.x1, drawY1 = beam.y1, drawX2 = beam.x2, drawY2 = beam.y2;
+    if (beam.reflection) {
+      const hit = aimBeamReflection(beam.reflection, beam.x, beam.y, beam.dirX * side, beam.dirY * side);
+      if (hit && side > 0) {
+        drawX2 = hit.x;
+        drawY2 = hit.y;
+      } else if (hit) {
+        drawX1 = hit.x;
+        drawY1 = hit.y;
+      }
     }
 
     if (!beam.hasHit && touching) {
@@ -7647,7 +7733,6 @@ function updateEnemyBeams() {
         beamHealthFlashFrames = BEAM_HIT_FLASH_FRAMES;
       }
       // Knock back along the beam, on whichever side of the firing point the beetle is
-      const side = (playerX - beam.x) * beam.dirX + (playerY - beam.y) * beam.dirY >= 0 ? 1 : -1;
       handlePlayerHit(
         beam.owner,
         beam.knockbackBullet,
@@ -7660,30 +7745,121 @@ function updateEnemyBeams() {
       );
     }
 
-    // Snap open, hold, then narrow and fade over the last third
-    const openT = Math.min(1, beam.life / 4);
-    const fadeT = constrain((beam.maxLife - beam.life) / (beam.maxLife / 3), 0, 1);
-    const w = beam.width * openT * (0.4 + 0.6 * fadeT);
-    const alpha = 255 * fadeT;
-    const flicker = 1 + 0.08 * Math.sin(beam.life * 1.3);
-    push();
-    strokeCap(ROUND);
-    const glow = beam.colors.glow;
-    const core = beam.colors.core;
-    stroke(glow[0], glow[1], glow[2], alpha * 0.35);
-    strokeWeight(w * 1.6 * flicker);
-    line(beam.x1, beam.y1, beam.x2, beam.y2);
-    stroke(glow[0], glow[1], glow[2], alpha * 0.8);
-    strokeWeight(w);
-    line(beam.x1, beam.y1, beam.x2, beam.y2);
-    stroke(core[0], core[1], core[2], alpha);
-    strokeWeight(w * 0.35);
-    line(beam.x1, beam.y1, beam.x2, beam.y2);
-    pop();
+    drawBeamLine(drawX1, drawY1, drawX2, drawY2, beam.width, beam.life, beam.maxLife, beam.colors);
 
     if (beam.life >= beam.maxLife) {
+      if (beam.reflection) beam.reflection.active = false;
       enemyBeams.splice(i, 1);
     }
+  }
+}
+
+// A beam from (x1, y1) to (x2, y2): snaps open, holds, then narrows and fades over the last third of maxLife
+function drawBeamLine(x1, y1, x2, y2, width, life, maxLife, colors) {
+  const openT = Math.min(1, life / 4);
+  const fadeT = constrain((maxLife - life) / (maxLife / 3), 0, 1);
+  const w = width * openT * (0.4 + 0.6 * fadeT);
+  const alpha = 255 * fadeT;
+  const flicker = 1 + 0.08 * Math.sin(life * 1.3);
+  push();
+  strokeCap(ROUND);
+  const glow = colors.glow;
+  const core = colors.core;
+  stroke(glow[0], glow[1], glow[2], alpha * 0.35);
+  strokeWeight(w * 1.6 * flicker);
+  line(x1, y1, x2, y2);
+  stroke(glow[0], glow[1], glow[2], alpha * 0.8);
+  strokeWeight(w);
+  line(x1, y1, x2, y2);
+  stroke(core[0], core[1], core[2], alpha);
+  strokeWeight(w * 0.35);
+  line(x1, y1, x2, y2);
+  pop();
+}
+
+// --- Beam Deflection ---
+
+// Whether a beam about to hit the beetle glances off its shell instead (only one that would actually reach it)
+function tryBeamDeflect() {
+  return upgrade56Level > 0 && !isPlayerUntouchable() && !playerBunker && random() < BEAM_DEFLECT_CHANCE;
+}
+
+// The deflected beam, for the rest of the beam's life. The beam it came off re-aims it every frame
+// (aimBeamReflection) and it hits every ant (and the queen) it sweeps over once, for the beetle's bullet damage.
+function spawnPlayerBeam(width, maxLife) {
+  const reflection = {
+    x1: 0, y1: 0, x2: 0, y2: 0, active: false, glanceSide: 0,
+    width: width, life: 0, maxLife: Math.max(8, maxLife), hitAnts: new Set(), hitQueen: false
+  };
+  playerBeams.push(reflection);
+  playSpitSound();
+  return reflection;
+}
+
+// Beam Deflection: like shell shrapnel, the beam glances off the shell instead of going straight back. It
+// leaves at least BEAM_GLANCE_MIN_ANGLE off straight back, toward the side of the beam the beetle's
+// shell met it on, and swings further round the further the beetle is off the beam's middle, so moving
+// across the beam sweeps the reflection across the map. (sx, sy) is the point the beam fires from and
+// (dirX, dirY) the way it runs toward the beetle. Aims the reflection and returns where the beam meets the
+// shell, or turns the reflection off and returns null once the beetle has left the beam.
+function aimBeamReflection(reflection, sx, sy, dirX, dirY) {
+  const relX = playerX - sx;
+  const relY = playerY - sy;
+  const along = relX * dirX + relY * dirY;
+  const perpX = -dirY;
+  const perpY = dirX;
+  const offset = relX * perpX + relY * perpY; // The beetle's middle, to the side of the beam's middle
+  const reach = reflection.width / 2 + 25;
+  if (along < 0 || Math.abs(offset) > reach) {
+    reflection.active = false;
+    return null;
+  }
+  // The side it first glanced off stays put, so the sweep is smooth even across the middle of the beam
+  if (reflection.glanceSide === 0) reflection.glanceSide = offset > 0 ? 1 : offset < 0 ? -1 : (random() < 0.5 ? 1 : -1);
+  // The beam meets the shell (radius 25) in front of the beetle's middle
+  const shellDepth = Math.sqrt(Math.max(0, 625 - offset * offset));
+  const hitAlong = Math.max(0, along - shellDepth);
+  const hitX = sx + dirX * hitAlong;
+  const hitY = sy + dirY * hitAlong;
+  const angle = -constrain(reflection.glanceSide * BEAM_GLANCE_MIN_ANGLE + (offset / reach) * BEAM_GLANCE_SWEEP,
+    -BEAM_GLANCE_MAX_ANGLE, BEAM_GLANCE_MAX_ANGLE);
+  const outX = -dirX * Math.cos(angle) + perpX * Math.sin(angle);
+  const outY = -dirY * Math.cos(angle) + perpY * Math.sin(angle);
+  const length = getDistanceToPlayAreaEdge(hitX, hitY, outX, outY);
+  if (!reflection.active) {
+    speedRings.push({ x: hitX, y: hitY, size: 10, maxSize: 40, alpha: 255, life: 0, color: SHELL_BLUE_LIGHT });
+  }
+  reflection.active = true;
+  reflection.x1 = hitX;
+  reflection.y1 = hitY;
+  reflection.x2 = hitX + outX * length;
+  reflection.y2 = hitY + outY * length;
+  return { x: hitX, y: hitY };
+}
+
+function updatePlayerBeams() {
+  for (let k = playerBeams.length - 1; k >= 0; k--) {
+    const beam = playerBeams[k];
+    beam.life++;
+    if (beam.life >= beam.maxLife) {
+      playerBeams.splice(k, 1);
+      continue;
+    }
+    if (!beam.active) continue; // The beetle's out of the beam it came off
+    for (let j = 1; j <= enemyCount; j++) {
+      if (beam.hitAnts.has(j) || isAntSheltered(j) || antDormant[j]) continue;
+      const reach = beam.width / 2 + 20.25 + 6.75 * antSize[j]; // The ant's hitbox, as the beetle runs into it
+      if (distToSegment(antX[j], antY[j], beam.x1, beam.y1, beam.x2, beam.y2) <= reach) {
+        beam.hitAnts.add(j);
+        damageAntWithPlayerAcid(j, getPlayerBulletDamage(), 'bullet');
+      }
+    }
+    if (!beam.hitQueen && !isQueenImmune() &&
+      distToSegment(queen.x, queen.y, beam.x1, beam.y1, beam.x2, beam.y2) <= beam.width / 2 + getQueenBodyRadius()) {
+      beam.hitQueen = true;
+      damageQueen(getPlayerBulletDamage());
+    }
+    drawBeamLine(beam.x1, beam.y1, beam.x2, beam.y2, beam.width, beam.life, beam.maxLife, PLAYER_BEAM_COLORS);
   }
 }
 
@@ -7712,6 +7888,8 @@ const STREAM_POINT_SPACING = 6;           // Bits closer together than this are 
 const STREAM_BURST_PUFFS = 8;             // Exploding streams: most smoke puffs spawned along each part of the path
 const STREAM_PREFILL_ARC_STEPS = 60;      // High arc streams: bits used for a full-length stream (explosion bursts)
 const STREAM_GROUND_HEIGHT = 8;           // High arc streams only touch the beetle below this height
+const STREAM_DEFLECT_BITS_PER_BULLET = 10; // Shockwave deflection: bits of stream blown away per bullet it turns into
+const STREAM_DEFLECT_MAX_BULLETS = 3;     // ...and at most this many bullets from one stream per shockwave
 const STREAM_CURVE_BEND = 12;             // Curved streams: radians of bend at full range per unit of curve strength
 const STREAM_HOMING_TURN = 0.03;          // Homing streams: max turn (radians per px flowed) toward the beetle at the end
 const STREAM_PARTICLES_PER_SIZE = 3;      // Accelerating streams: particles per stream = this * bulletSize
@@ -8088,16 +8266,19 @@ function getStreamBeamSlice(stream, nodes) {
   ];
 }
 
-// Closest point to the beetle on the ground-level parts of these slices, with the flow direction there.
-// touching accounts for the stream's width at that point. Returns null if no part of them is on the ground.
+// Closest point to the beetle on the parts of these slices at its level, with the flow direction there: the
+// ground-level parts, or for a flying beetle the lofted parts of a high arc stream (up in the air with it).
+// touching accounts for the stream's width at that point. Returns null if no part of them is at its level.
 function getStreamContact(slices) {
+  const flying = isPlayerFlying();
   let best = null;
   for (const slice of slices) {
     const segments = Math.max(1, slice.length - 1);
     for (let k = 0; k < segments; k++) {
       const a = slice[k];
       const b = slice[Math.min(k + 1, slice.length - 1)];
-      if (Math.max(a.h, b.h) > STREAM_GROUND_HEIGHT) continue; // Lofted parts pass over the beetle
+      // Lofted parts pass over a grounded beetle, and ground-level parts pass under a flying one
+      if ((Math.max(a.h, b.h) > STREAM_GROUND_HEIGHT) !== flying) continue;
       const segX = b.x - a.x;
       const segY = b.y - a.y;
       const lenSq = segX * segX + segY * segY;
@@ -8118,6 +8299,7 @@ function getStreamContact(slices) {
 
 // Bits of stream on the ground stop at the first thing they hit instead of flowing through it: the beetle's mounds
 // and bunker (which take the stream's damage, once a frame each), the ants' own mounds, and the beetle itself.
+// Lofted bits of a high arc stream pass over all that, but stop at a flying beetle (up in the air with them).
 // Removes those bits and returns the bit that hit the beetle, or null.
 function blockStreamNodes(stream) {
   const hitWalls = new Set();
@@ -8125,7 +8307,11 @@ function blockStreamNodes(stream) {
   const kept = [];
   for (const node of stream.nodes) {
     if (node.h > STREAM_GROUND_HEIGHT) {
-      kept.push(node); // Lofted bits pass over everything
+      if (isPlayerFlying() && dist(node.x, node.y, playerX, playerY) <= getStreamNodeWidth(stream, node) / 2 + STREAM_PLAYER_RADIUS) {
+        playerHit = node;
+      } else {
+        kept.push(node); // Lofted bits pass over everything else
+      }
       continue;
     }
     const r = getStreamNodeWidth(stream, node) / 2;
@@ -8246,7 +8432,7 @@ function updateStreamSpray(stream) {
   }
   const playerHit = blockStreamNodes(stream);
   if (!stream.spraying && stream.nodes.length === 0 && stream.particles.length === 0) {
-    if (playerHit) handleExplosionDamage(stream.size * STREAM_DAMAGE_MULTIPLIER, o); // Its last bit hit the beetle
+    if (playerHit) handleExplosionDamage(stream.size * STREAM_DAMAGE_MULTIPLIER, o, true); // Its last bit hit the beetle
     return false; // Flowed away
   }
 
@@ -8261,11 +8447,12 @@ function updateStreamSpray(stream) {
   }
   const touching = contact && contact.touching;
 
-  // Damage every frame the beetle is in the stream (or on a launch ant's ground spot)
+  // Damage every frame the beetle is in the stream (or on a launch ant's ground spot). Contact is only ever at
+  // the beetle's own level, so it reaches a flying beetle too; the ground spot doesn't.
   const onLaunchSpot = stream.launch && stream.spraying &&
     dist(playerX, playerY, stream.originX, stream.originY) <= getStreamLaunchSpotSize(stream) / 2 + STREAM_PLAYER_RADIUS;
   if (touching || onLaunchSpot) {
-    handleExplosionDamage(stream.size * STREAM_DAMAGE_MULTIPLIER, o);
+    handleExplosionDamage(stream.size * STREAM_DAMAGE_MULTIPLIER, o, touching);
   }
 
   // Knockback streams carry the beetle along with the flow; vacuum streams also pull it in when near
@@ -8336,7 +8523,7 @@ function burstStream(stream) {
 
   const contact = getStreamContact(slices);
   if (contact && contact.touching) {
-    handlePlayerHit(o, false, contact.x, contact.y, 1, 5, true, stream.size);
+    handlePlayerHit(o, false, contact.x, contact.y, 1, 5, true, stream.size, { highArc: true, vx: 0, vy: 0 }); // At its level, even in the air
   }
 
   // Grey smoke along the path: a fading smoke ribbon (drawn in the burst phase) plus a few puffs
@@ -8369,6 +8556,44 @@ function burstStream(stream) {
     antLastShotFrame[o] = frameCount + stream.duration;
   }
   playSpitSound();
+}
+
+// Shockwave deflection on streams: each stream rolls the deflection chance once, and the bits of it on the
+// ground inside the shockwave are blown away and turned into a few of the beetle's bullets flying out from
+// the beetle (one per STREAM_DEFLECT_BITS_PER_BULLET bits, at most STREAM_DEFLECT_MAX_BULLETS a stream, so a
+// long stream doesn't flood the screen). Particles that have broken away roll one by one, like bullets.
+function deflectEnemyStreams(radius, chance) {
+  const radiusSq = radius * radius;
+  const deflectAt = (x, y) => playerBullets.push({ x: x, y: y, rotation: Math.atan2(y - playerY, x - playerX) * 180 / Math.PI });
+  for (const stream of enemyStreams) {
+    if (stream.nodes.length && random() < chance) {
+      const inside = [];
+      const kept = [];
+      for (const node of stream.nodes) {
+        const dx = node.x - playerX;
+        const dy = node.y - playerY;
+        if (node.h <= STREAM_GROUND_HEIGHT && dx * dx + dy * dy <= radiusSq) inside.push(node);
+        else kept.push(node);
+      }
+      if (inside.length) {
+        stream.nodes = kept;
+        const bullets = Math.min(STREAM_DEFLECT_MAX_BULLETS, Math.ceil(inside.length / STREAM_DEFLECT_BITS_PER_BULLET));
+        for (let k = 0; k < bullets; k++) {
+          const node = inside[Math.floor((k + 0.5) * inside.length / bullets)];
+          deflectAt(node.x, node.y);
+        }
+      }
+    }
+    for (let k = stream.particles.length - 1; k >= 0; k--) {
+      const part = stream.particles[k];
+      const dx = part.x - playerX;
+      const dy = part.y - playerY;
+      if (part.free && dx * dx + dy * dy <= radiusSq && random() < chance) {
+        deflectAt(part.x, part.y);
+        stream.particles.splice(k, 1);
+      }
+    }
+  }
 }
 
 // Accelerating streams: particles flow out with the stream, then break away past its range in a spread and
@@ -9242,6 +9467,7 @@ const QUEEN_ADAPT_FRAMES = 600;           // Re-strategize after this long witho
 const QUEEN_DECISION_FRAMES = 6;          // How often the brain re-reads the field
 const QUEEN_EFFECT_FRAMES = 300;          // Alarm, avenge, refire, camouflage and ghost last 5 seconds
 const QUEEN_INTRO_FRAMES = 150;
+const QUEEN_WARNING_FRAMES = 300;         // "Queen incoming" warning before she arrives (5 seconds)
 const QUEEN_MAX_ANTS = 300;               // Safety cap on ant slots while she's cloning ants
 const QUEEN_MAX_ALIVE = 50;               // She stops spawning while this many of her ants are alive (same cap as the Queen of Queens)
 // Brain score. Rewards:
@@ -9310,6 +9536,7 @@ QUEEN_ABILITIES.forEach((a, k) => { QA[a.key] = k; });
 
 let queen = null;                // The live queen, or null
 let queenHitCount = 0;           // Ant hits on the beetle toward the next queen (not counted during a fight)
+let queenWarningFrames = 0;      // Frames left of the "queen incoming" warning (0 = not warning)
 let queensDefeatedThisRun = 0;
 let queenInheritedBrain = null;  // Last strategy of the previous queen this run
 let queenDefeatedThisRound = false;
@@ -9999,6 +10226,7 @@ function adaptQueenBrain(reason) {
 
 function startQueenFight() {
   queenHitCount = 0; // Hits during the fight don't count toward the next queen
+  shakeScreen(QUEEN_ARRIVAL_SHAKE_FRAMES, QUEEN_ARRIVAL_SHAKE);
   const types = [];
   for (let i = 1; i <= enemyCount; i++) {
     antQueenType[i] = i;
@@ -10258,6 +10486,7 @@ function isQueenHitAt(x, y, pad = 0) {
 
 function killQueen() {
   spawnSmokeImpact(queen.x, queen.y, 70, 8);
+  shakeScreen(QUEEN_DEATH_SHAKE_FRAMES, QUEEN_DEATH_SHAKE);
   queenDeathBurst = createQueenDeathBurst(queen.x, queen.y);
   if (!sHit2.isPlaying()) sHit2.play();
   // Her last strategy goes to the next queen of this run
@@ -10306,8 +10535,15 @@ function getQueenAreaBoosts() {
 // Called every frame from draw()
 function updateQueen() {
   if (!queen) {
-    if (!end && start && !multiplayerMode && !isFinalLevel() && !isTutorialRun() && roundIntroTimer === 0 && queenHitCount >= getQueenHitsRequired()) {
-      startQueenFight();
+    // Once she's due, a warning counts down before she arrives. The round timer holds still meanwhile, so only
+    // the beetle dying calls her off.
+    if (end) {
+      queenWarningFrames = 0;
+    } else if (queenWarningFrames > 0) {
+      if (--queenWarningFrames === 0) startQueenFight();
+    } else if (start && !multiplayerMode && !isFinalLevel() && !isTutorialRun() && roundIntroTimer === 0 &&
+      timeCount >= 0 && queenHitCount >= getQueenHitsRequired()) {
+      queenWarningFrames = QUEEN_WARNING_FRAMES;
     }
     if (!queen) return;
   }
@@ -10656,6 +10892,7 @@ function updateQueenContact() {
   const reach = getQueenBodyRadius() + PLAYER_WALL_RADIUS;
   if (dash && !queen.dashHit && d < reach + 6) {
     queen.dashHit = true;
+    shakeScreen(DASH_HIT_SHAKE_FRAMES, DASH_HIT_SHAKE);
     if (!damageQueen(1 + (upgrade12Level * 0.2))) return; // Same damage as a dash hit on an ant (Horns)
     if (!queen) return;
   }
@@ -10743,6 +10980,11 @@ function drawQueenGrab() {
 function queenHitPlayer(damage, silent = false, vel = null) {
   if (end) return;
   if (interceptPlayerDamage(damage, false)) return; // Flying over it, or the bunker takes it
+  if (vel) {
+    // Her acid, as a bullet: the same impact effect as the ants' bullets, by its speed
+    const tier = getBulletSpeedTier(Math.sqrt(vel.vx * vel.vx + vel.vy * vel.vy)).knockbackTier;
+    spawnBeetleHitEffect(playerX - vel.vx, playerY - vel.vy, vel.vx, vel.vy, tier, shield > 0);
+  }
   damage *= getPlayerDamageTakenMultiplier() * (queen && queen.strength ? queen.strength : 1);
   if (shield > 0) {
     const shieldBefore = shield;
@@ -11589,10 +11831,27 @@ function updateQueenBeam(e, hidden) {
     e.ex = queen.x + dx * len;
     e.ey = queen.y + dy * len;
     playSpitSound();
+    if (!hidden) shakeScreen(QUEEN_BEAM_SHAKE_FRAMES, QUEEN_BEAM_SHAKE);
   }
   const beamDist = distToSegment(playerX, playerY, e.sx, e.sy, e.ex, e.ey);
   seeQueenAttackPart(e.tracker, Math.max(0, beamDist - e.width / 2));
   // Hits once, like an ant's beam (same reach and FAST-tier damage, with her bullet size)
+  if (!e.hit && beamDist <= e.width / 2 + 25 && tryBeamDeflect()) {
+    // Beam Deflection: her beam glances off the beetle's shell for as long as the beetle stays in it
+    e.hit = true;
+    e.reflection = spawnPlayerBeam(e.width, e.frames - e.life);
+  }
+  // Drawn up to the shell while it's glancing off it
+  let endX = e.ex;
+  let endY = e.ey;
+  if (e.reflection) {
+    const len = dist(e.sx, e.sy, e.ex, e.ey) || 1;
+    const hit = aimBeamReflection(e.reflection, e.sx, e.sy, (e.ex - e.sx) / len, (e.ey - e.sy) / len);
+    if (hit) {
+      endX = hit.x;
+      endY = hit.y;
+    }
+  }
   if (!e.hit && beamDist <= e.width / 2 + 25) {
     e.hit = true;
     if (shield > 0) beamShieldFlashFrames = BEAM_HIT_FLASH_FRAMES;
@@ -11601,27 +11860,9 @@ function updateQueenBeam(e, hidden) {
   }
   if (!hidden) {
     // Snap open, hold, then narrow and fade over the last third (like the ants' beams)
-    const life = e.life - e.fireAt;
-    const maxLife = e.frames - e.fireAt;
-    const openT = Math.min(1, life / 4);
-    const fadeT = constrain((maxLife - life) / (maxLife / 3), 0, 1);
-    const w = e.width * openT * (0.4 + 0.6 * fadeT);
-    const alpha = 255 * fadeT;
-    const flicker = 1 + 0.08 * Math.sin(life * 1.3);
-    const colors = QUEEN_BEAM_COLORS;
-    push();
-    strokeCap(ROUND);
-    stroke(colors.glow[0], colors.glow[1], colors.glow[2], alpha * 0.35);
-    strokeWeight(w * 1.6 * flicker);
-    line(e.sx, e.sy, e.ex, e.ey);
-    stroke(colors.glow[0], colors.glow[1], colors.glow[2], alpha * 0.8);
-    strokeWeight(w);
-    line(e.sx, e.sy, e.ex, e.ey);
-    stroke(colors.core[0], colors.core[1], colors.core[2], alpha);
-    strokeWeight(w * 0.35);
-    line(e.sx, e.sy, e.ex, e.ey);
-    pop();
+    drawBeamLine(e.sx, e.sy, endX, endY, e.width, e.life - e.fireAt, e.frames - e.fireAt, QUEEN_BEAM_COLORS);
   }
+  if (e.life >= e.frames && e.reflection) e.reflection.active = false;
   return e.life >= e.frames;
 }
 
@@ -11894,6 +12135,20 @@ function drawQueenDeathBurst(burst, age) {
 function drawQueenHud() {
   push();
   rectMode(CORNER);
+  if (!queen && queenWarningFrames > 0) {
+    // "Queen incoming": pulses faster as she gets closer, and fades in and out at the ends
+    const elapsed = QUEEN_WARNING_FRAMES - queenWarningFrames;
+    const fade = Math.min(1, elapsed / 20, queenWarningFrames / 20);
+    const pulse = 0.5 + 0.5 * Math.sin(elapsed * (0.12 + 0.18 * elapsed / QUEEN_WARNING_FRAMES));
+    const a = 255 * fade * (0.45 + 0.55 * pulse);
+    const unit = Math.min(windowWidth, windowHeight);
+    textAlign(CENTER, CENTER);
+    textSize(unit * 0.07 * (1 + 0.06 * pulse));
+    stroke(0, a);
+    strokeWeight(6);
+    fill(255, 70, 90, a);
+    text('QUEEN INCOMING', windowWidth / 2, windowHeight * 0.4);
+  }
   if (queen) {
     const barW = Math.min(420, windowWidth * 0.4);
     const barH = 14;
@@ -11946,7 +12201,7 @@ const UPGRADE_NAMES = ['Walking Speed', 'Dash Speed', 'Dash Cooldown', 'Add Shie
   'Health Regeneration', 'Runt Hunter', 'Increased Metabolism', 'EXP Boost', 'Combo Surge', 'Dash Harvest',
   'Shockwave Harvest', 'Bullet Harvest', 'Spray Acid', 'Spray Length', 'Spray Width', 'Piercing Acid', 'Piercing Depth',
   'Impact Bomb', 'Timed Bomb', 'Proximity Bomb', 'Blast Radius', 'Coccinella septempunctata (Lady Beetle)', 'Aphid Health', 'Aphid Spawn Rate',
-  'Speedy Aphids', 'Armored Aphids', 'Wise Aphids', 'Healthy Aphids', 'Lucky Aphids', 'Mound Ring', 'Bunker', 'Vortex', 'Flight and Slam', 'Mound Health', 'Flight Duration', 'Starting Health', 'Dash Deflection', 'Shell Shrapnel', 'Shrapnel Count', 'Burrow'];
+  'Speedy Aphids', 'Armored Aphids', 'Wise Aphids', 'Healthy Aphids', 'Lucky Aphids', 'Mound Ring', 'Bunker', 'Vortex', 'Flight and Slam', 'Mound Health', 'Flight Duration', 'Starting Health', 'Dash Deflection', 'Shell Shrapnel', 'Shrapnel Count', 'Burrow', 'Beam Deflection'];
 const UPGRADE_PREREQUISITE_TEXT = {
   5: 'Add Shield', 6: 'Add Bullets', 7: 'Add Bullets', 8: 'Add Bullets, Bullet Reload, Bullet Speed',
   9: 'Dash Cooldown maxed', 10: 'Bullet Reload 3+', 12: 'Add Bullets', 14: 'Shockwave', 15: 'Shockwave',
@@ -12002,7 +12257,7 @@ function getPermanentUpgradeLevels() {
 function getUpgradeRarityTier(id) {
   if (id === 20) return 'Ultra Rare';
   if (id >= 24 && id <= 26) return 'Very Rare';
-  if (id === 19 || (id >= 21 && id <= 23) || (id >= 27 && id <= 49) || (id >= 51 && id <= 54)) return 'Medium';
+  if (id === 19 || (id >= 21 && id <= 23) || (id >= 27 && id <= 49) || (id >= 51 && id <= 55)) return 'Medium';
   if (!isCoreUpgrade(id)) return 'Uncommon';
   return 'Common';
 }
@@ -13183,6 +13438,7 @@ function spawnEnemyExplosion(x, y, size, ownerId, radiusScale = 1, hitMultiplier
 
   // Smoke impact first: a grey puff that slowly fades and one instant hit of bulletSize damage...
   spawnSmokeImpact(x, y, radius);
+  shakeForExplosion(x, y, radius);
   if (dist(playerX, playerY, x, y) < radius) {
     handlePlayerHit(ownerId, false, x, y, 1, 5, true, size * hitMultiplier);
   }
@@ -13473,8 +13729,9 @@ function drawEnemyExplosions() {
   }
 }
 
-function handleExplosionDamage(size, ownerId) {
-  if (interceptPlayerDamage(size / 60, false)) return; // Flying over it, or the bunker takes it
+// reachesAir: it hits a flying beetle too (lofted high arc streams)
+function handleExplosionDamage(size, ownerId, reachesAir = false) {
+  if (interceptPlayerDamage(size / 60, reachesAir)) return; // Flying over it, or the bunker takes it
   let damage = size/60 * getPlayerDamageTakenMultiplier(); // same “units” as bulletSize
   onPlayerDamaged(damage);
 
@@ -13990,6 +14247,219 @@ function drawDeathEffects() {
     t.opacity -= 5;
     if (t.opacity <= 0) floatingTexts.splice(i, 1);
   }
+}
+
+// ========== SCREEN SHAKE ==========
+// Uses shakeScreen (finalboss.js), which keeps the strongest shake going
+const SLAM_SHAKE = 6;                     // Flight and Slam landing
+const SLAM_SHAKE_FRAMES = 18;
+const QUEEN_BEAM_SHAKE = 4;               // The queen's beam firing
+const QUEEN_BEAM_SHAKE_FRAMES = 14;
+const EXPLOSION_SHAKE_MIN = 1;            // Explosions (the ants', the queen's and the beetle's bombs): by blast radius,
+const EXPLOSION_SHAKE_MAX = 4;            // from a size 1 blast up to a big one...
+const EXPLOSION_SHAKE_FALLOFF = 300;      // ...fading out this far past the blast's edge from the beetle
+
+const SHOCKWAVE_SHAKE_LEVEL = 2;          // The shockwave shakes once Shockwave Radius has this many levels...
+const SHOCKWAVE_SHAKE = [1.5, 2, 2.5, 3]; // ...this hard at levels 2-5
+const QUEEN_ARRIVAL_SHAKE = 4;            // A rumble as she arrives
+const QUEEN_ARRIVAL_SHAKE_FRAMES = 40;
+const QUEEN_DEATH_SHAKE = 8;
+const QUEEN_DEATH_SHAKE_FRAMES = 30;
+const BUNKER_BREAK_SHAKE = 4;
+const BUNKER_BREAK_SHAKE_FRAMES = 16;
+const BEAM_SHAKE_RADIUS = 2;              // Ant beams shake with a radius multiplier over this, 2-3.5px (up to 3x)
+const AIRSTRIKE_SHAKE_SIZE = 1.5;         // Air strikes (in-air timed high arc blasts) this big or bigger shake...
+const AIRSTRIKE_SHAKE = [2.5, 5];         // ...this hard from AIRSTRIKE_SHAKE_SIZE up to size 3
+const DASH_HIT_SHAKE_SIZE = 2;            // Dashing into an ant this big (or the queen) gives a small jolt
+const DASH_HIT_SHAKE = 2;
+const DASH_HIT_SHAKE_FRAMES = 8;
+
+// Shake by how close (x, y) is to the beetle: full strength within reach, fading out EXPLOSION_SHAKE_FALLOFF past it
+// (so a screen full of ants doesn't shake nonstop)
+function shakeNear(x, y, reach, amp) {
+  amp *= 1 - constrain((dist(x, y, playerX, playerY) - reach) / EXPLOSION_SHAKE_FALLOFF, 0, 1);
+  if (amp >= 0.5) shakeScreen(Math.round(8 + amp * 2), amp);
+}
+
+// Bigger blasts shake harder
+function shakeForExplosion(x, y, radius) {
+  shakeNear(x, y, radius, map(radius, 20, 140, EXPLOSION_SHAKE_MIN, EXPLOSION_SHAKE_MAX, true));
+}
+
+// ========== HIT FEEDBACK ==========
+// Bullet hits on the beetle get an impact effect that grows with the bullet's speed tier, and the edges of the
+// screen show how it's doing: pulsing red below LOW_HEALTH_WARNING health, rising green pluses while Health
+// Regeneration is healing it (which it only does below 30).
+const LOW_HEALTH_WARNING = 10;
+const REGEN_PLUS_MAX = 60;                // Most green pluses on screen at once
+// Speed tier looks (low → god): a soft puff of dust, a few yellow sparks, an orange spray, a red streak punched
+// through the beetle, and a white flash with a double shockwave. Sparks splash back the way the bullet came.
+const BEETLE_HIT_STYLES = [
+  { sparks: 5, speed: 0.8, len: 0, size: 5, spread: Math.PI * 1.6, color: [215, 200, 175], ring: 18, life: 18, shake: 0 },
+  { sparks: 6, speed: 2.2, len: 5, size: 2.5, spread: Math.PI * 0.9, color: [255, 230, 120], ring: 24, life: 16, shake: 0 },
+  { sparks: 9, speed: 3.2, len: 9, size: 2.5, spread: Math.PI * 0.7, color: [255, 150, 50], ring: 32, life: 20, shake: 1.5 },
+  { sparks: 10, speed: 4.5, len: 14, size: 2, spread: Math.PI * 0.45, color: [255, 60, 60], ring: 38, life: 24, shake: 3, streak: 70 },
+  { sparks: 16, speed: 5.5, len: 16, size: 3, spread: Math.PI * 2, color: [255, 255, 255], ring: 58, life: 30, shake: 5, streak: 110, flash: true }
+];
+let beetleHitEffects = [];
+let regenPluses = [];
+let healthRegenActive = false;            // Health Regeneration healed the beetle this frame
+let lowHealthPulse = 0;                   // Phase of the low health pulse (it speeds up as health drops)
+
+// An impact on the beetle from (fromX, fromY), travelling (vx, vy) if known. tier: the bullet's speed tier (1-5).
+// shielded: the shield took it (the shockwave ring turns the shield's blue).
+function spawnBeetleHitEffect(fromX, fromY, vx, vy, tier, shielded) {
+  const style = BEETLE_HIT_STYLES[constrain(tier, 1, 5) - 1];
+  let dirX = vx;
+  let dirY = vy;
+  if (!(dirX * dirX + dirY * dirY > 0)) {
+    dirX = playerX - fromX;
+    dirY = playerY - fromY;
+  }
+  let len = Math.sqrt(dirX * dirX + dirY * dirY);
+  if (!(len > 0)) {
+    const a = random(Math.PI * 2);
+    dirX = Math.cos(a);
+    dirY = Math.sin(a);
+    len = 1;
+  }
+  dirX /= len;
+  dirY /= len;
+  const back = Math.atan2(-dirY, -dirX);
+  const sparks = [];
+  for (let k = 0; k < style.sparks; k++) {
+    sparks.push({ a: back + random(-style.spread / 2, style.spread / 2), speed: style.speed * random(0.6, 1.3) });
+  }
+  beetleHitEffects.push({
+    x: playerX - dirX * 14, // The near side of the shell
+    y: playerY - dirY * 14,
+    dirX: dirX, dirY: dirY, style: style, sparks: sparks, shielded: shielded, life: 0
+  });
+  if (style.shake > 0) shakeScreen(6 + tier * 2, style.shake);
+}
+
+function drawBeetleHitEffects() {
+  for (let k = beetleHitEffects.length - 1; k >= 0; k--) {
+    const e = beetleHitEffects[k];
+    const s = e.style;
+    e.life++;
+    if (e.life >= s.life) {
+      beetleHitEffects.splice(k, 1);
+      continue;
+    }
+    const t = e.life / s.life;
+    const fade = 1 - t;
+    const c = s.color;
+    push();
+    noFill();
+    // God speed: a white flash over the beetle
+    if (s.flash && e.life < 10) {
+      noStroke();
+      fill(255, 255, 255, 200 * (1 - e.life / 10));
+      ellipse(playerX, playerY, 70, 70);
+      noFill();
+    }
+    // Sniper and god speed: a streak punched through the beetle and out the far side
+    if (s.streak) {
+      stroke(c[0], c[1], c[2], 230 * fade);
+      strokeWeight(5 * fade + 1);
+      line(e.x - e.dirX * 10, e.y - e.dirY * 10, e.x + e.dirX * s.streak * (0.4 + 0.6 * Math.min(1, t * 4)),
+        e.y + e.dirY * s.streak * (0.4 + 0.6 * Math.min(1, t * 4)));
+    }
+    // Shockwave ring (two for god speed), in the shield's blue when the shield took the hit
+    const ringColor = e.shielded ? SHELL_BLUE_LIGHT : c;
+    const rings = s.flash ? 2 : 1;
+    for (let r = 0; r < rings; r++) {
+      const rt = constrain((e.life - r * 6) / (s.life - r * 6), 0, 1);
+      if (rt <= 0 || rt >= 1) continue;
+      stroke(ringColor[0], ringColor[1], ringColor[2], 220 * (1 - rt));
+      strokeWeight(2.5 * (1 - rt) + 0.5);
+      const size = s.ring * (1 - (1 - rt) * (1 - rt)); // Eases out
+      ellipse(e.x, e.y, size, size);
+    }
+    // Sparks (or dust puffs for low speed) splashing back off the shell, slowing down
+    const travel = e.life * (1 - t * 0.5);
+    for (const p of e.sparks) {
+      const px = e.x + Math.cos(p.a) * p.speed * travel;
+      const py = e.y + Math.sin(p.a) * p.speed * travel;
+      if (s.len > 0) {
+        stroke(c[0], c[1], c[2], 255 * fade);
+        strokeWeight(s.size);
+        line(px, py, px - Math.cos(p.a) * s.len * fade, py - Math.sin(p.a) * s.len * fade);
+      } else {
+        noStroke();
+        fill(c[0], c[1], c[2], 150 * fade);
+        const d = s.size * (1 + t * 1.5);
+        ellipse(px, py, d, d);
+      }
+    }
+    pop();
+  }
+}
+
+// Screen space, over the gameplay: the low health pulse and the regeneration pluses
+function drawHealthEdgeEffects() {
+  if (!end && health > 0 && health < LOW_HEALTH_WARNING) {
+    const danger = 1 - health / LOW_HEALTH_WARNING; // 0 at 10 health, 1 at 0
+    lowHealthPulse += 0.08 + 0.14 * danger;
+    const pulse = 0.5 + 0.5 * Math.sin(lowHealthPulse);
+    const alpha = (0.3 + 0.45 * danger) * (0.3 + 0.7 * pulse);
+    const w = windowWidth;
+    const h = windowHeight;
+    const ctx = drawingContext;
+    const g = ctx.createRadialGradient(w / 2, h / 2, Math.min(w, h) * 0.3, w / 2, h / 2, Math.sqrt(w * w + h * h) / 2);
+    g.addColorStop(0, 'rgba(255, 0, 20, 0)');
+    g.addColorStop(1, `rgba(255, 0, 20, ${alpha.toFixed(3)})`);
+    ctx.save();
+    ctx.fillStyle = g;
+    ctx.fillRect(0, 0, w, h);
+    ctx.restore();
+  } else {
+    lowHealthPulse = 0;
+  }
+
+  // Green pluses rising up the edges while Health Regeneration heals (faster at higher levels)
+  const unit = Math.min(windowWidth, windowHeight);
+  const spawnEvery = Math.max(3, 12 - upgrade20Level * 2);
+  if (healthRegenActive && !end && frameCount % spawnEvery === 0 && regenPluses.length < REGEN_PLUS_MAX) {
+    const band = unit * 0.08;
+    const edge = random();
+    let x;
+    let y;
+    if (edge < 0.4) {
+      x = random(band);
+      y = random(windowHeight * 0.2, windowHeight);
+    } else if (edge < 0.8) {
+      x = windowWidth - random(band);
+      y = random(windowHeight * 0.2, windowHeight);
+    } else {
+      x = random(windowWidth);
+      y = windowHeight - random(band);
+    }
+    regenPluses.push({ x: x, y: y, size: unit * random(0.018, 0.03), rise: random(0.6, 1.4), life: 0, maxLife: Math.round(random(50, 80)) });
+  }
+  push();
+  strokeCap(SQUARE);
+  for (let k = regenPluses.length - 1; k >= 0; k--) {
+    const p = regenPluses[k];
+    p.life++;
+    p.y -= p.rise;
+    if (p.life >= p.maxLife) {
+      regenPluses.splice(k, 1);
+      continue;
+    }
+    const a = 220 * Math.min(1, p.life / 10, (p.maxLife - p.life) / 20);
+    const half = p.size / 2;
+    stroke(20, 70, 30, a * 0.6);
+    strokeWeight(p.size * 0.42);
+    line(p.x - half, p.y, p.x + half, p.y);
+    line(p.x, p.y - half, p.x, p.y + half);
+    stroke(110, 240, 120, a);
+    strokeWeight(p.size * 0.26);
+    line(p.x - half, p.y, p.x + half, p.y);
+    line(p.x, p.y - half, p.x, p.y + half);
+  }
+  pop();
 }
 
 function drawSpeedRings() {
@@ -15056,6 +15526,12 @@ function drawUpgradeScreen() {
       description: 'Shockwave variant (R / LB to switch): dig underground for 2.5 seconds, safe from everything but landmines, then burst out with a shockwave. Fire surfaces early. 3x cooldown. Requires Bunker.',
       level: upgrade55Level,
       maxLevel: 1
+    },
+    {
+      title: 'Beam Deflection',
+      description: 'Half the beams that would hit you glance off your shell instead, hitting every ant in their path. Move across the beam to sweep it around.',
+      level: upgrade56Level,
+      maxLevel: 1
     }
   ];
   
@@ -15332,7 +15808,8 @@ function drawUpgradeScreen() {
       case 47:
       case 51:
       case 52:
-      case 54:{ cur = level > 0 ? 'ON' : 'OFF'; nxt = 'ON'; break; }
+      case 54:
+      case 55:{ cur = level > 0 ? 'ON' : 'OFF'; nxt = 'ON'; break; }
       case 27:
       case 30:
       case 32:
@@ -15526,17 +16003,17 @@ function getUpgradeRarity(upgradeId) {
   if (upgradeId === 20) return { label: 'ULTRA RARE', weight: 0.1, color: [255, 180, 0] };
   if (upgradeId >= 24 && upgradeId <= 26) return { label: 'VERY RARE', weight: 0.2, color: [200, 90, 255] };
   // Medium rare: Health Regeneration, economy (Metabolism, EXP Boost, Combo Surge), all special shot upgrades,
-  // Lady Beetle with all its aphid upgrades, the shockwave variants with their upgrades, Dash Deflection and Shell Shrapnel
-  if (upgradeId === 19 || (upgradeId >= 21 && upgradeId <= 23) || (upgradeId >= 27 && upgradeId <= 49) || (upgradeId >= 51 && upgradeId <= 54)) {
+  // Lady Beetle with all its aphid upgrades, the shockwave variants with their upgrades, Dash and Beam Deflection, and Shell Shrapnel
+  if (upgradeId === 19 || (upgradeId >= 21 && upgradeId <= 23) || (upgradeId >= 27 && upgradeId <= 49) || (upgradeId >= 51 && upgradeId <= 55)) {
     return { label: '', weight: 0.5, color: null };
   }
   if (!isCoreUpgrade(upgradeId)) return { label: '', weight: 0.9, color: null };  // Uncommon
   return { label: '', weight: 1, color: null };
 }
 
-// Upgrade levels by id (0-54)
+// Upgrade levels by id (0-55)
 function getCurrentUpgradeLevels() {
-  return [upgrade1Level, upgrade2Level, upgrade3Level, upgrade4Level, upgrade5Level, upgrade6Level, upgrade7Level, upgrade8Level, upgrade9Level, upgrade10Level, upgrade11Level, upgrade12Level, upgrade13Level, upgrade14Level, upgrade15Level, upgrade16Level, upgrade17Level, upgrade18Level, upgrade19Level, upgrade20Level, upgrade21Level, upgrade22Level, upgrade23Level, upgrade24Level, upgrade25Level, upgrade26Level, upgrade27Level, upgrade28Level, upgrade29Level, upgrade30Level, upgrade31Level, upgrade32Level, upgrade33Level, upgrade34Level, upgrade35Level, upgrade36Level, upgrade37Level, upgrade38Level, upgrade39Level, upgrade40Level, upgrade41Level, upgrade42Level, upgrade43Level, upgrade44Level, upgrade45Level, upgrade46Level, upgrade47Level, upgrade48Level, upgrade49Level, upgrade50Level, upgrade51Level, upgrade52Level, upgrade53Level, upgrade54Level, upgrade55Level];
+  return [upgrade1Level, upgrade2Level, upgrade3Level, upgrade4Level, upgrade5Level, upgrade6Level, upgrade7Level, upgrade8Level, upgrade9Level, upgrade10Level, upgrade11Level, upgrade12Level, upgrade13Level, upgrade14Level, upgrade15Level, upgrade16Level, upgrade17Level, upgrade18Level, upgrade19Level, upgrade20Level, upgrade21Level, upgrade22Level, upgrade23Level, upgrade24Level, upgrade25Level, upgrade26Level, upgrade27Level, upgrade28Level, upgrade29Level, upgrade30Level, upgrade31Level, upgrade32Level, upgrade33Level, upgrade34Level, upgrade35Level, upgrade36Level, upgrade37Level, upgrade38Level, upgrade39Level, upgrade40Level, upgrade41Level, upgrade42Level, upgrade43Level, upgrade44Level, upgrade45Level, upgrade46Level, upgrade47Level, upgrade48Level, upgrade49Level, upgrade50Level, upgrade51Level, upgrade52Level, upgrade53Level, upgrade54Level, upgrade55Level, upgrade56Level];
 }
 
 // Whether an upgrade's prerequisites are met (lv = upgrade levels by id). Also used by the Queen Upgrades shop.
@@ -15588,7 +16065,7 @@ function pickUpgradeOptions(exclude = []) {
     displayedUpgrades = forced;
     return;
   }
-  let upgradeLevels = [upgrade1Level, upgrade2Level, upgrade3Level, upgrade4Level, upgrade5Level, upgrade6Level, upgrade7Level, upgrade8Level, upgrade9Level, upgrade10Level, upgrade11Level, upgrade12Level, upgrade13Level, upgrade14Level, upgrade15Level, upgrade16Level, upgrade17Level, upgrade18Level, upgrade19Level, upgrade20Level, upgrade21Level, upgrade22Level, upgrade23Level, upgrade24Level, upgrade25Level, upgrade26Level, upgrade27Level, upgrade28Level, upgrade29Level, upgrade30Level, upgrade31Level, upgrade32Level, upgrade33Level, upgrade34Level, upgrade35Level, upgrade36Level, upgrade37Level, upgrade38Level, upgrade39Level, upgrade40Level, upgrade41Level, upgrade42Level, upgrade43Level, upgrade44Level, upgrade45Level, upgrade46Level, upgrade47Level, upgrade48Level, upgrade49Level, upgrade50Level, upgrade51Level, upgrade52Level, upgrade53Level, upgrade54Level, upgrade55Level];
+  let upgradeLevels = [upgrade1Level, upgrade2Level, upgrade3Level, upgrade4Level, upgrade5Level, upgrade6Level, upgrade7Level, upgrade8Level, upgrade9Level, upgrade10Level, upgrade11Level, upgrade12Level, upgrade13Level, upgrade14Level, upgrade15Level, upgrade16Level, upgrade17Level, upgrade18Level, upgrade19Level, upgrade20Level, upgrade21Level, upgrade22Level, upgrade23Level, upgrade24Level, upgrade25Level, upgrade26Level, upgrade27Level, upgrade28Level, upgrade29Level, upgrade30Level, upgrade31Level, upgrade32Level, upgrade33Level, upgrade34Level, upgrade35Level, upgrade36Level, upgrade37Level, upgrade38Level, upgrade39Level, upgrade40Level, upgrade41Level, upgrade42Level, upgrade43Level, upgrade44Level, upgrade45Level, upgrade46Level, upgrade47Level, upgrade48Level, upgrade49Level, upgrade50Level, upgrade51Level, upgrade52Level, upgrade53Level, upgrade54Level, upgrade55Level, upgrade56Level];
   let availableUpgrades = [];
   for (let i = 0; i < UPGRADE_COUNT; i++) {
     if (upgradeLevels[i] < UPGRADE_MAX_LEVELS[i] && isUpgradeUnlocked(i)) {
@@ -15619,7 +16096,7 @@ function pickUpgradeOptions(exclude = []) {
 function canRerollUpgrades() {
   if (upgradeRerolls <= 0) return false;
   if (isTutorialRun() && !tutorialAllowsReroll()) return false;
-  let upgradeLevels = [upgrade1Level, upgrade2Level, upgrade3Level, upgrade4Level, upgrade5Level, upgrade6Level, upgrade7Level, upgrade8Level, upgrade9Level, upgrade10Level, upgrade11Level, upgrade12Level, upgrade13Level, upgrade14Level, upgrade15Level, upgrade16Level, upgrade17Level, upgrade18Level, upgrade19Level, upgrade20Level, upgrade21Level, upgrade22Level, upgrade23Level, upgrade24Level, upgrade25Level, upgrade26Level, upgrade27Level, upgrade28Level, upgrade29Level, upgrade30Level, upgrade31Level, upgrade32Level, upgrade33Level, upgrade34Level, upgrade35Level, upgrade36Level, upgrade37Level, upgrade38Level, upgrade39Level, upgrade40Level, upgrade41Level, upgrade42Level, upgrade43Level, upgrade44Level, upgrade45Level, upgrade46Level, upgrade47Level, upgrade48Level, upgrade49Level, upgrade50Level, upgrade51Level, upgrade52Level, upgrade53Level, upgrade54Level, upgrade55Level];
+  let upgradeLevels = [upgrade1Level, upgrade2Level, upgrade3Level, upgrade4Level, upgrade5Level, upgrade6Level, upgrade7Level, upgrade8Level, upgrade9Level, upgrade10Level, upgrade11Level, upgrade12Level, upgrade13Level, upgrade14Level, upgrade15Level, upgrade16Level, upgrade17Level, upgrade18Level, upgrade19Level, upgrade20Level, upgrade21Level, upgrade22Level, upgrade23Level, upgrade24Level, upgrade25Level, upgrade26Level, upgrade27Level, upgrade28Level, upgrade29Level, upgrade30Level, upgrade31Level, upgrade32Level, upgrade33Level, upgrade34Level, upgrade35Level, upgrade36Level, upgrade37Level, upgrade38Level, upgrade39Level, upgrade40Level, upgrade41Level, upgrade42Level, upgrade43Level, upgrade44Level, upgrade45Level, upgrade46Level, upgrade47Level, upgrade48Level, upgrade49Level, upgrade50Level, upgrade51Level, upgrade52Level, upgrade53Level, upgrade54Level, upgrade55Level, upgrade56Level];
   for (let i = 0; i < UPGRADE_COUNT; i++) {
     if (upgradeLevels[i] < UPGRADE_MAX_LEVELS[i] && isUpgradeUnlocked(i) && !displayedUpgrades.includes(i)) return true;
   }
@@ -15751,6 +16228,8 @@ function applyUpgrade(upgradeIndex) {
     upgrade54Level++;
   } else if (actualUpgradeId === 54 && upgrade55Level < upgradeMaxLevels[54]) {
     upgrade55Level++;
+  } else if (actualUpgradeId === 55 && upgrade56Level < upgradeMaxLevels[55]) {
+    upgrade56Level++;
   }
   
   // Level up the EXP system
@@ -15776,8 +16255,8 @@ function applyUpgrade(upgradeIndex) {
   }
   
   //TODO: Add actual upgrade effects based on actualUpgradeId (0-19)
-  let levels = [upgrade1Level, upgrade2Level, upgrade3Level, upgrade4Level, upgrade5Level, upgrade6Level, upgrade7Level, upgrade8Level, upgrade9Level, upgrade10Level, upgrade11Level, upgrade12Level, upgrade13Level, upgrade14Level, upgrade15Level, upgrade16Level, upgrade17Level, upgrade18Level, upgrade19Level, upgrade20Level, upgrade21Level, upgrade22Level, upgrade23Level, upgrade24Level, upgrade25Level, upgrade26Level, upgrade27Level, upgrade28Level, upgrade29Level, upgrade30Level, upgrade31Level, upgrade32Level, upgrade33Level, upgrade34Level, upgrade35Level, upgrade36Level, upgrade37Level, upgrade38Level, upgrade39Level, upgrade40Level, upgrade41Level, upgrade42Level, upgrade43Level, upgrade44Level, upgrade45Level, upgrade46Level, upgrade47Level, upgrade48Level, upgrade49Level, upgrade50Level, upgrade51Level, upgrade52Level, upgrade53Level, upgrade54Level, upgrade55Level];
-  let upgradeNames = ['Walking Speed', 'Dash Speed', 'Dash Cooldown', 'Add Shield', 'Add Bullets', 'Shield Regeneration', 'Bullet Reload', 'Bullet Speed', 'Free-Angle Aiming', 'Rivacindela hudsoni (Tiger Beetle)', 'Anthia sexmaculata (Oogpister Beetle)', 'Horns', 'Potent Acid', 'Shockwave', 'Shockwave Radius', 'Shockwave Damage', 'Shockwave Cooldown', 'Shockwave Knockback', 'Bullet Deflection', 'Health Regeneration', 'Runt Hunter', 'Increased Metabolism', 'EXP Boost', 'Combo Surge', 'Dash Harvest', 'Shockwave Harvest', 'Bullet Harvest', 'Spray Acid', 'Spray Length', 'Spray Width', 'Piercing Acid', 'Piercing Depth', 'Impact Bomb', 'Timed Bomb', 'Proximity Bomb', 'Blast Radius', 'Coccinella septempunctata (Lady Beetle)', 'Aphid Health', 'Aphid Spawn Rate', 'Speedy Aphids', 'Armored Aphids', 'Wise Aphids', 'Healthy Aphids', 'Lucky Aphids', 'Mound Ring', 'Bunker', 'Vortex', 'Flight and Slam', 'Mound Health', 'Flight Duration', 'Starting Health', 'Dash Deflection', 'Shell Shrapnel', 'Shrapnel Count', 'Burrow'];
+  let levels = [upgrade1Level, upgrade2Level, upgrade3Level, upgrade4Level, upgrade5Level, upgrade6Level, upgrade7Level, upgrade8Level, upgrade9Level, upgrade10Level, upgrade11Level, upgrade12Level, upgrade13Level, upgrade14Level, upgrade15Level, upgrade16Level, upgrade17Level, upgrade18Level, upgrade19Level, upgrade20Level, upgrade21Level, upgrade22Level, upgrade23Level, upgrade24Level, upgrade25Level, upgrade26Level, upgrade27Level, upgrade28Level, upgrade29Level, upgrade30Level, upgrade31Level, upgrade32Level, upgrade33Level, upgrade34Level, upgrade35Level, upgrade36Level, upgrade37Level, upgrade38Level, upgrade39Level, upgrade40Level, upgrade41Level, upgrade42Level, upgrade43Level, upgrade44Level, upgrade45Level, upgrade46Level, upgrade47Level, upgrade48Level, upgrade49Level, upgrade50Level, upgrade51Level, upgrade52Level, upgrade53Level, upgrade54Level, upgrade55Level, upgrade56Level];
+  let upgradeNames = ['Walking Speed', 'Dash Speed', 'Dash Cooldown', 'Add Shield', 'Add Bullets', 'Shield Regeneration', 'Bullet Reload', 'Bullet Speed', 'Free-Angle Aiming', 'Rivacindela hudsoni (Tiger Beetle)', 'Anthia sexmaculata (Oogpister Beetle)', 'Horns', 'Potent Acid', 'Shockwave', 'Shockwave Radius', 'Shockwave Damage', 'Shockwave Cooldown', 'Shockwave Knockback', 'Bullet Deflection', 'Health Regeneration', 'Runt Hunter', 'Increased Metabolism', 'EXP Boost', 'Combo Surge', 'Dash Harvest', 'Shockwave Harvest', 'Bullet Harvest', 'Spray Acid', 'Spray Length', 'Spray Width', 'Piercing Acid', 'Piercing Depth', 'Impact Bomb', 'Timed Bomb', 'Proximity Bomb', 'Blast Radius', 'Coccinella septempunctata (Lady Beetle)', 'Aphid Health', 'Aphid Spawn Rate', 'Speedy Aphids', 'Armored Aphids', 'Wise Aphids', 'Healthy Aphids', 'Lucky Aphids', 'Mound Ring', 'Bunker', 'Vortex', 'Flight and Slam', 'Mound Health', 'Flight Duration', 'Starting Health', 'Dash Deflection', 'Shell Shrapnel', 'Shrapnel Count', 'Burrow', 'Beam Deflection'];
   debugLog(`${upgradeNames[actualUpgradeId]} selected! Level: ${levels[actualUpgradeId]}`);
   
   // Update upgrade booleans
@@ -16055,12 +16534,15 @@ function clearRoundEffects() {
   clearShockwaveVariantEffects();
   landMines = [];
   speedRings = [];
+  beetleHitEffects = [];
+  regenPluses = [];
   enemyExplosions = [];
   enemyArcExplosionLinks = [];
   enemyGroundImpacts = [];
   enemySmears = [];
   deathRefires = [];
   enemyBeams = [];
+  playerBeams = [];
   enemyStreams = [];
   antStream = [];
   antStreamEndFrame = [];
@@ -20434,6 +20916,7 @@ function savePlayerState(playerIndex) {
   p.upgrade53 = upgrade53Level;
   p.upgrade54 = upgrade54Level;
   p.upgrade55 = upgrade55Level;
+  p.upgrade56 = upgrade56Level;
   p.upgradeRerolls = upgradeRerolls;
   
   // Save experience
@@ -20514,6 +20997,7 @@ function loadPlayerState(playerIndex) {
   upgrade53Level = p.upgrade53 || 0;
   upgrade54Level = p.upgrade54 || 0;
   upgrade55Level = p.upgrade55 || 0;
+  upgrade56Level = p.upgrade56 || 0;
   upgradeRerolls = p.upgradeRerolls !== undefined ? p.upgradeRerolls : UPGRADE_REROLLS_PER_RUN;
   resetShotMode(); // Each player's turn starts on the default shot
   resetShockwaveVariant(); // ...and the original shockwave, with nothing left over from the last player
@@ -21671,7 +22155,8 @@ function drawDevTools() {
         upgrade52: upgrade52Level,
         upgrade53: upgrade53Level,
         upgrade54: upgrade54Level,
-        upgrade55: upgrade55Level
+        upgrade55: upgrade55Level,
+        upgrade56: upgrade56Level
       };
     } else if (devToolsTab === 'multi') {
       // Multiplayer mode - get upgrades from selected player
@@ -21731,7 +22216,8 @@ function drawDevTools() {
           upgrade52: players[devToolsPlayerTab].upgrade52 || 0,
           upgrade53: players[devToolsPlayerTab].upgrade53 || 0,
           upgrade54: players[devToolsPlayerTab].upgrade54 || 0,
-          upgrade55: players[devToolsPlayerTab].upgrade55 || 0
+          upgrade55: players[devToolsPlayerTab].upgrade55 || 0,
+          upgrade56: players[devToolsPlayerTab].upgrade56 || 0
         };
       } else {
         // Player doesn't exist, show zeros
@@ -21741,7 +22227,7 @@ function drawDevTools() {
           upgrade11: 0, upgrade12: 0, upgrade13: 0, upgrade14: 0, upgrade15: 0,
           upgrade16: 0, upgrade17: 0, upgrade18: 0, upgrade19: 0, upgrade20: 0,
           upgrade21: 0, upgrade22: 0, upgrade23: 0, upgrade24: 0, upgrade25: 0, upgrade26: 0, upgrade27: 0,
-          upgrade28: 0, upgrade29: 0, upgrade30: 0, upgrade31: 0, upgrade32: 0, upgrade33: 0, upgrade34: 0, upgrade35: 0, upgrade36: 0, upgrade37: 0, upgrade38: 0, upgrade39: 0, upgrade40: 0, upgrade41: 0, upgrade42: 0, upgrade43: 0, upgrade44: 0, upgrade45: 0, upgrade46: 0, upgrade47: 0, upgrade48: 0, upgrade49: 0, upgrade50: 0, upgrade51: 0, upgrade52: 0, upgrade53: 0, upgrade54: 0, upgrade55: 0
+          upgrade28: 0, upgrade29: 0, upgrade30: 0, upgrade31: 0, upgrade32: 0, upgrade33: 0, upgrade34: 0, upgrade35: 0, upgrade36: 0, upgrade37: 0, upgrade38: 0, upgrade39: 0, upgrade40: 0, upgrade41: 0, upgrade42: 0, upgrade43: 0, upgrade44: 0, upgrade45: 0, upgrade46: 0, upgrade47: 0, upgrade48: 0, upgrade49: 0, upgrade50: 0, upgrade51: 0, upgrade52: 0, upgrade53: 0, upgrade54: 0, upgrade55: 0, upgrade56: 0
         };
       }
     }
@@ -21804,7 +22290,8 @@ function drawDevTools() {
         { name: 'Dash Deflection', level: currentUpgrades.upgrade52, maxLevel: 1, id: 51 },
         { name: 'Shell Shrapnel', level: currentUpgrades.upgrade53, maxLevel: 1, id: 52 },
         { name: 'Shrapnel Count', level: currentUpgrades.upgrade54, maxLevel: 2, id: 53 },
-        { name: 'Burrow', level: currentUpgrades.upgrade55, maxLevel: 1, id: 54 }
+        { name: 'Burrow', level: currentUpgrades.upgrade55, maxLevel: 1, id: 54 },
+        { name: 'Beam Deflection', level: currentUpgrades.upgrade56, maxLevel: 1, id: 55 }
       ];
     
     // Handle player sub-tab switching in multiplayer mode
@@ -22036,7 +22523,7 @@ function toggleDevUpgrade(upgradeId) {
   
   if (devToolsTab === 'single') {
     let upgradeLevels = [upgrade1Level, upgrade2Level, upgrade3Level, upgrade4Level, upgrade5Level, 
-                         upgrade6Level, upgrade7Level, upgrade8Level, upgrade9Level, upgrade10Level, upgrade11Level, upgrade12Level, upgrade13Level, upgrade14Level, upgrade15Level, upgrade16Level, upgrade17Level, upgrade18Level, upgrade19Level, upgrade20Level, upgrade21Level, upgrade22Level, upgrade23Level, upgrade24Level, upgrade25Level, upgrade26Level, upgrade27Level, upgrade28Level, upgrade29Level, upgrade30Level, upgrade31Level, upgrade32Level, upgrade33Level, upgrade34Level, upgrade35Level, upgrade36Level, upgrade37Level, upgrade38Level, upgrade39Level, upgrade40Level, upgrade41Level, upgrade42Level, upgrade43Level, upgrade44Level, upgrade45Level, upgrade46Level, upgrade47Level, upgrade48Level, upgrade49Level, upgrade50Level, upgrade51Level, upgrade52Level, upgrade53Level, upgrade54Level, upgrade55Level];
+                         upgrade6Level, upgrade7Level, upgrade8Level, upgrade9Level, upgrade10Level, upgrade11Level, upgrade12Level, upgrade13Level, upgrade14Level, upgrade15Level, upgrade16Level, upgrade17Level, upgrade18Level, upgrade19Level, upgrade20Level, upgrade21Level, upgrade22Level, upgrade23Level, upgrade24Level, upgrade25Level, upgrade26Level, upgrade27Level, upgrade28Level, upgrade29Level, upgrade30Level, upgrade31Level, upgrade32Level, upgrade33Level, upgrade34Level, upgrade35Level, upgrade36Level, upgrade37Level, upgrade38Level, upgrade39Level, upgrade40Level, upgrade41Level, upgrade42Level, upgrade43Level, upgrade44Level, upgrade45Level, upgrade46Level, upgrade47Level, upgrade48Level, upgrade49Level, upgrade50Level, upgrade51Level, upgrade52Level, upgrade53Level, upgrade54Level, upgrade55Level, upgrade56Level];
     currentLevel = upgradeLevels[upgradeId];
   } else {
     // Multiplayer - get from selected player
@@ -22096,7 +22583,8 @@ function toggleDevUpgrade(upgradeId) {
         players[devToolsPlayerTab].upgrade52 || 0,
         players[devToolsPlayerTab].upgrade53 || 0,
         players[devToolsPlayerTab].upgrade54 || 0,
-        players[devToolsPlayerTab].upgrade55 || 0
+        players[devToolsPlayerTab].upgrade55 || 0,
+        players[devToolsPlayerTab].upgrade56 || 0
       ];
       currentLevel = playerUpgrades[upgradeId];
     }
@@ -22171,7 +22659,7 @@ function activateDevPrerequisites(upgradeId, targetLevel) {
   let getCurrentLevel = (id) => {
     if (devToolsTab === 'single') {
       let levels = [upgrade1Level, upgrade2Level, upgrade3Level, upgrade4Level, upgrade5Level, 
-                    upgrade6Level, upgrade7Level, upgrade8Level, upgrade9Level, upgrade10Level, upgrade11Level, upgrade12Level, upgrade13Level, upgrade14Level, upgrade15Level, upgrade16Level, upgrade17Level, upgrade18Level, upgrade19Level, upgrade20Level, upgrade21Level, upgrade22Level, upgrade23Level, upgrade24Level, upgrade25Level, upgrade26Level, upgrade27Level, upgrade28Level, upgrade29Level, upgrade30Level, upgrade31Level, upgrade32Level, upgrade33Level, upgrade34Level, upgrade35Level, upgrade36Level, upgrade37Level, upgrade38Level, upgrade39Level, upgrade40Level, upgrade41Level, upgrade42Level, upgrade43Level, upgrade44Level, upgrade45Level, upgrade46Level, upgrade47Level, upgrade48Level, upgrade49Level, upgrade50Level, upgrade51Level, upgrade52Level, upgrade53Level, upgrade54Level, upgrade55Level];
+                    upgrade6Level, upgrade7Level, upgrade8Level, upgrade9Level, upgrade10Level, upgrade11Level, upgrade12Level, upgrade13Level, upgrade14Level, upgrade15Level, upgrade16Level, upgrade17Level, upgrade18Level, upgrade19Level, upgrade20Level, upgrade21Level, upgrade22Level, upgrade23Level, upgrade24Level, upgrade25Level, upgrade26Level, upgrade27Level, upgrade28Level, upgrade29Level, upgrade30Level, upgrade31Level, upgrade32Level, upgrade33Level, upgrade34Level, upgrade35Level, upgrade36Level, upgrade37Level, upgrade38Level, upgrade39Level, upgrade40Level, upgrade41Level, upgrade42Level, upgrade43Level, upgrade44Level, upgrade45Level, upgrade46Level, upgrade47Level, upgrade48Level, upgrade49Level, upgrade50Level, upgrade51Level, upgrade52Level, upgrade53Level, upgrade54Level, upgrade55Level, upgrade56Level];
       return levels[id];
     } else if (players[devToolsPlayerTab]) {
       let playerLevels = [
@@ -22229,7 +22717,8 @@ function activateDevPrerequisites(upgradeId, targetLevel) {
         players[devToolsPlayerTab].upgrade52 || 0,
         players[devToolsPlayerTab].upgrade53 || 0,
         players[devToolsPlayerTab].upgrade54 || 0,
-        players[devToolsPlayerTab].upgrade55 || 0
+        players[devToolsPlayerTab].upgrade55 || 0,
+        players[devToolsPlayerTab].upgrade56 || 0
       ];
       return playerLevels[id];
     }
@@ -22527,6 +23016,7 @@ function setUpgradeLevel(upgradeId, level) {
   else if (upgradeId === 52) upgrade53Level = level;
   else if (upgradeId === 53) upgrade54Level = level;
   else if (upgradeId === 54) upgrade55Level = level;
+  else if (upgradeId === 55) upgrade56Level = level;
   
   // Apply the changes to game stats
   updateUpgradeBooleans();
@@ -22591,6 +23081,7 @@ function setDevUpgradeLevel(upgradeId, level) {
     else if (upgradeId === 52) upgrade53Level = level;
     else if (upgradeId === 53) upgrade54Level = level;
     else if (upgradeId === 54) upgrade55Level = level;
+    else if (upgradeId === 55) upgrade56Level = level;
     
     // Apply the changes to game stats
     updateUpgradeBooleans();
@@ -22652,6 +23143,7 @@ function setDevUpgradeLevel(upgradeId, level) {
       else if (upgradeId === 52) players[devToolsPlayerTab].upgrade53 = level;
       else if (upgradeId === 53) players[devToolsPlayerTab].upgrade54 = level;
       else if (upgradeId === 54) players[devToolsPlayerTab].upgrade55 = level;
+      else if (upgradeId === 55) players[devToolsPlayerTab].upgrade56 = level;
       
       // Update player's stats based on their new upgrade levels
       updatePlayerStats(devToolsPlayerTab);
