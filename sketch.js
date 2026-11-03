@@ -19144,16 +19144,6 @@ function drawStartScreen(){
         }
       }
       
-      // Hovering a stop on the map with the mouse selects it
-      if (movedX !== 0 || movedY !== 0) {
-        for (let i = 1; i <= getMapStopCount(); i++) {
-          if (pointInRect(getMenuMouseX(), getMenuMouseY(), getDifficultyButtonRect(i))) {
-            difficultySelection = i;
-            break;
-          }
-        }
-      }
-
       // The map: a dirt path into ant territory, one stop per difficulty (see map.js)
       drawDifficultyMap();
 
@@ -19284,7 +19274,7 @@ function drawStartScreen(){
       fill(200, fadeAlpha);
       textSize(18);
       textAlign(CENTER);
-      text('←/→ or ↑/↓ or Left Stick or Click  Select  |  Enter or A  Confirm  |  Esc or B  Back', getMenuWidth() / 2, getMenuHeight() * 0.975);
+      text('←/→ or ↑/↓ or Left Stick or Scroll  Travel  |  Enter or A  Confirm  |  Esc or B  Back', getMenuWidth() / 2, getMenuHeight() * 0.975);
       
       // Back to main menu
       if (isBackPressed() && menuNavigationCooldown === 0) {
@@ -19786,6 +19776,8 @@ function antdexScreen() {
 
 function mouseWheel(event) {
   if (antdex) dexTargetScroll -= event.delta / 2;
+  // Scrolling walks down (or back up) the difficulty map's path
+  if (difficultyMenu) mapScroll(event.delta);
 }
 
 function touchMoved() {
@@ -19813,8 +19805,9 @@ function mousePressed() {
     return;
   }
 
-  // Difficulty menu: clicking a button selects it
+  // Difficulty menu: the edge arrows walk to the next stop; clicking a stop selects it
   if (difficultyMenu) {
+    if (mapArrowClicked(getMenuMouseX(), getMenuMouseY())) return;
     for (let i = 1; i <= getMapStopCount(); i++) {
       if (pointInRect(getMenuMouseX(), getMenuMouseY(), getDifficultyButtonRect(i))) {
         difficultySelection = i;

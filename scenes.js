@@ -100,7 +100,13 @@ class SceneActor {
   }
 
   face(t, target) { return this.at(t, () => { this.look = target; }); }
-  show(t, on = true) { return this.at(t, () => { this.visible = on; }); }
+  show(t, on = true) {
+    return this.at(t, () => {
+      this.visible = on;
+      // Popping back up after a burrow shows the whole ant
+      if (on && this.burrow && this.scene.t >= this.burrow.t0 + this.burrow.dur) this.burrow = null;
+    });
+  }
   fade(t0, dur, to) {
     this.fades.push({ t0: t0, dur: Math.max(1, dur), to: to, from: null });
     this.scene.extend(t0 + dur);
@@ -130,6 +136,7 @@ class SceneActor {
     this.visible = false;
     this.at(t0, () => {
       this.visible = true;
+      this.burrow = null;
       this.dig = { t0: t0, dur: dur };
       rumble(60, 0, 0.1);
       this.scene.dirt(this.x, this.y, 10 + 4 * this.size);
@@ -139,6 +146,7 @@ class SceneActor {
   }
   burrowDown(t0, dur = 26) {
     this.at(t0, () => {
+      this.dig = null;
       this.burrow = { t0: t0, dur: dur };
       this.scene.dirt(this.x, this.y, 8 + 4 * this.size);
     });
@@ -227,7 +235,11 @@ class SceneActor {
     let rise = 1;
     if (this.dig) rise = constrain((t - this.dig.t0) / this.dig.dur, 0, 1);
     if (this.burrow) rise = 1 - constrain((t - this.burrow.t0) / this.burrow.dur, 0, 1);
-    const sink = (1 - rise) * s * 0.35;
+    // Fully out once the dig is done
+    if (this.dig && rise >= 1) this.dig = null;
+    const clipped = (this.dig || this.burrow) && rise < 1;
+    // Sinks a whole body length, so at rise 0 it's all below the ground line
+    const sink = (1 - rise) * s * 1.05;
 
     if (this.trail) {
       // Streaks behind a fast move
@@ -249,11 +261,11 @@ class SceneActor {
     angleMode(DEGREES);
     imageMode(CENTER);
     translate(this.x + sx, this.y + sy - this.air + sink);
-    if (this.dig || this.burrow) {
-      // Only the part above ground shows
+    if (clipped) {
+      // Only the part above the ground line (just under the ant's resting spot) shows
       drawingContext.save();
       drawingContext.beginPath();
-      drawingContext.rect(-s, -s, s * 2, s - sink + s * 0.05);
+      drawingContext.rect(-s * 2, -s * 2, s * 4, s * 2.55 - sink);
       drawingContext.clip();
     }
     rotate(this.angle * 180 / Math.PI);
@@ -265,7 +277,7 @@ class SceneActor {
     else if (flashing) tint(255, 120, 120, 255 * this.alpha);
     else if (this.alpha < 1) tint(255, 255 * this.alpha);
     image(img, 0, 0, s, s);
-    if (this.dig || this.burrow) drawingContext.restore();
+    if (clipped) drawingContext.restore();
     pop();
 
     if (this.kind === 'queen') drawQueenCrown(this.x, this.y - this.air - s * 0.45, this.scale, 255 * this.alpha * lit);
