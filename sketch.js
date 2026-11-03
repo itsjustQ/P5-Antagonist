@@ -245,14 +245,14 @@ specialPotential: 0.3,
     blinkDelay: 60,
     bulletAccelerateDelay: 200,
     pathPotential: 0.3,
-    bulletArcDuration: 200,
+    bulletArcDuration: 300,
     bulletCurveStrength: 0.015,
     explosionProximity: 200,
     angleFromSpawn: Math.PI,
     bulletSize: 1,
     radiusMultiplier: 1,
     residueMultiplier: 1,
-    bulletExplodeAfter: 200,
+    bulletExplodeAfter: 100,
     antSize: 1,
     // Gene Token System
     geneTokens: 2,
@@ -307,14 +307,14 @@ specialPotential: 0.3,
     blinkDelay: 60,
     bulletAccelerateDelay: 200,
     pathPotential: 0.3,
-    bulletArcDuration: 200,
+    bulletArcDuration: 300,
     bulletCurveStrength: 0.015,
     explosionProximity: 200,
     angleFromSpawn: Math.PI,
     bulletSize: 1,
     radiusMultiplier: 1,
     residueMultiplier: 1,
-    bulletExplodeAfter: 200,
+    bulletExplodeAfter: 100,
     antSize: 1,
     // Gene Token System
     geneTokens: 2,
@@ -369,14 +369,14 @@ specialPotential: 0.3,
     blinkDelay: 60,
     bulletAccelerateDelay: 200,
     pathPotential: 0.3,
-    bulletArcDuration: 200,
+    bulletArcDuration: 300,
     bulletCurveStrength: 0.015,
     explosionProximity: 200,
     angleFromSpawn: Math.PI,
     bulletSize: 1,
     radiusMultiplier: 1,
     residueMultiplier: 1,
-    bulletExplodeAfter: 200,
+    bulletExplodeAfter: 100,
     antSize: 1,
     // Gene Token System
     geneTokens: 2,
@@ -871,21 +871,84 @@ function preload(){
 
 }
 
+// p5's tint() repaints the image into a scratch canvas on every image() call (four compositing passes for a
+// colored tint), so a screen of faded or camouflaged bullets stalled whole frames. Tinted images are drawn
+// here instead: an alpha-only tint is just the canvas's globalAlpha, and a colored tint is painted once per
+// animation frame and (rounded) color, then reused.
+const TINT_COLOR_STEP = 8;          // Tint colors round to this, so slowly shifting tints reuse a few copies
+const TINT_CACHE_MAX = 400;         // Tinted copies kept per image before the cache starts over
+const tintedImageCache = new Map(); // image -> Map(frame/color key -> tinted p5.Image)
+
+function getTintedImageCopy(img, tintLevels, pInst) {
+  if (img.gifProperties) img._animateGif(pInst); // Advance the animation, as image() would have
+  const step = c => Math.min(255, Math.round(c / TINT_COLOR_STEP) * TINT_COLOR_STEP);
+  const r = step(tintLevels[0]), g = step(tintLevels[1]), b = step(tintLevels[2]);
+  const frame = img.gifProperties ? img.gifProperties.displayIndex : 0;
+  const key = `${frame},${r},${g},${b}`;
+  let copies = tintedImageCache.get(img);
+  if (!copies) tintedImageCache.set(img, copies = new Map());
+  let copy = copies.get(key);
+  if (copy) return copy;
+  if (copies.size >= TINT_CACHE_MAX) copies.clear();
+  const src = img.canvas;
+  copy = new p5.Image(src.width, src.height);
+  const ctx = copy.drawingContext;
+  // The same compositing p5 does, minus the alpha (applied when it's drawn)
+  ctx.drawImage(src, 0, 0);
+  ctx.globalCompositeOperation = 'luminosity';
+  ctx.drawImage(src, 0, 0);
+  ctx.globalCompositeOperation = 'color';
+  ctx.drawImage(src, 0, 0);
+  ctx.globalCompositeOperation = 'multiply';
+  ctx.fillStyle = `rgb(${r}, ${g}, ${b})`;
+  ctx.fillRect(0, 0, src.width, src.height);
+  ctx.globalCompositeOperation = 'destination-in';
+  ctx.drawImage(src, 0, 0);
+  copies.set(key, copy);
+  return copy;
+}
+
+const p5DrawImage = p5.Renderer2D.prototype.image;
+p5.Renderer2D.prototype.image = function (img, ...args) {
+  const tintLevels = this._tint;
+  if (!tintLevels || !img.canvas || img.elt) return p5DrawImage.call(this, img, ...args); // Untinted, or video
+  const ctx = this.drawingContext;
+  const prevAlpha = ctx.globalAlpha;
+  ctx.globalAlpha = prevAlpha * tintLevels[3] / 255;
+  this._tint = null;
+  try {
+    const colored = tintLevels[0] < 255 || tintLevels[1] < 255 || tintLevels[2] < 255;
+    return p5DrawImage.call(this, colored ? getTintedImageCopy(img, tintLevels, this._pInst) : img, ...args);
+  } finally {
+    this._tint = tintLevels;
+    ctx.globalAlpha = prevAlpha;
+  }
+};
+
 // The shot/shield icons are static PNGs, painted into their own canvases once at load. If the
-// browser drops its graphics state (a GPU reset under heavy load), those canvases can come back
-// blank while the animated GIFs repaint themselves, so the icons silently vanish. Check them now
-// and then and reload any that were wiped.
+// browser drops its graphics state (a GPU reset under heavy load), GPU-backed canvases can come back
+// blank while the animated GIFs repaint themselves, so the icons silently vanished. They're moved into
+// software (willReadFrequently) canvases, which a GPU reset can't wipe, and reloaded if a context is
+// ever lost anyway. (They used to be checked by reading their pixels back every 2 seconds, but every
+// readback made the browser flush all pending drawing first: a few ms each, and once most of a second.)
 let iconImagesReloading = false;
 
+function moveIconToCpuCanvas(img) {
+  if (!img || !img.canvas || img.iconOnCpu) return img;
+  const canvas = document.createElement('canvas');
+  canvas.width = img.canvas.width;
+  canvas.height = img.canvas.height;
+  const ctx = canvas.getContext('2d', { willReadFrequently: true });
+  ctx.drawImage(img.canvas, 0, 0);
+  img.canvas = canvas;
+  img.drawingContext = ctx;
+  img.iconOnCpu = true;
+  return img;
+}
+
 function isIconImageWiped(img) {
-  let ctx = img.drawingContext;
-  if (!ctx) return false;
-  if (ctx.isContextLost && ctx.isContextLost()) return true;
-  let data = ctx.getImageData(0, 0, img.width, img.height).data;
-  for (let i = 3; i < data.length; i += 4) {
-    if (data[i] > 0) return false;
-  }
-  return true;
+  const ctx = img.drawingContext;
+  return !!(ctx && ctx.isContextLost && ctx.isContextLost());
 }
 
 function reloadIconImages() {
@@ -894,10 +957,10 @@ function reloadIconImages() {
   debugLog('Icon images were wiped; reloading them');
   let remaining = 4;
   let done = () => { if (--remaining === 0) iconImagesReloading = false; };
-  loadImage('img/shieldfull.png', img => { shieldFull = img; done(); }, done);
-  loadImage('img/shieldempty.png', img => { shieldEmpty = img; done(); }, done);
-  loadImage('img/acidfull.png', img => { acidFull = img; done(); }, done);
-  loadImage('img/acidempty.png', img => { acidEmpty = img; done(); }, done);
+  loadImage('img/shieldfull.png', img => { shieldFull = moveIconToCpuCanvas(img); done(); }, done);
+  loadImage('img/shieldempty.png', img => { shieldEmpty = moveIconToCpuCanvas(img); done(); }, done);
+  loadImage('img/acidfull.png', img => { acidFull = moveIconToCpuCanvas(img); done(); }, done);
+  loadImage('img/acidempty.png', img => { acidEmpty = moveIconToCpuCanvas(img); done(); }, done);
 }
 
 function checkIconImages() {
@@ -908,7 +971,7 @@ function checkIconImages() {
 }
 
 function setup() {
-  
+  [shieldFull, shieldEmpty, acidFull, acidEmpty].forEach(moveIconToCpuCanvas);
   openingCinematic = getItem('openingCinematicSeen') !== true;
   // Canvas text only uses a web font once it has loaded, so fetch the title card font up front
   if (document.fonts) document.fonts.load('100px Creepster');
@@ -1022,7 +1085,7 @@ function setup() {
     antRecoilAirTimer[i] = 0;
     bulletSplitCount[i] = 1;          // no split by default
     bulletSpread[i] = 0;              // 0° spread (all bullets same direction)
-    bulletExplodeAfter[i] = 200;
+    bulletExplodeAfter[i] = 100;
     radiusMultiplier[i] = 1;
     residueMultiplier[i] = 1;
     shotOffsetX[i] = 0;
@@ -1063,7 +1126,7 @@ function setup() {
     blinkDelay[i] = BLINK_DEFAULT_DELAY;
     bulletAccelerateDelay[i] = 200;
     pathPotential[i] = 0.3;
-    bulletArcDuration[i] = 200;
+    bulletArcDuration[i] = 300;
     bulletCurveStrength[i] = 0.015;
     bulletBurstCount[i] = 2;
     bulletBurstSpread[i] = 1.5; // Below first cap (2.0)
@@ -1354,6 +1417,7 @@ let gamePaused = false;
 let gamePauseSnapshot = null;
 let previousPausePressed = false;
 let pauseMusicWasPlaying = false;
+let previousPauseQuitPressed = true;
 let pausePressedThisFrame = false;        // Read once at the top of every frame, so a key held from a menu isn't a new press
 
 // Called at the very end of a gameplay frame, so the frozen frame is a finished one. Only mid-round:
@@ -1362,6 +1426,7 @@ function updatePauseRequest() {
   if (!pausePressedThisFrame || end || roundIntroTimer > 0 || isTutorialPaused() || tutorial && tutorial.cardPending) return;
   gamePauseSnapshot = get();
   gamePaused = true;
+  previousPauseQuitPressed = true; // A quit button held while pausing has to be let go first
   stopRumble();
   pauseMusicWasPlaying = gamemusic && gamemusic.isPlaying();
   if (pauseMusicWasPlaying) gamemusic.pause();
@@ -1387,8 +1452,17 @@ function drawPausedFrame() {
   fill(220, 220, 220, 150 + 80 * Math.sin(frameCount * 0.08));
   textSize(Math.min(24, windowWidth * 0.022));
   text('Press P, Esc or Start to resume', windowWidth / 2, windowHeight / 2 + 35);
+  text('Press M, B or Select to quit to the main menu', windowWidth / 2, windowHeight / 2 + 70);
   pop();
+  // Quit: M, gamepad B or Select/View (B alone, not Esc, since Esc resumes)
+  const quitPressed = keyIsDown(77) || !!(gamepad && [1, 8].some(b => gamepad.buttons[b] && gamepad.buttons[b].pressed));
+  const quitNow = quitPressed && !previousPauseQuitPressed;
+  previousPauseQuitPressed = quitPressed;
   if (pausePressedThisFrame) resumeGame();
+  else if (quitNow) {
+    returnToMainMenu();
+    menuNavigationCooldown = 20;
+  }
 }
 
 function draw() {
@@ -1806,7 +1880,7 @@ function draw() {
   }
   updateAntDexEntries();
   
-  drawDiscoveryPopup();
+  if (!queenShopMenu) drawDiscoveryPopup(); // It waits while the shop is open over the lose screen
 }
 
 function resetRunState() {
@@ -2111,7 +2185,7 @@ function applyStatsToAnt(i, s) {
   blinkDelay[i] = s.blinkDelay ?? BLINK_DEFAULT_DELAY;
   bulletAccelerateDelay[i] = s.bulletAccelerateDelay;
   pathPotential[i] = s.pathPotential;
-  bulletArcDuration[i] = Math.max(s.bulletArcDuration ?? 200, HIGH_ARC_MIN_DURATION);
+  bulletArcDuration[i] = Math.max(s.bulletArcDuration ?? 300, HIGH_ARC_MIN_DURATION);
   bulletCurveStrength[i] = s.bulletCurveStrength;
   explosionProximity[i] = s.explosionProximity;
   angleFromSpawn[i] = s.angleFromSpawn;
@@ -2206,7 +2280,7 @@ function resetAntToStartingGenes(i) {
   angleFromSpawn[i] = PI;
   bulletSplitCount[i] = 1;
   bulletSpread[i] = 0;
-  bulletExplodeAfter[i] = 200;
+  bulletExplodeAfter[i] = 100;
   radiusMultiplier[i] = 1;
   residueMultiplier[i] = 1;
   explosionProximity[i] = 200;
@@ -2240,7 +2314,7 @@ function resetAntToStartingGenes(i) {
   blinkDelay[i] = BLINK_DEFAULT_DELAY;
   bulletAccelerateDelay[i] = 200;
   pathPotential[i] = 0.3;
-  bulletArcDuration[i] = 200;
+  bulletArcDuration[i] = 300;
   bulletCurveStrength[i] = 0.015;
   explodeOnTermination[i] = false;
   triggerExplodeViaProximity[i] = false;
@@ -2464,6 +2538,104 @@ function snapshotAntStats(antId) {
         geneTokenInvestments: JSON.parse(JSON.stringify(geneTokenInvestments[antId] || [])), // Deep copy
         geneTokenLastRoundGained: geneTokenLastRoundGained[antId]
   };
+}
+
+// --- Lose screen options ---
+
+const GAME_OVER_INPUT_DELAY = 40; // Frames the lose screen ignores input for after the beetle dies
+
+function getGameOverOptions() {
+  const queens = getQueensAvailable();
+  return [
+    { label: 'Restart', color: [255, 220, 120], action: () => restartGame() },
+    { label: 'Main Menu', color: [255, 255, 100], action: () => {
+      gameOverMenuCooldown = 20;
+      returnToMainMenu();
+      menuNavigationCooldown = 20;
+    } },
+    { label: 'Queen Upgrades', note: `♛ ${queens} to spend`, color: [230, 180, 255], action: () => openQueenShop('gameover') },
+    { label: 'Antdex', color: [160, 120, 255], action: () => {
+      gameOverMenuCooldown = 20;
+      antdexReturnState = 'gameover';
+      antdex = true;
+      antdexOpenCooldown = 20;
+    } }
+  ];
+}
+
+function getGameOverOptionRect(k, count) {
+  const w = 184, h = 58, gap = 14;
+  const left = getMenuWidth() / 2 - (count * w + (count - 1) * gap) / 2;
+  return { x: left + k * (w + gap), y: getMenuHeight() * 0.735 - h / 2, w: w, h: h };
+}
+
+// The option cards along the bottom of the lose screen (drawn inside menu scaling)
+function drawGameOverOptions() {
+  const options = getGameOverOptions();
+  gameOverMenuSelection = constrain(gameOverMenuSelection, 0, options.length - 1);
+  push();
+  rectMode(CORNER);
+  textAlign(CENTER, CENTER);
+  options.forEach((option, k) => {
+    const r = getGameOverOptionRect(k, options.length);
+    const selected = k === gameOverMenuSelection;
+    if (selected) {
+      fill(255);
+      stroke(option.color[0], option.color[1], option.color[2]);
+      strokeWeight(3);
+    } else {
+      fill(50);
+      stroke(100);
+      strokeWeight(2);
+    }
+    rect(r.x, r.y, r.w, r.h, 12);
+    noStroke();
+    fill(selected ? 10 : 255);
+    textSize(22);
+    text(option.label, r.x + r.w / 2, r.y + r.h / 2 - (option.note ? 7 : 0));
+    if (option.note) {
+      textSize(13);
+      fill(selected ? 90 : 170);
+      text(option.note, r.x + r.w / 2, r.y + r.h / 2 + 16);
+    }
+  });
+  const fadeAlpha = map(sin(frameCount * 0.05), -1, 1, 30, 70);
+  fill(200, fadeAlpha);
+  textSize(18);
+  text('A/D or ←/→ or Left Stick  Navigate  |  Enter or A  Confirm  |  Esc or B  Main Menu', getMenuWidth() / 2, getMenuHeight() * 0.86);
+  pop();
+}
+
+function handleGameOverInput() {
+  const options = getGameOverOptions();
+  // isConfirmPressed() only fires once per press, so read it every frame, a single time
+  const confirmPressed = isConfirmPressed();
+  if (menuNavigationCooldown === 0) {
+    if (isLeftPressed() || isUpPressed()) {
+      gameOverMenuSelection = (gameOverMenuSelection - 1 + options.length) % options.length;
+      menuNavigationCooldown = 10;
+    } else if (isRightPressed() || isDownPressed()) {
+      gameOverMenuSelection = (gameOverMenuSelection + 1) % options.length;
+      menuNavigationCooldown = 10;
+    }
+  }
+  const mx = getMenuMouseX();
+  const my = getMenuMouseY();
+  let hovered = -1;
+  for (let k = 0; k < options.length; k++) {
+    if (pointInRect(mx, my, getGameOverOptionRect(k, options.length))) hovered = k;
+  }
+  if (hovered >= 0 && (movedX !== 0 || movedY !== 0)) gameOverMenuSelection = hovered;
+  if (gameOverMenuCooldown > 0) return;
+
+  if (confirmPressed) {
+    options[gameOverMenuSelection].action();
+  } else if (hovered >= 0 && (mouseIsPressed && mouseButton === LEFT || touches.length > 0)) { // Click or tap a card
+    gameOverMenuSelection = hovered;
+    options[hovered].action();
+  } else if (isBackPressed()) {
+    options[1].action(); // Main Menu
+  }
 }
 
 function returnToMainMenu() {
@@ -4064,7 +4236,6 @@ function drawEnemyBulletShadow(bullet, bulletStealth) {
   if (bullet.airHeight > 0) {
     push();
     ellipseMode(CENTER);
-    noSmooth();
     noStroke();
     // Shadow darkness based on height (higher = lighter shadow)
     let maxHeight = bullet.pathType === 1 ? (bullet.arcDuration * 0.5) : 12;
@@ -4073,7 +4244,6 @@ function drawEnemyBulletShadow(bullet, bulletStealth) {
     fill(0, 0, 0, shadowAlpha * bulletStealth);
     let shadowSize = (20 * bullet.size) * 0.6; // Shadow slightly smaller than bullet
     ellipse(bullet.x, bullet.y, shadowSize, shadowSize);
-    smooth();
     pop();
   }
 }
@@ -12750,6 +12920,7 @@ function applyPermanentUpgrades() {
 
 let queenShopMenu = false;
 let queenShopSelection = 0;
+let queenShopReturnState = 'menu';
 let queenShopMessage = '';
 let queenShopMessageTimer = 0;
 const QUEEN_SHOP_ROWS = 12;
@@ -12769,9 +12940,11 @@ function getQueenShopCellRect(index) {
   return { x: 20 + col * colWidth, y: 112 + row * 38, w: colWidth - 12, h: 32 };
 }
 
-function openQueenShop() {
+// from: 'menu' (main menu) or 'gameover' (the lose screen, which stays up underneath)
+function openQueenShop(from = 'menu') {
   queenShopMenu = true;
-  startMenu = false;
+  queenShopReturnState = from;
+  if (from === 'menu') startMenu = false;
   queenShopSelection = 0;
   queenShopMessage = '';
   menuNavigationCooldown = 20;
@@ -12919,7 +13092,9 @@ function drawQueenShop() {
   }
   if (isBackPressed() && menuNavigationCooldown === 0) {
     queenShopMenu = false;
-    startMenu = true;
+    if (queenShopReturnState === 'gameover') gameOverMenuCooldown = 20;
+    else startMenu = true;
+    queenShopReturnState = 'menu';
     menuNavigationCooldown = 20;
   }
 }
@@ -15050,7 +15225,8 @@ function endGame(){
       intermissionMenu = false;
       intermissionMenuCooldown = 0;
       gameOverMenu = false;
-      gameOverMenuCooldown = 0;
+      gameOverMenuCooldown = GAME_OVER_INPUT_DELAY; // Inputs still held from the fight don't pick an option
+      gameOverMenuSelection = 0;
       totalScore = totalScore + score;
       score = 0;  // Reset score to prevent double-counting in updateScoreAndTimer
       levelEnd = 1;
@@ -15068,6 +15244,9 @@ function endGame(){
     end = true;
 
     beginMenuScaling();
+      if (queenShopMenu) {
+        drawQueenShop(); // Opened from the lose screen; backing out returns here
+      } else {
       // Background
       fill(40, 0, 0);
       rectMode(CORNER);
@@ -15103,167 +15282,7 @@ function endGame(){
       fill(240, 164, 0);
       text(Math.round(totalScore), getMenuWidth() / 2 + getMenuWidth() * 0.20, getMenuHeight() * 0.61);
 
-      if (!gameOverMenu) {
-        push();
-          rectMode(CORNER);
-          fill(0, 0, 0, 160);
-          rect(getMenuWidth() / 2 - getMenuWidth() * 0.275, getMenuHeight() * 0.68, getMenuWidth() * 0.55, getMenuHeight() * 0.12, 18);
-
-          let fadeAlpha = map(sin(frameCount * 1), -1, 1, 30, 70);
-          textAlign(CENTER, CENTER);
-          fill(255, fadeAlpha);
-          textSize(26);
-          text('Press Enter to Restart', getMenuWidth() / 2, getMenuHeight() * 0.70);
-          textSize(20);
-          text('Press Esc for Options', getMenuWidth() / 2, getMenuHeight() * 0.74);
-        pop();
-
-        if (gameOverMenuCooldown === 0 && isBackPressed()) {
-          gameOverMenu = true;
-          gameOverMenuCooldown = 20;
-        }
-        if (isConfirmPressed()) {
-          restartGame();
-        } else if (touches.length > 0) {
-          restartGame();
-        }
-      } else {
-        push();
-          // Dark background like AntDex
-          rectMode(CORNER);
-          fill(20);
-          rect(0, 0, getMenuWidth(), getMenuHeight());
-        pop();
-
-        // Menu navigation with arrow keys, WASD, and gamepad
-        if (menuNavigationCooldown === 0) {
-          if (isUpPressed()) { // Up or W
-            gameOverMenuSelection = (gameOverMenuSelection - 1 + 2) % 2;
-            menuNavigationCooldown = 10;
-          } else if (isDownPressed()) { // Down or S
-            gameOverMenuSelection = (gameOverMenuSelection + 1) % 2;
-            menuNavigationCooldown = 10;
-          }
-        }
-
-        // Title
-        textAlign(CENTER);
-        fill(255);
-        textSize(60);
-        text('Game Over Menu', getMenuWidth() / 2, getMenuHeight() * 0.40);
-        
-        // Menu option 0: Start Screen - Card style
-        let option0Y = getMenuHeight() * 0.53;
-        let option0X = getMenuWidth() / 2;
-        let option0W = 320;
-        let option0H = 70;
-        push();
-          rectMode(CENTER);
-          if (gameOverMenuSelection === 0) {
-            fill(255);  // White background for selected
-            stroke(255, 255, 100);
-            strokeWeight(3);
-          } else {
-            fill(50, 50, 50);  // Dark grey for unselected
-            stroke(100, 100, 100);
-            strokeWeight(2);
-          }
-          rect(option0X, option0Y, option0W, option0H, 12);
-          
-          // Text
-          if (gameOverMenuSelection === 0) {
-            fill(10);  // Dark text on white
-          } else {
-            fill(255);  // White text on dark
-          }
-          textSize(28);
-          textAlign(CENTER, CENTER);
-          text('Start Screen', option0X, option0Y);
-        pop();
-        
-        // Menu option 1: Antdex - Card style
-        let option1Y = getMenuHeight() * 0.65;
-        let option1X = getMenuWidth() / 2;
-        let option1W = 320;
-        let option1H = 70;
-        push();
-          rectMode(CENTER);
-          if (gameOverMenuSelection === 1) {
-            fill(255);  // White background for selected
-            stroke(160, 120, 255);  // Purple stroke like exotic tab
-            strokeWeight(3);
-          } else {
-            fill(50, 50, 50);  // Dark grey for unselected
-            stroke(100, 100, 100);
-            strokeWeight(2);
-          }
-          rect(option1X, option1Y, option1W, option1H, 12);
-          
-          // Text
-          if (gameOverMenuSelection === 1) {
-            fill(10);  // Dark text on white
-          } else {
-            fill(255);  // White text on dark
-          }
-          textSize(28);
-          textAlign(CENTER, CENTER);
-          text('Antdex', option1X, option1Y);
-        pop();
-        
-        // Instructions with fade
-        let fadeAlpha = map(sin(frameCount * 0.05), -1, 1, 30, 70);
-        fill(200, fadeAlpha);
-        textSize(18);
-        textAlign(CENTER);
-        text('W/S or ↑/↓ or Left Stick  Navigate  |  Enter or A  Confirm  |  Esc or B  Back', getMenuWidth() / 2, getMenuHeight() * 0.78);
-
-        // Mouse click detection
-        if (mouseIsPressed) {
-          let mx = getMenuMouseX();
-          let my = getMenuMouseY();
-          
-          // Check option 0 (Start Screen)
-          if (mx > option0X - option0W/2 && mx < option0X + option0W/2 &&
-              my > option0Y - option0H/2 && my < option0Y + option0H/2) {
-            if (menuNavigationCooldown === 0) {
-              gameOverMenu = false;
-              gameOverMenuCooldown = 20;
-              returnToMainMenu();
-              menuNavigationCooldown = 20;
-            }
-          } 
-          // Check option 1 (Antdex)
-          else if (mx > option1X - option1W/2 && mx < option1X + option1W/2 &&
-                   my > option1Y - option1H/2 && my < option1Y + option1H/2) {
-            if (menuNavigationCooldown === 0) {
-              gameOverMenu = false;
-              gameOverMenuCooldown = 20;
-              antdexReturnState = 'gameover';
-              antdex = true;
-              antdexOpenCooldown = 20;
-              menuNavigationCooldown = 20;
-            }
-          }
-        }
-
-        // Enter key to select
-        if (isConfirmPressed() && menuNavigationCooldown === 0) {
-          if (gameOverMenuSelection === 0) {
-            gameOverMenu = false;
-            gameOverMenuCooldown = 20;
-            returnToMainMenu();
-          } else if (gameOverMenuSelection === 1) {
-            gameOverMenu = false;
-            gameOverMenuCooldown = 20;
-            antdexReturnState = 'gameover';
-            antdex = true;
-            antdexOpenCooldown = 20;
-          }
-          menuNavigationCooldown = 20;
-        } else if (gameOverMenuCooldown === 0 && isBackPressed()) {
-          gameOverMenu = false;
-          gameOverMenuCooldown = 20;
-        }
+      drawGameOverOptions();
       }
     endMenuScaling();
 
@@ -15271,11 +15290,7 @@ function endGame(){
       gamemusic.stop();
       endmusic.play();
     }
-    if (isConfirmPressed() && !gameOverMenu) {
-      restartGame();
-    }else if (touches.length > 0 && !gameOverMenu) {
-      restartGame();
-    }
+    if (!queenShopMenu) handleGameOverInput();
   }
 
 if (timeCount < 0) {
@@ -19205,18 +19220,38 @@ function drawStartScreen(){
 
         let colRightX = dividerX + 30;
         if (isDifficultyUnlocked(sel)) {
-          // Right column: records for this difficulty
+          // Right column: records for this difficulty, and how close the next one is to unlocking
+          const colRight2X = colRightX + 170;
+          const queensHere = getQueensCollectedOnDifficulty(sel);
           fill(selInfo.color);
           textSize(22);
           text('Your Records', colRightX, headerY);
           fill(150);
           textSize(16);
           text('High Score', colRightX, headerY + 40);
-          text('Highest Round', colRightX, headerY + 110);
+          text('Highest Round', colRight2X, headerY + 40);
+          text('Queens Defeated', colRightX, headerY + 110);
+          text(sel === 10 ? 'The Nest' : `Difficulty ${sel + 1}`, colRight2X, headerY + 110);
           fill(255);
           textSize(32);
           text(selRecord.score > 0 ? Math.round(selRecord.score) : '—', colRightX, headerY + 76);
-          text(selRecord.round > 0 ? selRecord.round : '—', colRightX, headerY + 146);
+          text(selRecord.round > 0 ? selRecord.round : '—', colRight2X, headerY + 76);
+          text(queensHere, colRightX, headerY + 146);
+          drawQueenCrown(colRightX + textWidth(String(queensHere)) + 20, headerY + 134, 0.5, 230);
+          if (isDifficultyUnlocked(sel + 1)) {
+            fill(140, 230, 140);
+            textSize(26);
+            text('Unlocked', colRight2X, headerY + 146);
+          } else {
+            // Both counts it takes: queens from here, and queens in total
+            const needHere = getQueensRequiredOnDifficulty(sel);
+            const needTotal = getQueensRequiredToAdvance(sel);
+            textSize(16);
+            fill(queensHere >= needHere ? color(140, 230, 140) : color(255));
+            text(`Here  ${Math.min(queensHere, needHere)} / ${needHere}`, colRight2X, headerY + 132);
+            fill(getTotalQueensCollected() >= needTotal ? color(140, 230, 140) : color(255));
+            text(`Total  ${Math.min(getTotalQueensCollected(), needTotal)} / ${needTotal}`, colRight2X, headerY + 151);
+          }
         } else {
           // Right column: what it takes to unlock this difficulty
           let queensNeeded = getQueensRequiredToAdvance(sel - 1);
@@ -19246,10 +19281,10 @@ function drawStartScreen(){
       fill(200, fadeAlpha);
       textSize(18);
       textAlign(CENTER);
-      text('←/→ or ↑/↓ or Click  Select  |  Enter or A  Confirm  |  Esc  Back', getMenuWidth() / 2, getMenuHeight() * 0.975);
+      text('←/→ or ↑/↓ or Left Stick or Click  Select  |  Enter or A  Confirm  |  Esc or B  Back', getMenuWidth() / 2, getMenuHeight() * 0.975);
       
       // Back to main menu
-      if (keyIsDown(ESCAPE) && menuNavigationCooldown === 0) {
+      if (isBackPressed() && menuNavigationCooldown === 0) {
         difficultyMenu = false;
         startMenu = true;
         menuNavigationCooldown = 20;
@@ -21266,31 +21301,35 @@ function rumbleForShake(frames, amp) {
   rumble(frames * 1000 / 60, f, 0.1 + f * 0.9);
 }
 
-// Check if left/A is pressed (keyboard A/Left or gamepad left stick left)
+// Check if left/A is pressed (keyboard A/Left, gamepad left stick left or D-pad left)
 function isLeftPressed() {
   if (keyIsDown(65) || keyIsDown(37)) return true;
   if (gamepad && gamepad.axes[0] < -leftStickDeadzone) return true;
+  if (gamepad && gamepad.buttons[14] && gamepad.buttons[14].pressed) return true; // D-pad left
   return false;
 }
 
-// Check if right/D is pressed (keyboard D/Right or gamepad left stick right)
+// Check if right/D is pressed (keyboard D/Right, gamepad left stick right or D-pad right)
 function isRightPressed() {
   if (keyIsDown(68) || keyIsDown(39)) return true;
   if (gamepad && gamepad.axes[0] > leftStickDeadzone) return true;
+  if (gamepad && gamepad.buttons[15] && gamepad.buttons[15].pressed) return true; // D-pad right
   return false;
 }
 
-// Check if up/W is pressed (keyboard W/Up or gamepad left stick up)
+// Check if up/W is pressed (keyboard W/Up, gamepad left stick up or D-pad up)
 function isUpPressed() {
   if (keyIsDown(87) || keyIsDown(38)) return true;
   if (gamepad && gamepad.axes[1] < -leftStickDeadzone) return true;
+  if (gamepad && gamepad.buttons[12] && gamepad.buttons[12].pressed) return true; // D-pad up
   return false;
 }
 
-// Check if down/S is pressed (keyboard S/Down or gamepad left stick down)
+// Check if down/S is pressed (keyboard S/Down, gamepad left stick down or D-pad down)
 function isDownPressed() {
   if (keyIsDown(83) || keyIsDown(40)) return true;
   if (gamepad && gamepad.axes[1] > leftStickDeadzone) return true;
+  if (gamepad && gamepad.buttons[13] && gamepad.buttons[13].pressed) return true; // D-pad down
   return false;
 }
 
