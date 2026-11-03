@@ -10008,7 +10008,9 @@ const QUEEN_HITS_PER_QUEEN = 10;          // ...plus this for every queen alread
 const QUEEN_ANT_SIZE = 4;                 // Every queen is the size of a size 4 ant
 const QUEEN_IMAGE_SIZE = 45 + 15 * QUEEN_ANT_SIZE;
 const QUEEN_BODY_RADIUS = 42;             // Her body for bullets, bumping and dashing
-const QUEEN_BASE_HEALTH = 4;              // +1 for every queen already beaten this run
+const QUEEN_BASE_HEALTH = 4;              // Health of the first queen of a run on difficulty 1...
+const QUEEN_HEALTH_PER_DIFFICULTY = 1;    // ...plus this per difficulty above 1...
+const QUEEN_HEALTH_PER_QUEEN = 1;         // ...plus this for every queen already beaten this run
 const QUEEN_SPEED = 3;
 const QUEEN_BULLET_SIZE = 1.5;           // Her acid (she only shoots through abilities)
 const QUEEN_BULLET_SPEED = 7;
@@ -10799,7 +10801,8 @@ function startQueenFight() {
     if (dist(s[0], s[1], playerX, playerY) > dist(start[0], start[1], playerX, playerY)) start = s;
   }
 
-  const maxHealth = QUEEN_BASE_HEALTH + queensDefeatedThisRun;
+  const maxHealth = QUEEN_BASE_HEALTH + QUEEN_HEALTH_PER_DIFFICULTY * (difficulty - 1) +
+    QUEEN_HEALTH_PER_QUEEN * queensDefeatedThisRun;
   queen = {
     number: queensDefeatedThisRun + 1,
     x: start[0],
