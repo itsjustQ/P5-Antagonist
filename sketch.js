@@ -11711,10 +11711,11 @@ function wantsRoyalGuards() {
     frameCount - getLastBeetleAttackFrame() < p.royalSummonWindow;
 }
 
-// Summon `count` guards in a ring just outside her body, the first one on the beetle's side
+// Summon `count` guards in a ring just outside her body (wider for a batch too big to fit), the first one on the
+// beetle's side
 function summonRoyalGuards(count) {
   const start = angleToBeetle(queen.x, queen.y);
-  const r = getQueenBodyRadius() + ROYAL_GUARD_BODY_RADIUS + 8;
+  const r = Math.max(getQueenBodyRadius() + ROYAL_GUARD_BODY_RADIUS + 8, count * (ROYAL_GUARD_BODY_RADIUS * 2 + 2) / (Math.PI * 2));
   for (let k = 0; k < count; k++) {
     const a = start + (k / count) * Math.PI * 2;
     const p = clampToPlayArea(queen.x + Math.cos(a) * r, queen.y + Math.sin(a) * r);
@@ -11722,6 +11723,7 @@ function summonRoyalGuards(count) {
       lastHitTime: 0, dashHit: false, order: null, closeFrames: 0, grab: null, beetleClose: false });
     queenEffects.push({ kind: 'ring', x: p.x, y: p.y, life: 0, frames: 18, maxR: 30 + 10 * ROYAL_GUARD_SIZE, color: [255, 210, 90] });
   }
+  separateRoyalGuards(); // In case the ring had to be squeezed against the edge of the map
   queen.label = 'Royal Guards';
   queen.labelFrames = 90;
 }
@@ -11795,9 +11797,53 @@ function updateRoyalGuards(pace) {
       g.x = p.x;
       g.y = p.y;
     }
-    updateGrabber(g, ROYAL_GUARD_BODY_RADIUS, false);
   }
+  separateRoyalGuards();
+  for (const g of queen.guards) updateGrabber(g, ROYAL_GUARD_BODY_RADIUS, false);
   updateRoyalGuardContact();
+}
+
+// Guards never overlap each other: any two that do are pushed apart along the line between them, half each (a
+// guard swinging the beetle stands its ground, so the other one moves the whole way). Repeated passes settle a
+// crowd, like guards all ordered to the same spot or a big batch summoned at once.
+function separateRoyalGuards() {
+  const minGap = ROYAL_GUARD_BODY_RADIUS * 2 + 0.5; // A hair extra so rounding never leaves them touching
+  const guards = queen.guards;
+  for (let pass = 0; pass < 30; pass++) { // Stops as soon as a pass finds nothing to fix
+    let moved = false;
+    for (let a = 0; a < guards.length; a++) {
+      for (let b = a + 1; b < guards.length; b++) {
+        const g = guards[a];
+        const h = guards[b];
+        if (g.grab && h.grab) continue;
+        let dx = h.x - g.x;
+        let dy = h.y - g.y;
+        let d = Math.sqrt(dx * dx + dy * dy);
+        if (d >= minGap) continue;
+        if (d < 0.01) {
+          // Right on top of each other: split them sideways to the queen
+          const a2 = Math.atan2(g.y - queen.y, g.x - queen.x) + Math.PI / 2;
+          dx = Math.cos(a2);
+          dy = Math.sin(a2);
+          d = 0;
+        } else {
+          dx /= d;
+          dy /= d;
+        }
+        const push = minGap - d;
+        const gShare = g.grab ? 0 : (h.grab ? 1 : 0.5);
+        const hShare = 1 - gShare;
+        const pg = clampToPlayArea(g.x - dx * push * gShare, g.y - dy * push * gShare, 10);
+        const ph = clampToPlayArea(h.x + dx * push * hShare, h.y + dy * push * hShare, 10);
+        g.x = pg.x;
+        g.y = pg.y;
+        h.x = ph.x;
+        h.y = ph.y;
+        moved = true;
+      }
+    }
+    if (!moved) break;
+  }
 }
 
 // The beetle can't walk through them (or push them); dashing into one hurts it once per dash
