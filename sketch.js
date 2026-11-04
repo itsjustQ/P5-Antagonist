@@ -3025,17 +3025,6 @@ function drawAnt(i, airPass) {
         }
       }
 
-      // Small ant: blue pulsing aura
-      if (antSize[i] < 0.8 && antHealth[i] >= 1) {
-        push();
-        noStroke();
-        let smallFlashSpeed = map(antSize[i], 0.8, 0.3, 3, 12);
-        let smallFlashAlpha = 83 + 70 * sin(frameCount * smallFlashSpeed * 0.05);
-        fill(80, 150, 255, smallFlashAlpha * ghostAlpha);
-        let smallAuraSize = antImageSize * 0.75;
-        ellipse(antX[i], antY[i] - antAirHeight[i], smallAuraSize, smallAuraSize);
-        pop();
-      }
 
       // Health bar (appears for 1 second after getting hit)
       drawHitHealthBar(antX[i], antY[i] - antAirHeight[i] + antImageSize * 0.35, antHealth[i], antMaxHealth[i], antLastHitTime[i]);
