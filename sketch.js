@@ -10056,7 +10056,7 @@ function resolvePlayerWallCollisions() {
 // spawns another copy of them, and the round only ends when she dies (or the beetle does).
 // She is steered by a small neural network (see QUEEN BRAIN) that picks where she goes, which of the round's ants
 // she spawns and which ability she uses. It starts out as the default strategy and re-learns every time she's hit,
-// or every QUEEN_ADAPT_FRAMES she goes without one. Her last strategy is handed to the next queen of the run.
+// or every QUEEN_ADAPT_FRAMES she goes without one. Her best strategy is handed to the next queen of the run.
 // Every QUEEN_ABILITY_FRAMES she can use an extra powerful version of one ability of a living ant under her
 // control (or a plain acid shot if none of them have one). Each queen defeated is a currency for permanent upgrades.
 const QUEEN_BASE_HITS = 100;              // Ant hits for the first queen of a run on difficulty 1...
@@ -10150,7 +10150,7 @@ let queen = null;                // The live queen, or null
 let queenHitCount = 0;           // Ant hits on the beetle toward the next queen (not counted during a fight)
 let queenWarningFrames = 0;      // Frames left of the "queen incoming" warning (0 = not warning)
 let queensDefeatedThisRun = 0;
-let queenInheritedBrain = null;  // Last strategy of the previous queen this run
+let queenInheritedBrain = null;  // Best strategy of the previous queen this run
 let queenDefeatedThisRound = false;
 let queenProjectiles = [];       // Her acid and the ants she fires like bullets
 let queenEffects = [];           // Beams, streams, planted explosions, volleys, rings
@@ -11142,8 +11142,9 @@ function killQueen() {
   shakeScreen(QUEEN_DEATH_SHAKE_FRAMES, QUEEN_DEATH_SHAKE);
   queenDeathBurst = createQueenDeathBurst(queen.x, queen.y);
   if (!sHit2.isPlaying()) sHit2.play();
-  // Her last strategy goes to the next queen of this run
-  queenInheritedBrain = cloneQueenBrain(queen.brain);
+  // Her best strategy goes to the next queen of this run (the one she died with is usually an untested mutation;
+  // a queen killed before she ever re-strategized only has the one she started with)
+  queenInheritedBrain = cloneQueenBrain(queen.bestBrain || queen.brain);
   queensDefeatedThisRun++;
   if (queen.final) onQueenOfQueensDefeated(); // The last queen pays out her own reward (finalboss.js)
   else awardQueen();
