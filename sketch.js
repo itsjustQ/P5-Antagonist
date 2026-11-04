@@ -6,7 +6,7 @@ let ty;
 let start = false;
 let startMenu = false;
 let difficultyMenu = false;
-let difficultySelection = 5; // Stop picked on the difficulty map (1-10, 11 = the nest)
+let difficultySelection = 0; // Stop picked on the difficulty map (1-10, 11 = the nest; 0 until the map is first opened)
 let difficulty = 5; // 1-10: 1-3=easy, 4-5=medium, 6-7=hard, 8-10=insane
 // Opening cinematic: plays on first launch only, then the splash screen takes over
 let openingCinematic = false;
@@ -89,8 +89,8 @@ function isDifficultyUnlocked(value) {
 
 function openDifficultyMenu() {
   difficultyMenu = true;
-  // Keep the last pick if it's still allowed, otherwise jump to the highest unlocked level
-  if (!isDifficultyUnlocked(difficultySelection)) {
+  // The first time it opens, and whenever the last pick isn't allowed anymore, start on the highest unlocked level
+  if (difficultySelection < 1 || !isDifficultyUnlocked(difficultySelection)) {
     difficultySelection = 1;
     while (difficultySelection < 10 && isDifficultyUnlocked(difficultySelection + 1)) difficultySelection++;
   }
@@ -2019,6 +2019,8 @@ function resetRunState() {
   queensDefeatedThisRun = 0;
   queenInheritedBrain = null;
   lastBeetleShotFrame = -9999;
+  lastBeetleShockwaveFrame = -9999;
+  lastBeetleDashFrame = -9999;
   resetRoundScenes();
   leaveFinalLevel();
   leaveTutorialRun();
@@ -5722,7 +5724,8 @@ function beetleShoot() {
 
     // Timed bombs go off when their fuse runs out, proximity bombs when an ant gets within half the blast radius
     if ((mode === SHOT_MODE_TIMED && b.life >= TIMED_BOMB_FUSE_FRAMES) ||
-        (mode === SHOT_MODE_PROXIMITY && (isAntWithin(b.x, b.y, getBombRadius() / 2) || isQueenHitAt(b.x, b.y, getBombRadius() / 2)))) {
+        (mode === SHOT_MODE_PROXIMITY && (isAntWithin(b.x, b.y, getBombRadius() / 2) || isQueenHitAt(b.x, b.y, getBombRadius() / 2) ||
+          getRoyalGuardHitAt(b.x, b.y, getBombRadius() / 2)))) {
       explodePlayerBomb(b.x, b.y, mode);
       playerBullets.splice(i, 1);
       continue;
@@ -5762,6 +5765,23 @@ function beetleShoot() {
         continue;
       }
       b.hitQueen = true;
+    }
+
+    // Her royal guards: the same, each one once for piercing acid
+    const guard = mode !== SHOT_MODE_TIMED && mode !== SHOT_MODE_PROXIMITY ? getRoyalGuardHitAt(b.x, b.y, 4, b.hitGuards) : null;
+    if (guard) {
+      if (mode === SHOT_MODE_IMPACT) {
+        explodePlayerBomb(b.x, b.y, mode);
+        playerBullets.splice(i, 1);
+        continue;
+      }
+      damageRoyalGuard(guard, getPlayerBulletDamage());
+      if (mode !== SHOT_MODE_PIERCE) {
+        playerBullets.splice(i, 1);
+        continue;
+      }
+      if (!b.hitGuards) b.hitGuards = new Set();
+      b.hitGuards.add(guard);
     }
 
     // Homing Redirect: destroys any ant bullet, landmine or turret it touches
@@ -6044,6 +6064,7 @@ function explodePlayerBomb(x, y, mode) {
     if (dist(x, y, wall.x, wall.y) <= radius + wall.radius) damageEnemyWall(wall, getPlayerBulletDamage());
   }
   if (isQueenHitAt(x, y, radius)) damageQueen(getPlayerBulletDamage(), true);
+  for (const g of getRoyalGuardsWithin(x, y, radius)) damageRoyalGuard(g, getPlayerBulletDamage());
   playerBombBlasts.push({ x: x, y: y, radius: radius, mode: mode, life: 0 });
   if (!sSpit2.isPlaying()) sSpit2.play();
   shakeForExplosion(x, y, radius);
@@ -6122,6 +6143,18 @@ function firePlayerSpray(beetleX, beetleY, angle) {
     let halfWidth = lerp(baseWidth, tipWidth, constrain(along, 0, len) / len) / 2;
     if (along >= -getQueenBodyRadius() && along <= len + getQueenBodyRadius() && across <= halfWidth + getQueenBodyRadius()) {
       damageQueen(getPlayerBulletDamage());
+    }
+  }
+  if (queen) {
+    for (const g of queen.guards.slice()) {
+      let dx = g.x - x;
+      let dy = g.y - y;
+      let along = dx * dirX + dy * dirY;
+      let across = Math.abs(-dx * dirY + dy * dirX);
+      let halfWidth = lerp(baseWidth, tipWidth, constrain(along, 0, len) / len) / 2;
+      if (along >= -ROYAL_GUARD_BODY_RADIUS && along <= len + ROYAL_GUARD_BODY_RADIUS && across <= halfWidth + ROYAL_GUARD_BODY_RADIUS) {
+        damageRoyalGuard(g, getPlayerBulletDamage());
+      }
     }
   }
   playerSprays.push({ x: x, y: y, angle: angle, len: len, baseWidth: baseWidth, tipWidth: tipWidth, life: 0 });
@@ -6387,6 +6420,11 @@ function applyShockwaveImpact(maxRadius, windDamage, once = null, killSource = '
     if (once) once.queen = true;
     damageQueen(windDamage);
   }
+  for (const g of getRoyalGuardsWithin(playerX, playerY, maxRadius)) {
+    if (once && once.guards.has(g)) continue;
+    if (once) once.guards.add(g);
+    damageRoyalGuard(g, windDamage, killSource);
+  }
 
   // Mounds and bunkers in the shockwave take its damage too
   for (let wall of enemyWalls) {
@@ -6408,7 +6446,10 @@ function updateDashShockwaves() {
     dashShockwavePrev = false;
     return;
   }
-  if (dash && !dashShockwavePrev) dashGustHits = { ants: new Set(), walls: new Set(), queen: false };
+  if (dash && !dashShockwavePrev) {
+    dashGustHits = { ants: new Set(), walls: new Set(), queen: false, guards: new Set() };
+    lastBeetleDashFrame = frameCount; // The queen sees the beetle dash
+  }
   if (dash && upgrade58Level > 0 && !isPlayerBurrowed()) {
     applyShockwaveImpact(PLAYER_HITBOX_HALF + DASH_GUST_REACH, getShockwaveDamage(), dashGustHits, 'dash');
     drawDashGust();
@@ -6696,6 +6737,7 @@ function isShockwaveBusy() {
 // Fire the selected variant and start the shared cooldown
 function triggerShockwave() {
   windAttackReady = false;
+  lastBeetleShockwaveFrame = frameCount; // Every variant: the queen sees the beetle use its shockwave
   windAttackCooldown = windCooldownStat * SHOCKWAVE_VARIANTS[shockwaveVariant].cooldown;
   windAttackCooldownMax = windAttackCooldown;
   switch (shockwaveVariant) {
@@ -6710,6 +6752,7 @@ function triggerShockwave() {
 }
 
 function startShockwaveBlast(radiusScale, damageScale, killSource = 'shockwave') {
+  lastBeetleShockwaveFrame = frameCount; // Includes Dash Blast and the Flight and Slam landing
   if (upgrade15Level >= SHOCKWAVE_SHAKE_LEVEL) {
     shakeScreen(12, SHOCKWAVE_SHAKE[Math.min(upgrade15Level, 5) - SHOCKWAVE_SHAKE_LEVEL]);
   }
@@ -7447,6 +7490,11 @@ function updateShrapnel() {
     }
     if (!hit && isQueenHitAt(p.x, p.y, 4)) {
       damageQueen(SHRAPNEL_DAMAGE);
+      hit = true;
+    }
+    const guard = hit ? null : getRoyalGuardHitAt(p.x, p.y, 4);
+    if (guard) {
+      damageRoyalGuard(guard, SHRAPNEL_DAMAGE, null);
       hit = true;
     }
     if (hit) {
@@ -8405,6 +8453,15 @@ function updatePlayerBeams() {
       distToSegment(queen.x, queen.y, beam.x1, beam.y1, beam.x2, beam.y2) <= beam.width / 2 + getQueenBodyRadius()) {
       beam.hitQueen = true;
       damageQueen(getPlayerBulletDamage());
+    }
+    if (queen) {
+      for (const g of queen.guards.slice()) {
+        if (beam.hitGuards && beam.hitGuards.has(g)) continue;
+        if (distToSegment(g.x, g.y, beam.x1, beam.y1, beam.x2, beam.y2) > beam.width / 2 + ROYAL_GUARD_BODY_RADIUS) continue;
+        if (!beam.hitGuards) beam.hitGuards = new Set();
+        beam.hitGuards.add(g);
+        damageRoyalGuard(g, getPlayerBulletDamage());
+      }
     }
     drawBeamLine(beam.x1, beam.y1, beam.x2, beam.y2, beam.width, beam.life, beam.maxLife, PLAYER_BEAM_COLORS);
   }
@@ -10108,6 +10165,8 @@ let pendingHitSpot = null;       // Set just before handlePlayerHit when the hit
 let queenDamageIsOwn = false;    // True while damage is coming from one of the queen's own attacks
 let queenDeathBurst = null;      // Where the last queen died, for her explosion in the round outro
 let lastBeetleShotFrame = -9999;
+let lastBeetleShockwaveFrame = -9999; // The queen sees shockwaves the same way she sees shots...
+let lastBeetleDashFrame = -9999;      // ...and dashes (when each one starts)
 
 // The Queen of Queens is the size of a size 6 ant; every other queen is a size 4 ant
 function getQueenImageSize() {
@@ -10448,27 +10507,37 @@ function computeQueenTypeInfo() {
 // A small feed-forward network plus a handful of plain strategy values (guard radius etc.). The network's output
 // layer starts at zero, so a new brain plays exactly the default strategy: head for where the best ants did best
 // relative to the beetle (but stay at least 200px from it) and spawn them there, order ants that are out of place
-// to walk to their ideal spots, sidestep out of line with the beetle for a couple of seconds after it shoots, spawn
-// everything as guards when the beetle comes close or shoots, and use one of the best ant's abilities whenever she can.
+// to walk to their ideal spots, sidestep out of line with the beetle for a couple of seconds after it shoots (and back
+// out of its shockwave's reach after it shockwaves), spawn everything as guards when the beetle comes close, shoots or
+// shockwaves, summon her royal guards just as the beetle's dash or shockwave would be off its base cooldown again,
+// leave them guarding her, and use one of the best ant's abilities whenever she can.
 // Every decision runs through the networks, so all of them depend on everything she sees: each strategy value below is
 // only a base that a network output (fed all her raw inputs) can move anywhere in its range, ant choice and order spots
 // come from per-ant networks that also get all her inputs, and so do her movement offset, spot blend and ability picks.
 // Learning is a (1+1) evolution strategy: each strategy is scored over the stretch it was used for, the better of it
 // and the best so far is kept, and that one is mutated.
-const QB_INPUTS = 40;
+const QB_INPUTS = 47;
 const QB_HIDDEN = 12;
 const QUEEN_TOP_TYPES = 3;                     // She tracks the ideal spots of her best 3 ants
 const QB_OUT_BLEND = 2;                        // Outputs: move x, move y, then a weight for each top ant's spot,
 const QB_OUT_FORMATION = QB_OUT_BLEND + QUEEN_TOP_TYPES; // formation turn,
 const QB_OUT_ALL_ORDER = QB_OUT_FORMATION + 1;           // order-everyone spot x, y,
-const QB_OUT_PARAMS = QB_OUT_ALL_ORDER + 2;          // then one per strategy value, then one per ability
+const QB_OUT_GUARD_ORDER = QB_OUT_ALL_ORDER + 2;         // royal guard order spot x, y,
+const QB_OUT_PARAMS = QB_OUT_GUARD_ORDER + 2;        // then one per strategy value, then one per ability
 const QT_INPUTS = 7;                           // Per-ant-type networks: the ant's own values...
 const QT_HIDDEN = 8;
 const QT_ALL_INPUTS = QT_INPUTS + QB_INPUTS + QB_HIDDEN; // ...plus everything the queen sees and the main network's read of it
 const QO_HIDDEN = 8;
+// When the beetle's dash and shockwave are ready again with no upgrades (cooldowns tick 1/100 a frame): the dash's
+// cooldown starts once its 0.25s burst ends, the shockwave's as it goes off
+const QUEEN_BASE_DASH_READY = Math.round((0.25 + 3) * 100);
+const QUEEN_BASE_SHOCKWAVE_READY = Math.round(2.25 * 100);
+const QUEEN_SINCE_FRAMES = 600;                // Her timers since the beetle's last shot, dash and shockwave max out here
+const ROYAL_TIMING_BAND = 15;                  // A timed summon can go off this many frames after its moment
 const QUEEN_STRATEGY_DEFAULTS = {
   guardRadius: 100,     // Spawn everything as guards when the beetle is this close
-  guardShotWindow: 45,  // ...or has fired within this many frames
+  guardShotWindow: 45,  // ...or has fired (or used its shockwave) within this many frames...
+  guardDashWindow: 0,   // ...or has dashed within this many frames (off at first; she can learn it)
   arriveRadius: 70,     // How close to her target she has to be before spawning there
   holdCharges: 1,       // Spawns she saves up before releasing them at her target
   scoreWeight: 3,       // How much an ant's score counts when picking what to spawn
@@ -10480,11 +10549,18 @@ const QUEEN_STRATEGY_DEFAULTS = {
   dodgeBand: 70,        // ...getting at least this far off each line
   orderDistance: 120,   // Order a kind of ant to its spot when they're this far from it on average
   orderIdealWeight: 1,  // Order spot: how much of the ant's ideal spot it uses (the order network adds the rest)
-  orderAll: -1          // Above 0: her order goes to every ant (to one spot) instead of one kind of ant
+  orderAll: -1,         // Above 0: her order goes to every ant (to one spot) instead of one kind of ant
+  royalDashTiming: QUEEN_BASE_DASH_READY,           // Summon her stockpiled royal guards this many frames after the
+  royalShockwaveTiming: QUEEN_BASE_SHOCKWAVE_READY, // beetle dashes or shockwaves (at first: when it could again)...
+  royalSummonRadius: 0,   // ...or when the beetle is this close...
+  royalSummonWindow: 0,   // ...or has fired or used its shockwave within this many frames...
+  royalSummonNow: -1,     // ...or whenever this is above 0
+  royalOrder: -1          // Above 0: her royal guards are ordered to (and hold) her guard order spot
 };
 const QUEEN_STRATEGY_RANGES = {
   guardRadius: [30, 600],
   guardShotWindow: [0, 150],
+  guardDashWindow: [0, 150],
   arriveRadius: [30, 220],
   holdCharges: [1, 6],
   scoreWeight: [0, 6],
@@ -10496,7 +10572,13 @@ const QUEEN_STRATEGY_RANGES = {
   dodgeBand: [20, 150],
   orderDistance: [QUEEN_ORDER_ARRIVE, 400],
   orderIdealWeight: [0, 2],
-  orderAll: [-1, 1]
+  orderAll: [-1, 1],
+  royalDashTiming: [0, QUEEN_SINCE_FRAMES],
+  royalShockwaveTiming: [0, QUEEN_SINCE_FRAMES],
+  royalSummonRadius: [0, 600],
+  royalSummonWindow: [0, 150],
+  royalSummonNow: [-1, 1],
+  royalOrder: [-1, 1]
 };
 const QUEEN_STRATEGY_KEYS = Object.keys(QUEEN_STRATEGY_RANGES);
 const QB_OUT_ABILITIES = QB_OUT_PARAMS + QUEEN_STRATEGY_KEYS.length;
@@ -10639,6 +10721,9 @@ function getQueenInputs(topTypes, maxScore) {
   for (let i = 1; i <= enemyCount; i++) if (antOrder[i]) ordered++;
 
   const sinceShot = frameCount - lastBeetleShotFrame;
+  const sinceShockwave = frameCount - lastBeetleShockwaveFrame;
+  const sinceDash = frameCount - lastBeetleDashFrame;
+  const timer = since => Math.min(since, QUEEN_SINCE_FRAMES) / QUEEN_SINCE_FRAMES; // 1 = never, or long ago
   const topSpots = [];
   for (const rec of topTypes) topSpots.push(rec.ideal.x / W, rec.ideal.y / H, rec.score / maxScore);
   return [
@@ -10652,7 +10737,11 @@ function getQueenInputs(topTypes, maxScore) {
     mineX, mineY, Math.min(mines, 20) / 10,
     ...topSpots, getQueenPace() / 3,
     aphidQX, aphidQY, aphidBX, aphidBY, aphidBSpecial, Math.min(aphids.length, 10) / 5,
-    Math.min(ordered, 20) / 10
+    Math.min(ordered, 20) / 10,
+    sinceShockwave < 60 ? 1 - sinceShockwave / 60 : 0,
+    sinceDash < 60 ? 1 - sinceDash / 60 : 0,
+    timer(sinceShot), timer(sinceShockwave), timer(sinceDash),
+    queen.guards.length / ROYAL_GUARD_MAX_ALIVE, Math.min(queen.guardCharges, 12) / 12
   ];
 }
 
@@ -10752,6 +10841,9 @@ function updateQueenDecision() {
     // Where an order to every ant goes, relative to the beetle: the spot she's heading for, shifted
     allOrderX: anchorX + Math.tanh(out[QB_OUT_ALL_ORDER]) * getGameplayWidth() * reach,
     allOrderY: anchorY + Math.tanh(out[QB_OUT_ALL_ORDER + 1]) * getGameplayHeight() * reach,
+    // Where her royal guards are ordered to, relative to the beetle (at first straight onto it)
+    guardOrderX: Math.tanh(out[QB_OUT_GUARD_ORDER]) * getGameplayWidth() * reach,
+    guardOrderY: Math.tanh(out[QB_OUT_GUARD_ORDER + 1]) * getGameplayHeight() * reach,
     params: params,
     abilityLogits: out.slice(QB_OUT_ABILITIES)
   };
@@ -10846,6 +10938,10 @@ function startQueenFight() {
     refireFrames: 0,
     vacuumFrames: 0,
     orderCooldown: 0,
+    guards: [],          // Her royal guards (see ROYAL GUARDS)
+    guardCharges: 0,     // Royal guards she has stockpiled to summon
+    guardTimer: 0,
+    guardShoutFrame: -9999,
     bunker: null,
     dashHit: false,
     hitFlash: 0,
@@ -11042,6 +11138,7 @@ function isQueenHitAt(x, y, pad = 0) {
 
 function killQueen() {
   spawnSmokeImpact(queen.x, queen.y, 70, 8);
+  for (const g of queen.guards) spawnSmokeImpact(g.x, g.y, 30, 4); // Her royal guards fall with her
   shakeScreen(QUEEN_DEATH_SHAKE_FRAMES, QUEEN_DEATH_SHAKE);
   queenDeathBurst = createQueenDeathBurst(queen.x, queen.y);
   if (!sHit2.isPlaying()) sHit2.play();
@@ -11148,6 +11245,8 @@ function updateQueen() {
   updateQueenProjectiles();
   if (!queen) return;
   updateQueenGrab();
+  updateRoyalGuards(pace);
+  if (!queen) return;
   updateQueenContact();
   if (!queen) return; // A dash can kill her
   drawQueen();
@@ -11159,7 +11258,8 @@ function updateQueen() {
 
 // Where she heads: the blend of her top ants' ideal spots around the beetle, shifted by the network's offset (which
 // sees everything she tracks), pulled toward or away from her own ants by antCohesion, kept minBeetleDistance from the
-// beetle, and, for dodgeFrames after it shoots, kept out of line with its x and y
+// beetle, for dodgeFrames after it shoots, kept out of line with its x and y, and for dodgeFrames after it shockwaves,
+// kept dodgeBand outside its shockwave's reach
 function getQueenTarget() {
   const d = queen.decision;
   let x = playerX + d.anchorX + d.moveX;
@@ -11207,6 +11307,21 @@ function getQueenTarget() {
     const sideY = queen.y >= playerY ? 1 : -1;
     if (sideX * (x - playerX) < s.dodgeBand) x = playerX + sideX * s.dodgeBand;
     if (sideY * (y - playerY) < s.dodgeBand) y = playerY + sideY * s.dodgeBand;
+  }
+  if (frameCount - lastBeetleShockwaveFrame < s.dodgeFrames) {
+    const away = getShockwaveRadius() + getQueenBodyRadius() + s.dodgeBand;
+    let bx = x - playerX;
+    let by = y - playerY;
+    let bd = Math.sqrt(bx * bx + by * by);
+    if (bd < away) {
+      if (bd < 1) {
+        bx = queen.x - playerX;
+        by = queen.y - playerY;
+        bd = Math.max(1, Math.sqrt(bx * bx + by * by));
+      }
+      x = playerX + bx / bd * away;
+      y = playerY + by / bd * away;
+    }
   }
   return clampToPlayArea(x, y, 50);
 }
@@ -11336,10 +11451,16 @@ function updateQueenMovement(pace) {
   queen.y = p.y;
 }
 
+// The last time the beetle shot or used its shockwave
+function getLastBeetleAttackFrame() {
+  return Math.max(lastBeetleShotFrame, lastBeetleShockwaveFrame);
+}
+
 function isQueenGuarding() {
   const p = queen.decision.params;
   return dist(queen.x, queen.y, playerX, playerY) < p.guardRadius ||
-    frameCount - lastBeetleShotFrame < p.guardShotWindow;
+    frameCount - getLastBeetleAttackFrame() < p.guardShotWindow ||
+    frameCount - lastBeetleDashFrame < p.guardDashWindow;
 }
 
 // Pick a type to spawn; penalties spread a batch over several types
@@ -11460,8 +11581,9 @@ function updateQueenContact() {
   playerY = p.y;
 }
 
-// Her passive answer to a beetle that hugs her: QUEEN_GRAB_FRAMES in total (breaks don't reset it) touching her or
-// within QUEEN_GRAB_RANGE of her body, and she grabs it, swings it once around herself and throws it off
+// Her passive answer to a beetle that hugs her (her royal guards do it too): QUEEN_GRAB_FRAMES in total (breaks
+// don't reset it) touching her or within QUEEN_GRAB_RANGE of her body, and she grabs it, swings it once around
+// herself and throws it off
 const QUEEN_GRAB_RANGE = 50;
 const QUEEN_GRAB_FRAMES = 180;
 const QUEEN_GRAB_WARN_FRAMES = 60;      // Her warning ring shows for the last second before she grabs
@@ -11469,65 +11591,301 @@ const QUEEN_SWING_FRAMES = 40;          // One full circle, speeding up
 const QUEEN_THROW_SPEED = 20;
 
 function updateQueenGrab() {
-  if (queen.closeFrames === undefined) queen.closeFrames = 0;
-  const reach = getQueenBodyRadius() + PLAYER_WALL_RADIUS;
-  if (queen.grab) {
+  updateGrabber(queen, getQueenBodyRadius(), isQueenImmune() || !!queen.bunker);
+}
+
+// Whether the queen or one of her royal guards is swinging the beetle right now (only one can hold it at a time)
+function isBeetleGrabbed() {
+  if (!queen) return false;
+  if (queen.grab) return true;
+  for (const g of queen.guards) if (g.grab) return true;
+  return false;
+}
+
+// The circle throw for g, the queen or one of her royal guards ({ x, y, closeFrames, grab, beetleClose });
+// blocked: g can't grab right now (and lets go)
+function updateGrabber(g, bodyRadius, blocked) {
+  if (g.closeFrames === undefined) g.closeFrames = 0;
+  const reach = bodyRadius + PLAYER_WALL_RADIUS;
+  if (g.grab) {
     // Let go if the beetle escapes into the air or underground (or she's knocked out of it)
-    if (isPlayerUntouchable() || isQueenImmune() || queen.bunker) {
-      queen.grab = null;
+    if (isPlayerUntouchable() || blocked) {
+      g.grab = null;
       return;
     }
-    const g = queen.grab;
-    g.frame++;
-    const t = g.frame / QUEEN_SWING_FRAMES;
-    const angle = g.startAngle + g.dir * Math.PI * 2 * t * t; // Eases in: slow pick-up, fast release
-    const p = clampToPlayArea(queen.x + Math.cos(angle) * (reach + 6), queen.y + Math.sin(angle) * (reach + 6), 10);
+    const grab = g.grab;
+    grab.frame++;
+    const t = grab.frame / QUEEN_SWING_FRAMES;
+    const angle = grab.startAngle + grab.dir * Math.PI * 2 * t * t; // Eases in: slow pick-up, fast release
+    const p = clampToPlayArea(g.x + Math.cos(angle) * (reach + 6), g.y + Math.sin(angle) * (reach + 6), 10);
     playerX = p.x;
     playerY = p.y;
     playerKnockedBack = false;
-    if (g.frame >= QUEEN_SWING_FRAMES) {
+    if (grab.frame >= QUEEN_SWING_FRAMES) {
       // Let go along the swing (tangent), angled a little outward so it clears her body
-      const tx = -Math.sin(angle) * g.dir + Math.cos(angle) * 0.5;
-      const ty = Math.cos(angle) * g.dir + Math.sin(angle) * 0.5;
+      const tx = -Math.sin(angle) * grab.dir + Math.cos(angle) * 0.5;
+      const ty = Math.cos(angle) * grab.dir + Math.sin(angle) * 0.5;
       const tl = Math.sqrt(tx * tx + ty * ty);
       knockPlayerFrom(playerX - tx / tl, playerY - ty / tl, QUEEN_THROW_SPEED);
       queenEffects.push({ kind: 'ring', x: playerX, y: playerY, life: 0, frames: 18, maxR: 50, color: [220, 160, 255] });
-      queen.grab = null;
+      g.grab = null;
     }
     return;
   }
-  queen.beetleClose = false;
-  if (isQueenImmune() || queen.bunker || isPlayerUntouchable() || playerBunker) return;
-  const d = dist(playerX, playerY, queen.x, queen.y);
+  g.beetleClose = false;
+  if (blocked || isPlayerUntouchable() || playerBunker || isBeetleGrabbed()) return;
+  const d = dist(playerX, playerY, g.x, g.y);
   if (d >= reach + QUEEN_GRAB_RANGE) return;
-  queen.beetleClose = true;
-  queen.closeFrames++;
-  if (queen.closeFrames >= QUEEN_GRAB_FRAMES) {
-    queen.closeFrames = 0;
-    queen.grab = { frame: 0, startAngle: Math.atan2(playerY - queen.y, playerX - queen.x), dir: random() < 0.5 ? -1 : 1 };
+  g.beetleClose = true;
+  g.closeFrames++;
+  if (g.closeFrames >= QUEEN_GRAB_FRAMES) {
+    g.closeFrames = 0;
+    g.grab = { frame: 0, startAngle: Math.atan2(playerY - g.y, playerX - g.x), dir: random() < 0.5 ? -1 : 1 };
   }
 }
 
 // The grab: her warning ring as the timer runs out, and her grip on the beetle while she swings it
 function drawQueenGrab() {
   if (!queen || queen.bunker) return;
+  drawGrabber(queen, getQueenBodyRadius(), queen.y - queen.airHeight);
+}
+
+// bodyY: where g's body is drawn (raised while she's in the air)
+function drawGrabber(g, bodyRadius, bodyY) {
   push();
-  if (queen.grab) {
+  if (g.grab) {
     stroke(120, 60, 160, 230);
     strokeWeight(7);
-    line(queen.x, queen.y - queen.airHeight, playerX, playerY);
+    line(g.x, bodyY, playerX, playerY);
     noFill();
     stroke(220, 160, 255, 150);
     strokeWeight(2);
-    ellipse(queen.x, queen.y, (getQueenBodyRadius() + PLAYER_WALL_RADIUS + 6) * 2);
-  } else if (queen.beetleClose && queen.closeFrames > QUEEN_GRAB_FRAMES - QUEEN_GRAB_WARN_FRAMES) {
-    const t = (queen.closeFrames - (QUEEN_GRAB_FRAMES - QUEEN_GRAB_WARN_FRAMES)) / QUEEN_GRAB_WARN_FRAMES;
+    ellipse(g.x, g.y, (bodyRadius + PLAYER_WALL_RADIUS + 6) * 2);
+  } else if (g.beetleClose && g.closeFrames > QUEEN_GRAB_FRAMES - QUEEN_GRAB_WARN_FRAMES) {
+    const t = (g.closeFrames - (QUEEN_GRAB_FRAMES - QUEEN_GRAB_WARN_FRAMES)) / QUEEN_GRAB_WARN_FRAMES;
     noFill();
     stroke(220, 160, 255, 80 + 150 * t);
     strokeWeight(2 + 2 * t);
-    ellipse(queen.x, queen.y, (getQueenBodyRadius() + PLAYER_WALL_RADIUS + QUEEN_GRAB_RANGE) * 2);
+    ellipse(g.x, g.y, (bodyRadius + PLAYER_WALL_RADIUS + QUEEN_GRAB_RANGE) * 2);
   }
   pop();
+}
+
+// ========== ROYAL GUARDS ==========
+// From medium difficulty up the queen raises royal guards: size 2 ants that never shoot. Like her they can't be pushed
+// around, only the beetle's shots (bullets, spray, beams, bombs, shrapnel), dashes and shockwaves hurt them (never
+// just bumping into them), and they do her circle throw. She earns a batch of them every ROYAL_GUARD_FRAMES and
+// stockpiles them; her brain picks when to summon them (royal*Timing and royalSummon* strategy values). They stay ROYAL_GUARD_DISTANCE
+// from her like a keep distance ant, unless she orders them to a spot (royalOrder): guard orders are separate from her
+// ant orders and have no cooldown, so she can re-aim them every decision.
+const ROYAL_GUARD_SIZE = 2;
+const ROYAL_GUARD_IMAGE_SIZE = 45 + 15 * ROYAL_GUARD_SIZE;
+const ROYAL_GUARD_BODY_RADIUS = QUEEN_BODY_RADIUS * ROYAL_GUARD_IMAGE_SIZE / QUEEN_IMAGE_SIZE; // 30px
+const ROYAL_GUARD_HEALTH = ROYAL_GUARD_SIZE; // Health = size, like any ant
+const ROYAL_GUARD_DISTANCE = 100;
+const ROYAL_GUARD_SPEED = QUEEN_SPEED;       // They keep up with her
+const ROYAL_GUARD_FRAMES = 600;              // A batch every 10 seconds (see getRoyalGuardsPerBatch)
+const ROYAL_GUARD_MAX_ALIVE = 12;            // More than this wait in her stockpile
+const ROYAL_GUARD_ORDER_FRAMES = 2 * QUEEN_DECISION_FRAMES; // An order lapses once she stops repeating it
+const QUEEN_SCORE_PER_GUARD_LOST = QUEEN_SCORE_PER_ANT_LOST;
+
+// None on easy, 2 every 10 seconds on medium, 4 on hard and insane, 6 for the Queen of Queens (none in the tutorial)
+function getRoyalGuardsPerBatch() {
+  if (isTutorialRun()) return 0;
+  if (queen.final) return 6;
+  const tier = getDifficultyTier();
+  if (tier === 'medium') return 2;
+  if (tier === 'hard' || tier === 'insane') return 4;
+  return 0;
+}
+
+function wantsRoyalGuards() {
+  const p = queen.decision.params;
+  const timed = (last, timing) => {
+    const since = frameCount - last;
+    return since >= timing && since < timing + ROYAL_TIMING_BAND;
+  };
+  return timed(lastBeetleDashFrame, p.royalDashTiming) || timed(lastBeetleShockwaveFrame, p.royalShockwaveTiming) ||
+    p.royalSummonNow > 0 || dist(queen.x, queen.y, playerX, playerY) < p.royalSummonRadius ||
+    frameCount - getLastBeetleAttackFrame() < p.royalSummonWindow;
+}
+
+// Summon `count` guards in a ring just outside her body, the first one on the beetle's side
+function summonRoyalGuards(count) {
+  const start = angleToBeetle(queen.x, queen.y);
+  const r = getQueenBodyRadius() + ROYAL_GUARD_BODY_RADIUS + 8;
+  for (let k = 0; k < count; k++) {
+    const a = start + (k / count) * Math.PI * 2;
+    const p = clampToPlayArea(queen.x + Math.cos(a) * r, queen.y + Math.sin(a) * r);
+    queen.guards.push({ x: p.x, y: p.y, health: ROYAL_GUARD_HEALTH, maxHealth: ROYAL_GUARD_HEALTH, hitFlash: 0,
+      lastHitTime: 0, dashHit: false, order: null, closeFrames: 0, grab: null, beetleClose: false });
+    queenEffects.push({ kind: 'ring', x: p.x, y: p.y, life: 0, frames: 18, maxR: 30 + 10 * ROYAL_GUARD_SIZE, color: [255, 210, 90] });
+  }
+  queen.label = 'Royal Guards';
+  queen.labelFrames = 90;
+}
+
+// Called every frame from updateQueen
+function updateRoyalGuards(pace) {
+  const perBatch = getRoyalGuardsPerBatch();
+  if (perBatch > 0) {
+    if (++queen.guardTimer >= ROYAL_GUARD_FRAMES) {
+      queen.guardTimer = 0;
+      queen.guardCharges += perBatch;
+    }
+    const room = ROYAL_GUARD_MAX_ALIVE - queen.guards.length;
+    if (queen.guardCharges > 0 && room > 0 && wantsRoyalGuards()) {
+      const count = Math.min(queen.guardCharges, room);
+      queen.guardCharges -= count;
+      summonRoyalGuards(count);
+    }
+  }
+  if (queen.guards.length === 0) return;
+
+  // Orders: every decision she wants them somewhere, she tells them again
+  const d = queen.decision;
+  if (queen.life % QUEEN_DECISION_FRAMES === 0 && d.params.royalOrder > 0) {
+    const spot = clampToPlayArea(playerX + d.guardOrderX, playerY + d.guardOrderY);
+    let fresh = false;
+    for (const g of queen.guards) {
+      if (!g.order) fresh = true;
+      g.order = { x: spot.x, y: spot.y, expires: frameCount + ROYAL_GUARD_ORDER_FRAMES };
+    }
+    if (fresh && frameCount - queen.guardShoutFrame > 60) {
+      queen.guardShoutFrame = frameCount;
+      queenEffects.push({ kind: 'shout', life: 0, frames: 26, angle: Math.atan2(spot.y - queen.y, spot.x - queen.x) });
+    }
+  }
+
+  const step = ROYAL_GUARD_SPEED * pace;
+  for (const g of queen.guards) {
+    if (g.hitFlash > 0) g.hitFlash--;
+    if (!dash) g.dashHit = false;
+    if (g.order && frameCount >= g.order.expires) g.order = null;
+    if (!g.grab) {
+      if (g.order) {
+        // Ordered: walk straight to the spot and hold it
+        const dx = g.order.x - g.x;
+        const dy = g.order.y - g.y;
+        const dd = Math.sqrt(dx * dx + dy * dy);
+        if (dd > step) {
+          g.x += dx / dd * step;
+          g.y += dy / dd * step;
+        }
+      } else {
+        // Keep distance from the queen: approach or back away at uniform speed
+        let dx = queen.x - g.x;
+        let dy = queen.y - g.y;
+        let dd = Math.sqrt(dx * dx + dy * dy);
+        if (dd < 1) {
+          dx = queen.x - playerX;
+          dy = queen.y - playerY;
+          dd = Math.max(1, Math.sqrt(dx * dx + dy * dy));
+        }
+        if (dd > ROYAL_GUARD_DISTANCE + 5) {
+          g.x += dx / dd * step;
+          g.y += dy / dd * step;
+        } else if (dd < ROYAL_GUARD_DISTANCE - 5) {
+          g.x -= dx / dd * step;
+          g.y -= dy / dd * step;
+        }
+      }
+      const p = clampToPlayArea(g.x, g.y, 10);
+      g.x = p.x;
+      g.y = p.y;
+    }
+    updateGrabber(g, ROYAL_GUARD_BODY_RADIUS, false);
+  }
+  updateRoyalGuardContact();
+}
+
+// The beetle can't walk through them (or push them); dashing into one hurts it once per dash
+function updateRoyalGuardContact() {
+  if (isPlayerUntouchable()) return;
+  const reach = ROYAL_GUARD_BODY_RADIUS + PLAYER_WALL_RADIUS;
+  for (const g of queen.guards.slice()) {
+    const dx = playerX - g.x;
+    const dy = playerY - g.y;
+    const d = Math.sqrt(dx * dx + dy * dy);
+    if (dash && !g.dashHit && d < reach + 6) {
+      g.dashHit = true;
+      damageRoyalGuard(g, 1 + (upgrade12Level * 0.2), 'dash'); // Same damage as a dash hit on an ant (Horns)
+      if (g.health <= 0) continue;
+    }
+    if (d >= reach || g.grab) continue;
+    const nx = d > 0 ? dx / d : 1;
+    const ny = d > 0 ? dy / d : 0;
+    const p = clampToPlayArea(g.x + nx * reach, g.y + ny * reach, 10);
+    playerX = p.x;
+    playerY = p.y;
+  }
+}
+
+// The guard whose body a point is within pad px of, or null (skip: guards a piercing shot already went through)
+function getRoyalGuardHitAt(x, y, pad = 0, skip = null) {
+  if (!queen) return null;
+  const reach = ROYAL_GUARD_BODY_RADIUS + pad;
+  for (const g of queen.guards) {
+    if (skip && skip.has(g)) continue;
+    if ((x - g.x) ** 2 + (y - g.y) ** 2 < reach * reach) return g;
+  }
+  return null;
+}
+
+// Every guard within pad px of a point, for blasts (a copy, so damaging them along the way is safe)
+function getRoyalGuardsWithin(x, y, pad) {
+  if (!queen) return [];
+  const reach = ROYAL_GUARD_BODY_RADIUS + pad;
+  return queen.guards.filter(g => (x - g.x) ** 2 + (y - g.y) ** 2 < reach * reach);
+}
+
+// Damage from one of the beetle's attacks; a guard that runs out of health dies like an ant (score, EXP, healing).
+// Returns true if it landed.
+function damageRoyalGuard(g, amount, source = 'bullet') {
+  if (!queen || end || g.health <= 0 || !queen.guards.includes(g)) return false;
+  g.health -= getRainbowAntDamage(amount);
+  g.hitFlash = 10;
+  g.lastHitTime = millis();
+  if (g.health > 0) {
+    if (!sHit1.isPlaying()) sHit1.play();
+    return true;
+  }
+  queen.guards.splice(queen.guards.indexOf(g), 1);
+  queen.segmentScore += QUEEN_SCORE_PER_GUARD_LOST;
+  comboTime = 60;
+  combo++;
+  calculateBonus();
+  streakPoints += Math.round(comboPoints * ROYAL_GUARD_SIZE);
+  const scoreGained = addKillScore(100 + comboPoints, ROYAL_GUARD_SIZE, source);
+  healFromKill(ROYAL_GUARD_SIZE);
+  addDeathEffect(g.x, g.y, scoreGained);
+  if (!sGetHit1.isPlaying() && !sGetHit2.isPlaying()) (random() < 0.5 ? sGetHit1 : sGetHit2).play();
+  return true;
+}
+
+// Size 2 ants in gold with a small crown and sword, drawn under the queen
+function drawRoyalGuards(alpha) {
+  const size = ROYAL_GUARD_IMAGE_SIZE;
+  for (const g of queen.guards) {
+    drawGroundShadow(g.x, g.y, size * 0.6, size * 0.26, 0, 80 * alpha / 255);
+    push();
+    angleMode(DEGREES);
+    imageMode(CENTER);
+    translate(g.x, g.y);
+    rotate(angleToBeetle(g.x, g.y) * 180 / Math.PI);
+    tint(255, 210, 120, alpha);
+    image(ant, 0, 0, size, size);
+    if (g.hitFlash > 0) {
+      noTint();
+      noStroke();
+      fill(255, 255, 255, 25 * g.hitFlash);
+      ellipse(0, 0, size * 0.8);
+    }
+    pop();
+    drawRoyalGuardBadge(g.x, g.y - size * 0.45 + 6, alpha);
+    drawHitHealthBar(g.x, g.y + size * 0.4, g.health, g.maxHealth, g.lastHitTime);
+    drawGrabber(g, ROYAL_GUARD_BODY_RADIUS, g.y);
+  }
 }
 
 // --- Damage to the beetle ---
@@ -12506,6 +12864,7 @@ function drawQueen() {
   const faded = tigerBeetleActive && tigerBeetleMoving;
   const alpha = faded ? 70 : 255;
   const crownY = queen.y - queen.airHeight - getQueenImageSize() * 0.45;
+  drawRoyalGuards(alpha);
 
   if (queen.bunker) {
     // Hidden in her bunker: only her crown peeks out
@@ -12564,6 +12923,26 @@ function drawQueen() {
   drawQueenCrown(queen.x, crownY, getQueenImageSize() / QUEEN_IMAGE_SIZE, alpha);
   drawHitHealthBar(queen.x, queen.y - queen.airHeight + getQueenImageSize() * 0.4, queen.health, queen.maxHealth, queen.lastHitTime);
   drawQueenLabel(alpha);
+}
+
+// A royal guard's mark: an upright sword through a small crown
+function drawRoyalGuardBadge(x, y, alpha) {
+  push();
+  stroke(40, 40, 50, alpha);
+  strokeWeight(1);
+  fill(225, 230, 240, alpha);
+  beginShape(); // Blade, pointing up past the crown
+  vertex(x - 2, y + 2);
+  vertex(x - 2, y - 15);
+  vertex(x, y - 19);
+  vertex(x + 2, y - 15);
+  vertex(x + 2, y + 2);
+  endShape(CLOSE);
+  fill(150, 95, 30, alpha);
+  rect(x - 6, y + 2, 12, 2.5, 1); // Crossguard
+  rect(x - 1.5, y + 4.5, 3, 5, 1); // Grip
+  pop();
+  drawQueenCrown(x, y - 7, 0.45, alpha); // Over the blade, above the hilt
 }
 
 function drawQueenCrown(x, y, s, alpha) {
@@ -12752,22 +13131,22 @@ function drawQueenHud() {
 // available to spend on permanent upgrades. Bought upgrades are applied at the start of every single player run.
 const QUEENS_REQUIRED_TO_ADVANCE = [5, 10, 20, 30, 40, 60, 80, 100, 120, 150]; // Total queens to move on from difficulty 1-10 (10: the nest)
 const UPGRADE_NAMES = ['Walking Speed', 'Dash Speed', 'Dash Cooldown', 'Add Shield', 'Add Bullets', 'Shield Regeneration',
-  'Bullet Reload', 'Bullet Speed', 'Free-Angle Aiming', 'Rivacindela hudsoni (Tiger Beetle)', 'Anthia sexmaculata (Oogpister Beetle)', 'Horns', 'Potent Acid',
+  'Bullet Reload', 'Bullet Speed', 'Free-Angle Aiming', 'Tiger Beetle (Rivacindela hudsoni)', 'Oogpister Beetle (Anthia sexmaculata)', 'Horns', 'Potent Acid',
   'Shockwave', 'Shockwave Radius', 'Shockwave Damage', 'Shockwave Cooldown', 'Shockwave Knockback', 'Bullet Deflection',
   'Health Regeneration', 'Runt Hunter', 'Increased Metabolism', 'EXP Boost', 'Combo Surge', 'Dash Harvest',
   'Shockwave Harvest', 'Bullet Harvest', 'Spray Acid', 'Spray Length', 'Spray Width', 'Piercing Acid', 'Piercing Depth',
-  'Impact Bomb', 'Timed Bomb', 'Proximity Bomb', 'Blast Radius', 'Coccinella septempunctata (Lady Beetle)', 'Aphid Health', 'Aphid Spawn Rate',
-  'Speedy Aphids', 'Armored Aphids', 'Wise Aphids', 'Healthy Aphids', 'Lucky Aphids', 'Mound Ring', 'Bunker', 'Vortex', 'Flight and Slam', 'Mound Health', 'Flight Duration', 'Starting Health', 'Dash Deflection', 'Shell Shrapnel', 'Shrapnel Count', 'Burrow', 'Beam Deflection', 'Rainbow Aphids', 'Dash Gust', 'Dash Blast', 'Sceptobius lativentris (Rove Beetle)', 'Lomechusoides strumosus (Rove Beetle)', 'Homing Deprogramming', 'Homing Redirect'];
+  'Impact Bomb', 'Timed Bomb', 'Proximity Bomb', 'Blast Radius', 'Lady Beetle (Coccinella septempunctata)', 'Aphid Health', 'Aphid Spawn Rate',
+  'Speedy Aphids', 'Armored Aphids', 'Wise Aphids', 'Healthy Aphids', 'Lucky Aphids', 'Mound Ring', 'Bunker', 'Vortex', 'Flight and Slam', 'Mound Health', 'Flight Duration', 'Starting Health', 'Dash Deflection', 'Shell Shrapnel', 'Shrapnel Count', 'Burrow', 'Beam Deflection', 'Rainbow Aphids', 'Dash Gust', 'Dash Blast', 'Rove Beetle (Sceptobius lativentris)', 'Rove Beetle 2 (Lomechusoides strumosus)', 'Homing Deprogramming', 'Homing Redirect'];
 const UPGRADE_PREREQUISITE_TEXT = {
   5: 'Add Shield', 6: 'Add Bullets', 7: 'Add Bullets', 8: 'Add Bullets, Bullet Reload, Bullet Speed',
   9: 'Dash Cooldown maxed', 10: 'Bullet Reload 3+', 12: 'Add Bullets', 14: 'Shockwave', 15: 'Shockwave',
   16: 'Shockwave', 18: 'Shockwave', 25: 'Shockwave', 26: 'Add Bullets', 27: 'Add Bullets', 28: 'Spray Acid',
   29: 'Spray Acid', 30: 'Add Bullets', 31: 'Piercing Acid', 32: 'Add Bullets', 33: 'Impact Bomb',
-  34: 'Timed Bomb', 35: 'Impact Bomb', 37: 'Coccinella septempunctata (Lady Beetle)', 38: 'Coccinella septempunctata (Lady Beetle)', 39: 'Coccinella septempunctata (Lady Beetle)', 40: 'Coccinella septempunctata (Lady Beetle)',
-  41: 'Coccinella septempunctata (Lady Beetle)', 42: 'Coccinella septempunctata (Lady Beetle)', 43: 'Coccinella septempunctata (Lady Beetle)', 44: 'Shockwave', 45: 'Shockwave', 46: 'Shockwave',
+  34: 'Timed Bomb', 35: 'Impact Bomb', 37: 'Lady Beetle (Coccinella septempunctata)', 38: 'Lady Beetle (Coccinella septempunctata)', 39: 'Lady Beetle (Coccinella septempunctata)', 40: 'Lady Beetle (Coccinella septempunctata)',
+  41: 'Lady Beetle (Coccinella septempunctata)', 42: 'Lady Beetle (Coccinella septempunctata)', 43: 'Lady Beetle (Coccinella septempunctata)', 44: 'Shockwave', 45: 'Shockwave', 46: 'Shockwave',
   47: 'Shockwave', 48: 'Mound Ring or Bunker', 49: 'Flight and Slam', 52: 'Add Shield', 53: 'Shell Shrapnel', 54: 'Bunker',
-  56: 'Coccinella septempunctata (Lady Beetle)', 57: 'Dash Speed 3', 58: 'Dash Speed 3',
-  59: 'Shockwave', 60: 'Sceptobius lativentris (Rove Beetle)', 61: 'Shockwave', 62: 'Homing Deprogramming'
+  56: 'Lady Beetle (Coccinella septempunctata)', 57: 'Dash Speed 3', 58: 'Dash Speed 3',
+  59: 'Shockwave', 60: 'Rove Beetle (Sceptobius lativentris)', 61: 'Shockwave', 62: 'Homing Deprogramming'
 };
 
 // Sets the text size, shrinking it below size when needed so str fits in maxWidth (long scientific names)
@@ -13042,12 +13421,12 @@ function drawQueenShop() {
     fitTextSize(UPGRADE_NAMES[id], 16, nameW);
     const split = UPGRADE_NAMES[id].indexOf(' (');
     if (textSize() < 13 && split > 0) {
-      // Too long for one line: scientific name on top, common name under it
-      const sci = UPGRADE_NAMES[id].slice(0, split), common = UPGRADE_NAMES[id].slice(split + 1);
-      fitTextSize(sci, 13, nameW);
-      text(sci, r.x + 14, r.y + r.h / 2 - 7);
-      fitTextSize(common, 13, nameW);
-      text(common, r.x + 14, r.y + r.h / 2 + 7);
+      // Too long for one line: common name on top, scientific name under it
+      const common = UPGRADE_NAMES[id].slice(0, split), sci = UPGRADE_NAMES[id].slice(split + 1);
+      fitTextSize(common, 15, nameW);
+      text(common, r.x + 14, r.y + r.h / 2 - 7);
+      fitTextSize(sci, 11, nameW);
+      text(sci, r.x + 14, r.y + r.h / 2 + 7);
     } else {
       text(UPGRADE_NAMES[id], r.x + 14, r.y + r.h / 2);
     }
@@ -15769,13 +16148,13 @@ function drawUpgradeScreen() {
       maxLevel: 1
     },
     {
-      title: 'Rivacindela hudsoni (Tiger Beetle)',
-      description: 'Transform into Rivacindela hudsoni, the tiger beetle! Dash becomes a toggle instead of a burst. While dashing, threats become invisible but flash briefly.',
+      title: 'Tiger Beetle (Rivacindela hudsoni)',
+      description: 'Transform into the tiger beetle (Rivacindela hudsoni)! Dash becomes a toggle instead of a burst. While dashing, threats become invisible but flash briefly.',
       level: upgrade10Level,
       maxLevel: 1
     },
     {
-      title: 'Anthia sexmaculata (Oogpister Beetle)',
+      title: 'Oogpister Beetle (Anthia sexmaculata)',
       description: '20% chance to instantly reload 1 bullet when killing an ant by eating it. Requires Bullet Reload level 3+.',
       level: upgrade11Level,
       maxLevel: 1
@@ -15931,50 +16310,50 @@ function drawUpgradeScreen() {
       maxLevel: 3
     },
     {
-      title: 'Coccinella septempunctata (Lady Beetle)',
+      title: 'Lady Beetle (Coccinella septempunctata)',
       description: 'Aphids appear on the field. Eat one for 2 health. Ants that stay near one for a while get 0.5 health.',
       level: upgrade37Level,
       maxLevel: 1
     },
     {
       title: 'Aphid Health',
-      description: 'Aphids heal more: +1 for you and +0.25 for ants per level (2→5, 0.5→1.25). Requires Coccinella septempunctata (Lady Beetle).',
+      description: 'Aphids heal more: +1 for you and +0.25 for ants per level (2→5, 0.5→1.25). Requires Lady Beetle (Coccinella septempunctata).',
       level: upgrade38Level,
       maxLevel: 3
     },
     {
       title: 'Aphid Spawn Rate',
-      description: 'Aphids appear more often (every 20s→15s→10s). Requires Coccinella septempunctata (Lady Beetle).',
+      description: 'Aphids appear more often (every 20s→15s→10s). Requires Lady Beetle (Coccinella septempunctata).',
       level: upgrade39Level,
       maxLevel: 2
     },
     {
       title: 'Speedy Aphids',
-      description: 'Yellow aphids (10%) double movement speed for 5 seconds. Ants near them get the same. Requires Coccinella septempunctata (Lady Beetle).',
+      description: 'Yellow aphids (10%) double movement speed for 5 seconds. Ants near them get the same. Requires Lady Beetle (Coccinella septempunctata).',
       level: upgrade40Level,
       maxLevel: 1
     },
     {
       title: 'Armored Aphids',
-      description: 'Blue aphids (10%) halve damage taken for 5 seconds. Ants near them get the same. Requires Coccinella septempunctata (Lady Beetle).',
+      description: 'Blue aphids (10%) halve damage taken for 5 seconds. Ants near them get the same. Requires Lady Beetle (Coccinella septempunctata).',
       level: upgrade41Level,
       maxLevel: 1
     },
     {
       title: 'Wise Aphids',
-      description: 'Purple aphids (10%) double EXP for 5 seconds. Ants near them max out one stat for 5 seconds. Requires Coccinella septempunctata (Lady Beetle).',
+      description: 'Purple aphids (10%) double EXP for 5 seconds. Ants near them max out one stat for 5 seconds. Requires Lady Beetle (Coccinella septempunctata).',
       level: upgrade42Level,
       maxLevel: 1
     },
     {
       title: 'Healthy Aphids',
-      description: 'Pink aphids (10%) double bullet, shield, health and cooldown regeneration for 5 seconds. Ants near them get the same. Requires Coccinella septempunctata (Lady Beetle).',
+      description: 'Pink aphids (10%) double bullet, shield, health and cooldown regeneration for 5 seconds. Ants near them get the same. Requires Lady Beetle (Coccinella septempunctata).',
       level: upgrade43Level,
       maxLevel: 1
     },
     {
       title: 'Lucky Aphids',
-      description: 'Orange aphids (5%) give an extra reroll. Ants near them get a random ability for 5 seconds. Requires Coccinella septempunctata (Lady Beetle).',
+      description: 'Orange aphids (5%) give an extra reroll. Ants near them get a random ability for 5 seconds. Requires Lady Beetle (Coccinella septempunctata).',
       level: upgrade44Level,
       maxLevel: 1
     },
@@ -16052,7 +16431,7 @@ function drawUpgradeScreen() {
     },
     {
       title: 'Rainbow Aphids',
-      description: 'Rainbow aphids (1%) make you invincible for 10 seconds, and every attack deals at least 3 damage to ants, even bumping into them. Ants near them are invincible for 5 seconds and hit 3x as hard. Requires Coccinella septempunctata (Lady Beetle).',
+      description: 'Rainbow aphids (1%) make you invincible for 10 seconds, and every attack deals at least 3 damage to ants, even bumping into them. Ants near them are invincible for 5 seconds and hit 3x as hard. Requires Lady Beetle (Coccinella septempunctata).',
       level: upgrade57Level,
       maxLevel: 1
     },
@@ -16069,14 +16448,14 @@ function drawUpgradeScreen() {
       maxLevel: 1
     },
     {
-      title: 'Sceptobius lativentris (Rove Beetle)',
+      title: 'Rove Beetle (Sceptobius lativentris)',
       description: 'Shockwave variant (R / LB to switch): a shockwave laced with rove beetle chemicals. When it goes off, every ant skips its next shot. 2x cooldown. Requires Shockwave.',
       level: upgrade60Level,
       maxLevel: 1
     },
     {
-      title: 'Lomechusoides strumosus (Rove Beetle)',
-      description: 'Your chemical shockwave also draws every ant within 300 pixels in to feed you: they stop 50 pixels away for a moment, each healing you by its size, then go back to fighting. Requires Sceptobius lativentris (Rove Beetle).',
+      title: 'Rove Beetle 2 (Lomechusoides strumosus)',
+      description: 'Your chemical shockwave also draws every ant within 300 pixels in to feed you: they stop 50 pixels away for a moment, each healing you by its size, then go back to fighting. Requires Rove Beetle (Sceptobius lativentris).',
       level: upgrade61Level,
       maxLevel: 1
     },
@@ -16154,7 +16533,7 @@ function drawUpgradeScreen() {
         return level > 0 ? 'Aim with mouse/right stick. Current: ON' : 'Aim with mouse/right stick. Current: OFF → Next: ON';
       }
       case 9: { // Tiger Beetle
-        return level > 0 ? 'Rivacindela hudsoni (Tiger Beetle) form unlocked. Current: ON' : 'Rivacindela hudsoni (Tiger Beetle) form (dash toggles). Current: OFF → Next: ON';
+        return level > 0 ? 'Tiger Beetle (Rivacindela hudsoni) form unlocked. Current: ON' : 'Tiger Beetle (Rivacindela hudsoni) form (dash toggles). Current: OFF → Next: ON';
       }
       case 10: { // Oogpister Beetle
         return level > 0 ? '20% chance to reload 1 bullet on kill. Current: ON' : '20% chance to reload 1 bullet on kill. Current: OFF → Next: ON';
@@ -16835,7 +17214,7 @@ function applyUpgrade(upgradeIndex) {
   
   //TODO: Add actual upgrade effects based on actualUpgradeId (0-19)
   let levels = [upgrade1Level, upgrade2Level, upgrade3Level, upgrade4Level, upgrade5Level, upgrade6Level, upgrade7Level, upgrade8Level, upgrade9Level, upgrade10Level, upgrade11Level, upgrade12Level, upgrade13Level, upgrade14Level, upgrade15Level, upgrade16Level, upgrade17Level, upgrade18Level, upgrade19Level, upgrade20Level, upgrade21Level, upgrade22Level, upgrade23Level, upgrade24Level, upgrade25Level, upgrade26Level, upgrade27Level, upgrade28Level, upgrade29Level, upgrade30Level, upgrade31Level, upgrade32Level, upgrade33Level, upgrade34Level, upgrade35Level, upgrade36Level, upgrade37Level, upgrade38Level, upgrade39Level, upgrade40Level, upgrade41Level, upgrade42Level, upgrade43Level, upgrade44Level, upgrade45Level, upgrade46Level, upgrade47Level, upgrade48Level, upgrade49Level, upgrade50Level, upgrade51Level, upgrade52Level, upgrade53Level, upgrade54Level, upgrade55Level, upgrade56Level, upgrade57Level, upgrade58Level, upgrade59Level, upgrade60Level, upgrade61Level, upgrade62Level, upgrade63Level];
-  let upgradeNames = ['Walking Speed', 'Dash Speed', 'Dash Cooldown', 'Add Shield', 'Add Bullets', 'Shield Regeneration', 'Bullet Reload', 'Bullet Speed', 'Free-Angle Aiming', 'Rivacindela hudsoni (Tiger Beetle)', 'Anthia sexmaculata (Oogpister Beetle)', 'Horns', 'Potent Acid', 'Shockwave', 'Shockwave Radius', 'Shockwave Damage', 'Shockwave Cooldown', 'Shockwave Knockback', 'Bullet Deflection', 'Health Regeneration', 'Runt Hunter', 'Increased Metabolism', 'EXP Boost', 'Combo Surge', 'Dash Harvest', 'Shockwave Harvest', 'Bullet Harvest', 'Spray Acid', 'Spray Length', 'Spray Width', 'Piercing Acid', 'Piercing Depth', 'Impact Bomb', 'Timed Bomb', 'Proximity Bomb', 'Blast Radius', 'Coccinella septempunctata (Lady Beetle)', 'Aphid Health', 'Aphid Spawn Rate', 'Speedy Aphids', 'Armored Aphids', 'Wise Aphids', 'Healthy Aphids', 'Lucky Aphids', 'Mound Ring', 'Bunker', 'Vortex', 'Flight and Slam', 'Mound Health', 'Flight Duration', 'Starting Health', 'Dash Deflection', 'Shell Shrapnel', 'Shrapnel Count', 'Burrow', 'Beam Deflection', 'Rainbow Aphids', 'Dash Gust', 'Dash Blast', 'Sceptobius lativentris (Rove Beetle)', 'Lomechusoides strumosus (Rove Beetle)', 'Homing Deprogramming', 'Homing Redirect'];
+  let upgradeNames = ['Walking Speed', 'Dash Speed', 'Dash Cooldown', 'Add Shield', 'Add Bullets', 'Shield Regeneration', 'Bullet Reload', 'Bullet Speed', 'Free-Angle Aiming', 'Tiger Beetle (Rivacindela hudsoni)', 'Oogpister Beetle (Anthia sexmaculata)', 'Horns', 'Potent Acid', 'Shockwave', 'Shockwave Radius', 'Shockwave Damage', 'Shockwave Cooldown', 'Shockwave Knockback', 'Bullet Deflection', 'Health Regeneration', 'Runt Hunter', 'Increased Metabolism', 'EXP Boost', 'Combo Surge', 'Dash Harvest', 'Shockwave Harvest', 'Bullet Harvest', 'Spray Acid', 'Spray Length', 'Spray Width', 'Piercing Acid', 'Piercing Depth', 'Impact Bomb', 'Timed Bomb', 'Proximity Bomb', 'Blast Radius', 'Lady Beetle (Coccinella septempunctata)', 'Aphid Health', 'Aphid Spawn Rate', 'Speedy Aphids', 'Armored Aphids', 'Wise Aphids', 'Healthy Aphids', 'Lucky Aphids', 'Mound Ring', 'Bunker', 'Vortex', 'Flight and Slam', 'Mound Health', 'Flight Duration', 'Starting Health', 'Dash Deflection', 'Shell Shrapnel', 'Shrapnel Count', 'Burrow', 'Beam Deflection', 'Rainbow Aphids', 'Dash Gust', 'Dash Blast', 'Rove Beetle (Sceptobius lativentris)', 'Rove Beetle 2 (Lomechusoides strumosus)', 'Homing Deprogramming', 'Homing Redirect'];
   debugLog(`${upgradeNames[actualUpgradeId]} selected! Level: ${levels[actualUpgradeId]}`);
   
   // Update upgrade booleans
@@ -20035,8 +20414,8 @@ function buildDexExoticEntries() {
   const mines = i => getDeathType(i) === 1 && !stream(i) && !isBeamAccelerate(i);
   const list = [
     ['airStrike', 'Air Strike Ants', 'High arc bullets with a timed fuse can go off in mid-air, raining a bigger blast down on the beetle from above.', 'Time Explosion + High Arc', 'airStrike', i => timed(i) && getPathType(i) === 1 && !stream(i)],
-    ['explodingAnts', 'Colobopsis explodens (Exploding Ants)', 'Proximity explosion stream ants burst their streams, and if the beetle stays close they light a fuse and blow themselves up in a huge explosion.', 'Proximity Explosion + Stream', 'explodingAnts', i => getSpecialType(i) === 1 && specialExplosion[i] >= 1 && stream(i)],
-    ['ghostAnts', 'Tapinoma melanocephalum (Ghost Ants)', 'Ghost stream ants fade out of sight just before they spray, and only fade back in once the stream stops.', 'Ghost Bullets + Stream', 'ghostAnts', i => getSpecialType(i) === -2 && stream(i)],
+    ['explodingAnts', 'Exploding Ants (Colobopsis explodens)', 'Proximity explosion stream ants burst their streams, and if the beetle stays close they light a fuse and blow themselves up in a huge explosion.', 'Proximity Explosion + Stream', 'explodingAnts', i => getSpecialType(i) === 1 && specialExplosion[i] >= 1 && stream(i)],
+    ['ghostAnts', 'Ghost Ants (Tapinoma melanocephalum)', 'Ghost stream ants fade out of sight just before they spray, and only fade back in once the stream stops.', 'Ghost Bullets + Stream', 'ghostAnts', i => getSpecialType(i) === -2 && stream(i)],
     ['hoverAnts', 'Hover Ants', 'Launch stream ants rise high into the air while they spray, untouchable above the spot they burn.', 'Launch + Stream', 'hoverAnts', i => getSpecialType(i) === -3 && stream(i)],
     ['explodingLandmine', 'Exploding Landmines', 'Explosive bullets become landmines that blow up instead of just burning the beetle.', 'Explosion + Landmine', 'explodingLandmine', i => explosive(i) && mines(i)],
     ['hiddenLandmine', 'Hidden Landmines', 'Ghost bullets become landmines that stay invisible until the beetle is right on top of them.', 'Ghost Bullets + Landmine', 'hiddenLandmine', i => getSpecialType(i) === -2 && mines(i)],
@@ -22917,8 +23296,8 @@ function drawDevTools() {
         { name: 'Bullet Reload', level: currentUpgrades.upgrade7, maxLevel: 5, id: 6 },
         { name: 'Bullet Speed', level: currentUpgrades.upgrade8, maxLevel: 5, id: 7 },
         { name: 'Free-Angle Aiming', level: currentUpgrades.upgrade9, maxLevel: 1, id: 8 },
-        { name: 'Rivacindela hudsoni (Tiger Beetle)', level: currentUpgrades.upgrade10, maxLevel: 1, id: 9 },
-        { name: 'Anthia sexmaculata (Oogpister Beetle)', level: currentUpgrades.upgrade11, maxLevel: 1, id: 10 },
+        { name: 'Tiger Beetle (Rivacindela hudsoni)', level: currentUpgrades.upgrade10, maxLevel: 1, id: 9 },
+        { name: 'Oogpister Beetle (Anthia sexmaculata)', level: currentUpgrades.upgrade11, maxLevel: 1, id: 10 },
         { name: 'Horns', level: currentUpgrades.upgrade12, maxLevel: 4, id: 11 },
         { name: 'Potent Acid', level: currentUpgrades.upgrade13, maxLevel: 4, id: 12 },
         { name: 'Shockwave', level: currentUpgrades.upgrade14, maxLevel: 1, id: 13 },
@@ -22944,7 +23323,7 @@ function drawDevTools() {
         { name: 'Timed Bomb', level: currentUpgrades.upgrade34, maxLevel: 1, id: 33 },
         { name: 'Proximity Bomb', level: currentUpgrades.upgrade35, maxLevel: 1, id: 34 },
         { name: 'Blast Radius', level: currentUpgrades.upgrade36, maxLevel: 3, id: 35 },
-        { name: 'Coccinella septempunctata (Lady Beetle)', level: currentUpgrades.upgrade37, maxLevel: 1, id: 36 },
+        { name: 'Lady Beetle (Coccinella septempunctata)', level: currentUpgrades.upgrade37, maxLevel: 1, id: 36 },
         { name: 'Aphid Health', level: currentUpgrades.upgrade38, maxLevel: 3, id: 37 },
         { name: 'Aphid Spawn Rate', level: currentUpgrades.upgrade39, maxLevel: 2, id: 38 },
         { name: 'Speedy Aphids', level: currentUpgrades.upgrade40, maxLevel: 1, id: 39 },
@@ -22967,8 +23346,8 @@ function drawDevTools() {
         { name: 'Rainbow Aphids', level: currentUpgrades.upgrade57, maxLevel: 1, id: 56 },
         { name: 'Dash Gust', level: currentUpgrades.upgrade58, maxLevel: 1, id: 57 },
         { name: 'Dash Blast', level: currentUpgrades.upgrade59, maxLevel: 1, id: 58 },
-        { name: 'Sceptobius lativentris (Rove Beetle)', level: currentUpgrades.upgrade60, maxLevel: 1, id: 59 },
-        { name: 'Lomechusoides strumosus (Rove Beetle)', level: currentUpgrades.upgrade61, maxLevel: 1, id: 60 },
+        { name: 'Rove Beetle (Sceptobius lativentris)', level: currentUpgrades.upgrade60, maxLevel: 1, id: 59 },
+        { name: 'Rove Beetle 2 (Lomechusoides strumosus)', level: currentUpgrades.upgrade61, maxLevel: 1, id: 60 },
         { name: 'Homing Deprogramming', level: currentUpgrades.upgrade62, maxLevel: 1, id: 61 },
         { name: 'Homing Redirect', level: currentUpgrades.upgrade63, maxLevel: 1, id: 62 }
       ];
