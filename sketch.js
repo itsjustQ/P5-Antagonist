@@ -6424,6 +6424,7 @@ function applyShockwaveImpact(maxRadius, windDamage, once = null, killSource = '
     if (once && once.guards.has(g)) continue;
     if (once) once.guards.add(g);
     damageRoyalGuard(g, windDamage, killSource);
+    knockRoyalGuard(g, movementSpeed * knockbackMultiplier / ROYAL_GUARD_SIZE); // An ant's shockwave knockback
   }
 
   // Mounds and bunkers in the shockwave take its damage too
@@ -10522,8 +10523,10 @@ const QUEEN_TOP_TYPES = 3;                     // She tracks the ideal spots of 
 const QB_OUT_BLEND = 2;                        // Outputs: move x, move y, then a weight for each top ant's spot,
 const QB_OUT_FORMATION = QB_OUT_BLEND + QUEEN_TOP_TYPES; // formation turn,
 const QB_OUT_ALL_ORDER = QB_OUT_FORMATION + 1;           // order-everyone spot x, y,
-const QB_OUT_GUARD_ORDER = QB_OUT_ALL_ORDER + 2;         // royal guard order spot x, y,
-const QB_OUT_PARAMS = QB_OUT_GUARD_ORDER + 2;        // then one per strategy value, then one per ability
+const ROYAL_GUARD_GROUPS = 3;                            // She can split her royal guards into this many groups
+const QB_OUT_GUARD_ORDER = QB_OUT_ALL_ORDER + 2;         // an order spot x, y for each royal guard group,
+const QB_OUT_GUARD_SPLIT = QB_OUT_GUARD_ORDER + 2 * ROYAL_GUARD_GROUPS; // each group's share of her guards,
+const QB_OUT_PARAMS = QB_OUT_GUARD_SPLIT + ROYAL_GUARD_GROUPS; // then one per strategy value, then one per ability
 const QT_INPUTS = 7;                           // Per-ant-type networks: the ant's own values...
 const QT_HIDDEN = 8;
 const QT_ALL_INPUTS = QT_INPUTS + QB_INPUTS + QB_HIDDEN; // ...plus everything the queen sees and the main network's read of it
@@ -10555,7 +10558,9 @@ const QUEEN_STRATEGY_DEFAULTS = {
   royalSummonRadius: 0,   // ...or when the beetle is this close...
   royalSummonWindow: 0,   // ...or has fired or used its shockwave within this many frames...
   royalSummonNow: -1,     // ...or whenever this is above 0
-  royalOrder: -1          // Above 0: her royal guards are ordered to (and hold) her guard order spot
+  royalOrder1: -1,        // Above 0: that group of her royal guards is ordered to (and holds) its order spot
+  royalOrder2: -1,
+  royalOrder3: -1
 };
 const QUEEN_STRATEGY_RANGES = {
   guardRadius: [30, 600],
@@ -10578,7 +10583,9 @@ const QUEEN_STRATEGY_RANGES = {
   royalSummonRadius: [0, 600],
   royalSummonWindow: [0, 150],
   royalSummonNow: [-1, 1],
-  royalOrder: [-1, 1]
+  royalOrder1: [-1, 1],
+  royalOrder2: [-1, 1],
+  royalOrder3: [-1, 1]
 };
 const QUEEN_STRATEGY_KEYS = Object.keys(QUEEN_STRATEGY_RANGES);
 const QB_OUT_ABILITIES = QB_OUT_PARAMS + QUEEN_STRATEGY_KEYS.length;
@@ -10841,12 +10848,30 @@ function updateQueenDecision() {
     // Where an order to every ant goes, relative to the beetle: the spot she's heading for, shifted
     allOrderX: anchorX + Math.tanh(out[QB_OUT_ALL_ORDER]) * getGameplayWidth() * reach,
     allOrderY: anchorY + Math.tanh(out[QB_OUT_ALL_ORDER + 1]) * getGameplayHeight() * reach,
-    // Where her royal guards are ordered to, relative to the beetle (at first straight onto it)
-    guardOrderX: Math.tanh(out[QB_OUT_GUARD_ORDER]) * getGameplayWidth() * reach,
-    guardOrderY: Math.tanh(out[QB_OUT_GUARD_ORDER + 1]) * getGameplayHeight() * reach,
+    // Her royal guard groups: where each is ordered to, relative to the beetle (at first straight onto it), whether
+    // it's ordered at all, and its share of her guards (a softmax, so at first an even three-way split)
+    guardGroups: getRoyalGuardGroupPlans(out, params, reach),
     params: params,
     abilityLogits: out.slice(QB_OUT_ABILITIES)
   };
+}
+
+function getRoyalGuardGroupPlans(out, params, reach) {
+  const splits = [];
+  for (let k = 0; k < ROYAL_GUARD_GROUPS; k++) splits.push(out[QB_OUT_GUARD_SPLIT + k]);
+  const top = Math.max(...splits);
+  const weights = splits.map(w => Math.exp(w - top));
+  const total = weights.reduce((a, b) => a + b, 0);
+  const plans = [];
+  for (let k = 0; k < ROYAL_GUARD_GROUPS; k++) {
+    plans.push({
+      x: Math.tanh(out[QB_OUT_GUARD_ORDER + 2 * k]) * getGameplayWidth() * reach,
+      y: Math.tanh(out[QB_OUT_GUARD_ORDER + 2 * k + 1]) * getGameplayHeight() * reach,
+      ordered: params['royalOrder' + (k + 1)] > 0,
+      share: weights[k] / total
+    });
+  }
+  return plans;
 }
 
 // Score the strategy used since the last adaptation, keep the better of it and the best so far, and mutate that
@@ -10941,7 +10966,7 @@ function startQueenFight() {
     guards: [],          // Her royal guards (see ROYAL GUARDS)
     guardCharges: 0,     // Royal guards she has stockpiled to summon
     guardTimer: 0,
-    guardShoutFrame: -9999,
+    guardShoutFrames: new Array(ROYAL_GUARD_GROUPS).fill(-9999), // Last time she shouted an order to each group
     bunker: null,
     dashHit: false,
     hitFlash: 0,
@@ -10955,6 +10980,8 @@ function startQueenFight() {
   };
   queenProjectiles = [];
   queenEffects = [];
+  beetleBodyCheckX = null; // Nothing to sweep from yet
+  beetleBodyCheckY = null;
   queenEffects.push({ kind: 'ring', x: queen.x, y: queen.y, life: 0, frames: 40, maxR: 160, color: [200, 120, 255] });
   updateQueenDecision();
   if (!sLoseShield.isPlaying()) sLoseShield.play();
@@ -11250,6 +11277,8 @@ function updateQueen() {
   if (!queen) return;
   updateQueenContact();
   if (!queen) return; // A dash can kill her
+  beetleBodyCheckX = playerX;
+  beetleBodyCheckY = playerY;
   drawQueen();
   drawQueenGrab();
 
@@ -11574,12 +11603,42 @@ function updateQueenContact() {
     if (!damageQueen(1 + (upgrade12Level * 0.2))) return; // Same damage as a dash hit on an ant (Horns)
     if (!queen) return;
   }
-  if (queen.vacuumFrames > 0 || d >= reach) return;
+  if (queen.vacuumFrames > 0) return;
+  pushBeetleOutOf(queen.x, queen.y, reach);
+}
+
+let beetleBodyCheckX = null; // Where the beetle was at the end of the last frame's body checks (null: no fight)
+let beetleBodyCheckY = null;
+
+// Push the beetle out of a round body at (bx, by) (reach: body plus beetle radius). A dash fast enough to jump past
+// the body's middle in one frame would come out the far side, so if its path since the last check went through the
+// body and ended up past the middle, it's put back on the side it came from. Returns true if it was pushed.
+function pushBeetleOutOf(bx, by, reach) {
+  let dx = playerX - bx;
+  let dy = playerY - by;
+  let d = Math.sqrt(dx * dx + dy * dy);
+  if (beetleBodyCheckX !== null) {
+    const fx = beetleBodyCheckX - bx;
+    const fy = beetleBodyCheckY - by;
+    const cameFromOutside = fx * fx + fy * fy >= reach * reach;
+    const pastMiddle = fx * dx + fy * dy < 0;
+    if (cameFromOutside && pastMiddle &&
+        distToSegment(bx, by, beetleBodyCheckX, beetleBodyCheckY, playerX, playerY) < reach) {
+      dx = fx;
+      dy = fy;
+      d = Math.sqrt(dx * dx + dy * dy);
+    } else if (d >= reach) {
+      return false;
+    }
+  } else if (d >= reach) {
+    return false;
+  }
   const nx = d > 0 ? dx / d : 1;
   const ny = d > 0 ? dy / d : 0;
-  const p = clampToPlayArea(queen.x + nx * reach, queen.y + ny * reach, 10);
+  const p = clampToPlayArea(bx + nx * reach, by + ny * reach, 10);
   playerX = p.x;
   playerY = p.y;
+  return true;
 }
 
 // Her passive answer to a beetle that hugs her (her royal guards do it too): QUEEN_GRAB_FRAMES in total (breaks
@@ -11676,9 +11735,11 @@ function drawGrabber(g, bodyRadius, bodyY) {
 // From medium difficulty up the queen raises royal guards: size 2 ants that never shoot. Like her they can't be pushed
 // around, only the beetle's shots (bullets, spray, beams, bombs, shrapnel), dashes and shockwaves hurt them (never
 // just bumping into them), and they do her circle throw. She earns a batch of them every ROYAL_GUARD_FRAMES and
-// stockpiles them; her brain picks when to summon them (royal*Timing and royalSummon* strategy values). They stay ROYAL_GUARD_DISTANCE
-// from her like a keep distance ant, unless she orders them to a spot (royalOrder): guard orders are separate from her
-// ant orders and have no cooldown, so she can re-aim them every decision.
+// stockpiles them; her brain picks when to summon them (royal*Timing and royalSummon* strategy values). She splits them
+// into ROYAL_GUARD_GROUPS groups (her brain picks each group's share); a group stays ROYAL_GUARD_DISTANCE from her like
+// a keep distance ant unless she orders it to its own spot (royalOrder1-3). Guard orders are separate from her ant
+// orders and have no cooldown, so she can re-aim every group every decision. Walking into a guard never moves it, but
+// a dash or a shockwave shoves it with half the knockback it would give a size 2 ant.
 const ROYAL_GUARD_SIZE = 2;
 const ROYAL_GUARD_IMAGE_SIZE = 45 + 15 * ROYAL_GUARD_SIZE;
 const ROYAL_GUARD_BODY_RADIUS = QUEEN_BODY_RADIUS * ROYAL_GUARD_IMAGE_SIZE / QUEEN_IMAGE_SIZE; // 30px
@@ -11689,6 +11750,8 @@ const ROYAL_GUARD_FRAMES = 600;              // A batch every 10 seconds (see ge
 const ROYAL_GUARD_MAX_ALIVE = 12;            // More than this wait in her stockpile
 const ROYAL_GUARD_ORDER_FRAMES = 2 * QUEEN_DECISION_FRAMES; // An order lapses once she stops repeating it
 const QUEEN_SCORE_PER_GUARD_LOST = QUEEN_SCORE_PER_ANT_LOST;
+const ROYAL_GUARD_KNOCKBACK_SHARE = 0.5;     // Of the knockback a size 2 ant gets from the same dash or shockwave
+const ROYAL_GUARD_KNOCKBACK_FRAMES = 60;     // Same slide as an ant's (fast for 20 frames, then slowing)
 
 // None on easy, 2 every 10 seconds on medium, 4 on hard and insane, 6 for the Queen of Queens (none in the tutorial)
 function getRoyalGuardsPerBatch() {
@@ -11720,7 +11783,8 @@ function summonRoyalGuards(count) {
     const a = start + (k / count) * Math.PI * 2;
     const p = clampToPlayArea(queen.x + Math.cos(a) * r, queen.y + Math.sin(a) * r);
     queen.guards.push({ x: p.x, y: p.y, health: ROYAL_GUARD_HEALTH, maxHealth: ROYAL_GUARD_HEALTH, hitFlash: 0,
-      lastHitTime: 0, dashHit: false, order: null, closeFrames: 0, grab: null, beetleClose: false });
+      lastHitTime: 0, dashHit: false, order: null, group: -1, vx: 0, vy: 0, knockFrames: 0, closeFrames: 0,
+      grab: null, beetleClose: false });
     queenEffects.push({ kind: 'ring', x: p.x, y: p.y, life: 0, frames: 18, maxR: 30 + 10 * ROYAL_GUARD_SIZE, color: [255, 210, 90] });
   }
   separateRoyalGuards(); // In case the ring had to be squeezed against the edge of the map
@@ -11745,19 +11809,24 @@ function updateRoyalGuards(pace) {
   }
   if (queen.guards.length === 0) return;
 
-  // Orders: every decision she wants them somewhere, she tells them again
-  const d = queen.decision;
-  if (queen.life % QUEEN_DECISION_FRAMES === 0 && d.params.royalOrder > 0) {
-    const spot = clampToPlayArea(playerX + d.guardOrderX, playerY + d.guardOrderY);
-    let fresh = false;
-    for (const g of queen.guards) {
-      if (!g.order) fresh = true;
-      g.order = { x: spot.x, y: spot.y, expires: frameCount + ROYAL_GUARD_ORDER_FRAMES };
-    }
-    if (fresh && frameCount - queen.guardShoutFrame > 60) {
-      queen.guardShoutFrame = frameCount;
-      queenEffects.push({ kind: 'shout', life: 0, frames: 26, angle: Math.atan2(spot.y - queen.y, spot.x - queen.x) });
-    }
+  // Every decision: re-split them into groups, and tell each group she wants somewhere to go there again
+  if (queen.life % QUEEN_DECISION_FRAMES === 0) {
+    const plans = queen.decision.guardGroups;
+    const spots = plans.map(plan => clampToPlayArea(playerX + plan.x, playerY + plan.y));
+    assignRoyalGuardGroups(plans, spots);
+    plans.forEach((plan, k) => {
+      if (!plan.ordered) return;
+      let fresh = false;
+      for (const g of queen.guards) {
+        if (g.group !== k) continue;
+        if (!g.order) fresh = true;
+        g.order = { x: spots[k].x, y: spots[k].y, expires: frameCount + ROYAL_GUARD_ORDER_FRAMES };
+      }
+      if (fresh && frameCount - queen.guardShoutFrames[k] > 60) {
+        queen.guardShoutFrames[k] = frameCount;
+        queenEffects.push({ kind: 'shout', life: 0, frames: 26, angle: Math.atan2(spots[k].y - queen.y, spots[k].x - queen.x) });
+      }
+    });
   }
 
   const step = ROYAL_GUARD_SPEED * pace;
@@ -11765,7 +11834,21 @@ function updateRoyalGuards(pace) {
     if (g.hitFlash > 0) g.hitFlash--;
     if (!dash) g.dashHit = false;
     if (g.order && frameCount >= g.order.expires) g.order = null;
-    if (!g.grab) {
+    if (g.knockFrames > 0) {
+      // Shoved by a dash or shockwave: it slides like a knocked back ant and can't walk meanwhile
+      g.x += g.vx;
+      g.y += g.vy;
+      const friction = g.knockFrames > ROYAL_GUARD_KNOCKBACK_FRAMES - 20 ? 0.95 : 0.85;
+      g.vx *= friction;
+      g.vy *= friction;
+      if (--g.knockFrames <= 0) {
+        g.vx = 0;
+        g.vy = 0;
+      }
+      const p = clampToPlayArea(g.x, g.y, 10);
+      g.x = p.x;
+      g.y = p.y;
+    } else if (!g.grab) {
       if (g.order) {
         // Ordered: walk straight to the spot and hold it
         const dx = g.order.x - g.x;
@@ -11801,6 +11884,60 @@ function updateRoyalGuards(pace) {
   separateRoyalGuards();
   for (const g of queen.guards) updateGrabber(g, ROYAL_GUARD_BODY_RADIUS, false);
   updateRoyalGuardContact();
+}
+
+// Split her guards by the groups' shares (largest remainders round up). Guards keep their group where they can; the
+// ones left over (new guards, or a group that shrank) join the short groups whose spot (or her, for an unordered
+// group) is nearest.
+function assignRoyalGuardGroups(plans, spots) {
+  const guards = queen.guards;
+  const exact = plans.map(plan => plan.share * guards.length);
+  const want = exact.map(Math.floor);
+  let left = guards.length - want.reduce((a, b) => a + b, 0);
+  const byRemainder = exact.map((v, k) => k).sort((a, b) => (exact[b] - want[b]) - (exact[a] - want[a]));
+  for (let j = 0; left > 0; j++, left--) want[byRemainder[j]]++;
+
+  const have = new Array(plans.length).fill(0);
+  for (const g of guards) {
+    if (g.group >= 0 && have[g.group] < want[g.group]) have[g.group]++;
+    else g.group = -1;
+  }
+  for (const g of guards) {
+    if (g.group !== -1) continue;
+    let best = -1;
+    let bestDist = Infinity;
+    for (let k = 0; k < plans.length; k++) {
+      if (have[k] >= want[k]) continue;
+      const t = plans[k].ordered ? spots[k] : queen;
+      const d = dist(g.x, g.y, t.x, t.y);
+      if (d < bestDist) {
+        bestDist = d;
+        best = k;
+      }
+    }
+    g.group = best;
+    have[best]++;
+    g.order = null; // A new group's orders (if any) arrive this same decision
+  }
+}
+
+// A dash or shockwave from the beetle shoves a guard straight away from it (never mid-throw)
+function knockRoyalGuard(g, speed) {
+  if (g.grab || g.health <= 0) return;
+  let dx = g.x - playerX;
+  let dy = g.y - playerY;
+  const d = Math.sqrt(dx * dx + dy * dy);
+  if (d < 0.01) {
+    dx = 1;
+    dy = 0;
+  } else {
+    dx /= d;
+    dy /= d;
+  }
+  speed *= ROYAL_GUARD_KNOCKBACK_SHARE;
+  g.vx = dx * speed;
+  g.vy = dy * speed;
+  g.knockFrames = ROYAL_GUARD_KNOCKBACK_FRAMES;
 }
 
 // Guards never overlap each other: any two that do are pushed apart along the line between them, half each (a
@@ -11846,7 +11983,7 @@ function separateRoyalGuards() {
   }
 }
 
-// The beetle can't walk through them (or push them); dashing into one hurts it once per dash
+// The beetle can't walk through them (or push them by walking); dashing into one hurts it and shoves it, once per dash
 function updateRoyalGuardContact() {
   if (isPlayerUntouchable()) return;
   const reach = ROYAL_GUARD_BODY_RADIUS + PLAYER_WALL_RADIUS;
@@ -11858,13 +11995,9 @@ function updateRoyalGuardContact() {
       g.dashHit = true;
       damageRoyalGuard(g, 1 + (upgrade12Level * 0.2), 'dash'); // Same damage as a dash hit on an ant (Horns)
       if (g.health <= 0) continue;
+      knockRoyalGuard(g, (playerSpeed * 8 / ROYAL_GUARD_SIZE) * (1 + upgrade12Level * 0.25)); // An ant's dash knockback
     }
-    if (d >= reach || g.grab) continue;
-    const nx = d > 0 ? dx / d : 1;
-    const ny = d > 0 ? dy / d : 0;
-    const p = clampToPlayArea(g.x + nx * reach, g.y + ny * reach, 10);
-    playerX = p.x;
-    playerY = p.y;
+    if (!g.grab) pushBeetleOutOf(g.x, g.y, reach);
   }
 }
 
