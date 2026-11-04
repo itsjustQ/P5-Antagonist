@@ -25,6 +25,7 @@ let gameOverMenu = false;
 let gameOverMenuCooldown = 0;
 let startMenuSelection = 0;
 let gameOverMenuSelection = 0;
+let gameOverMenuReturnSelection = 0; // The card to go back to when Down leaves the evolution tree preview
 let intermissionMenuSelection = 0;
 let menuNavigationCooldown = 0;
 
@@ -413,6 +414,7 @@ let leftStickDeadzone = 0.15;
 
 let antDexEntries = [];      // Built by buildAntDexEntries(): {id, section, name, desc, stats, scene, check, discovered}
 let antDexDiscovered = null;  // {entry id: true}, loaded from storage when the entries are built
+let antDexRoundSeen = {};     // {entry id: true} for every entry an ant matched this round (cleared by startRoundIntro)
 let dexScrollY = 0;       // current scroll offset
 let dexTargetScroll = 0;  // for smooth scrolling
 let dexScrollSpeed = 20;  // scroll sensitivity
@@ -1890,6 +1892,7 @@ function resetRunState() {
   intermissionMenu = false;
   intermissionMenuCooldown = 0;
   liveRankingsPrinted = false;
+  resetEvolutionTree();
   combo = 0;
   comboTime = 0;
   comboPoints = 0;
@@ -2548,7 +2551,7 @@ const GAME_OVER_INPUT_DELAY = 40; // Frames the lose screen ignores input for af
 
 function getGameOverOptions() {
   const queens = getQueensAvailable();
-  return [
+  const options = [
     { label: 'Restart', color: [255, 220, 120], action: () => restartGame() },
     { label: 'Main Menu', color: [255, 255, 100], action: () => {
       gameOverMenuCooldown = 20;
@@ -2563,12 +2566,26 @@ function getGameOverOptions() {
       antdexOpenCooldown = 20;
     } }
   ];
+  // The evolution tree preview along the top (evolution.js); Up selects it
+  if (hasEvolutionTree()) options.push({ label: 'Evolution', preview: true, action: () => openEvolutionTree() });
+  return options;
 }
 
-function getGameOverOptionRect(k, count) {
+function getGameOverOptionRect(k, options) {
+  if (options[k].preview) return getEvoPreviewRect();
+  const count = options.filter(o => !o.preview).length;
   const w = 184, h = 58, gap = 14;
   const left = getMenuWidth() / 2 - (count * w + (count - 1) * gap) / 2;
-  return { x: left + k * (w + gap), y: getMenuHeight() * 0.735 - h / 2, w: w, h: h };
+  return { x: left + k * (w + gap), y: getLoseScreenLayout().buttons - h / 2, w: w, h: h };
+}
+
+// Heights on the lose screen; with an evolution tree everything moves up to fit its preview above the cards
+function getLoseScreenLayout() {
+  if (hasEvolutionTree()) {
+    return { panelTop: 46, panelBottom: 518, title: 96, label1: 146, value1: 182, label2: 228, value2: 260, buttons: 460 };
+  }
+  const h = getMenuHeight();
+  return { panelTop: h * 0.2, panelBottom: h * 0.8, title: h * 0.32, label1: h * 0.40, value1: h * 0.46, label2: h * 0.56, value2: h * 0.61, buttons: h * 0.735 };
 }
 
 // The option cards along the bottom of the lose screen (drawn inside menu scaling)
@@ -2579,8 +2596,13 @@ function drawGameOverOptions() {
   rectMode(CORNER);
   textAlign(CENTER, CENTER);
   options.forEach((option, k) => {
-    const r = getGameOverOptionRect(k, options.length);
+    const r = getGameOverOptionRect(k, options);
     const selected = k === gameOverMenuSelection;
+    if (option.preview) {
+      drawEvoPreview(r, selected);
+      textAlign(CENTER, CENTER);
+      return;
+    }
     if (selected) {
       fill(255);
       stroke(option.color[0], option.color[1], option.color[2]);
@@ -2604,7 +2626,8 @@ function drawGameOverOptions() {
   const fadeAlpha = map(sin(frameCount * 0.05), -1, 1, 30, 70);
   fill(200, fadeAlpha);
   textSize(18);
-  text('A/D or ←/→ or Left Stick  Navigate  |  Enter or A  Confirm  |  Esc or B  Main Menu', getMenuWidth() / 2, getMenuHeight() * 0.86);
+  const evoHint = hasEvolutionTree() ? '  |  W or ↑  Evolution' : '';
+  text(`A/D or ←/→ or Left Stick  Navigate${evoHint}  |  Enter or A  Confirm  |  Esc or B  Main Menu`, getMenuWidth() / 2, getMenuHeight() * 0.86);
   pop();
 }
 
@@ -2612,8 +2635,16 @@ function handleGameOverInput() {
   const options = getGameOverOptions();
   // isConfirmPressed() only fires once per press, so read it every frame, a single time
   const confirmPressed = isConfirmPressed();
+  const previewIndex = options.findIndex(o => o.preview);
   if (menuNavigationCooldown === 0) {
-    if (isLeftPressed() || isUpPressed()) {
+    if (previewIndex >= 0 && isUpPressed()) {
+      if (gameOverMenuSelection !== previewIndex) gameOverMenuReturnSelection = gameOverMenuSelection;
+      gameOverMenuSelection = previewIndex;
+      menuNavigationCooldown = 10;
+    } else if (previewIndex >= 0 && gameOverMenuSelection === previewIndex && (isDownPressed() || isLeftPressed() || isRightPressed())) {
+      gameOverMenuSelection = gameOverMenuReturnSelection; // Back down to the card it came from
+      menuNavigationCooldown = 10;
+    } else if (isLeftPressed() || isUpPressed()) {
       gameOverMenuSelection = (gameOverMenuSelection - 1 + options.length) % options.length;
       menuNavigationCooldown = 10;
     } else if (isRightPressed() || isDownPressed()) {
@@ -2625,7 +2656,7 @@ function handleGameOverInput() {
   const my = getMenuMouseY();
   let hovered = -1;
   for (let k = 0; k < options.length; k++) {
-    if (pointInRect(mx, my, getGameOverOptionRect(k, options.length))) hovered = k;
+    if (pointInRect(mx, my, getGameOverOptionRect(k, options))) hovered = k;
   }
   if (hovered >= 0 && (movedX !== 0 || movedY !== 0)) gameOverMenuSelection = hovered;
   if (gameOverMenuCooldown > 0) return;
@@ -2893,6 +2924,11 @@ function drawAirborneAnts() {
   airborneAntDraws = [];
 }
 
+// The image ant i is drawn with (the evolution tree saves it too, so ants can get their own sprites later)
+function getAntSprite(i) {
+  return ant;
+}
+
 // airPass: the ant's shadow was drawn on the ground pass; now draw its body up over the beetle
 function drawAnt(i, airPass) {
     if (antDormant[i]) return;
@@ -2949,7 +2985,7 @@ function drawAnt(i, airPass) {
         let a = atan2(playerY - antY[i], playerX - antX[i]);
         rotate(a);
         let antImageSize = 45 + (15 * antSize[i]);
-        image(ant, 0, 0, antImageSize, antImageSize);
+        image(getAntSprite(i), 0, 0, antImageSize, antImageSize);
       pop();
 
       // Nest shield: a light blue bubble that fills in as the shield grows
@@ -3639,6 +3675,7 @@ function drawRoundOutro() {
 }
 
 function startRoundIntro() {
+  antDexRoundSeen = {};
   roundIntroSnapshot = null;
   roundGoTimer = 0;
   if (shouldPlayRoundScenes()) {
@@ -5383,6 +5420,7 @@ function handlePlayerHit(i, isKnockbackBullet = false, bulletX = 0, bulletY = 0,
     } else {
       playerLastDamageFrame = frameCount;  // Only track damage frame when health actually decreases
       health = health - damage;
+      lastBeetleDamager = i;
       antPoints[i] = antPoints[i] + damage;
       debugLog("Ant", i, "points:", antPoints[i]);
       if(!sHit1.isPlaying() || !sHit2.isPlaying()) {
@@ -10333,7 +10371,7 @@ function getCloneableAntArrays() {
     bulletArcDuration, bulletCurveStrength, explodeOnTermination, triggerExplodeViaProximity, explosionProximity,
     standingPointX, standingPointY, distanceFromAnchor, anchorOffsetX, anchorOffsetY, angleFromSpawn, bulletSize,
     antSize, antMaxHealth, bulletSplitCount, bulletSpread, radiusMultiplier, residueMultiplier, bulletExplodeAfter,
-    geneTokens, geneTokenLastRoundGained];
+    geneTokens, geneTokenLastRoundGained, antEvoParent];
 }
 
 function cloneAntGenes(src, dst) {
@@ -12088,6 +12126,7 @@ function queenHitPlayer(damage, silent = false, vel = null) {
   } else {
     playerLastDamageFrame = frameCount;
     health -= damage;
+    lastBeetleDamager = -1; // The queen
     if (!silent && !sHit1.isPlaying() && !sHit2.isPlaying()) (random() < 0.5 ? sHit1 : sHit2).play();
   }
   onPlayerDamaged(damage, true);
@@ -14927,6 +14966,7 @@ function handleExplosionDamage(size, ownerId, reachesAir = false) {
   } else {
     playerLastDamageFrame = frameCount; // Counts as taking damage, like a bullet hit (stops health regen outhealing it)
     health -= damage;
+    lastBeetleDamager = ownerId;
     antPoints[ownerId] = antPoints[ownerId] + damage;
     if(!sHit1.isPlaying() || !sHit2.isPlaying()) {
       sHit = round(random(1,2));
@@ -15793,6 +15833,7 @@ function endGame(){
       score = 0;  // Reset score to prevent double-counting in updateScoreAndTimer
       levelEnd = 1;
       recordBestAnts(); // The ants that took the beetle down count toward the final level's ten
+      recordEvolutionDeath();
     }
     highScore = getItem('newHighScore');
     if (highScore == null) {
@@ -15808,41 +15849,44 @@ function endGame(){
     beginMenuScaling();
       if (queenShopMenu) {
         drawQueenShop(); // Opened from the lose screen; backing out returns here
+      } else if (evoTreeOpen) {
+        drawEvolutionTree(); // Opened from the lose screen's preview; backing out returns here
       } else {
       // Background
       fill(40, 0, 0);
       rectMode(CORNER);
       rect(0, 0, getMenuWidth(), getMenuHeight());
+      const lose = getLoseScreenLayout();
       rectMode(CENTER);
       fill(0, 0, 0, 180);
-      rect(getMenuWidth() / 2, getMenuHeight() / 2, getMenuWidth() * 0.65, getMenuHeight() * 0.6, 40);
+      rect(getMenuWidth() / 2, (lose.panelTop + lose.panelBottom) / 2, getMenuWidth() * 0.65, lose.panelBottom - lose.panelTop, 40);
 
       textAlign(CENTER, CENTER);
       fill(255, 170, 170);
       textSize(64);
-      text('You Lost', getMenuWidth() / 2, getMenuHeight() * 0.32);
+      text('You Lost', getMenuWidth() / 2, lose.title);
 
       textSize(26);
       fill(255);
-      text(`Round Reached`, getMenuWidth() / 2 - getMenuWidth() * 0.18, getMenuHeight() * 0.40);
-      text(`High Score`, getMenuWidth() / 2 + getMenuWidth() * 0.18, getMenuHeight() * 0.40);
+      text(`Round Reached`, getMenuWidth() / 2 - getMenuWidth() * 0.18, lose.label1);
+      text(`High Score`, getMenuWidth() / 2 + getMenuWidth() * 0.18, lose.label1);
 
       textSize(48);
       fill(255, 220, 120);
-      text(level, getMenuWidth() / 2 - getMenuWidth() * 0.18, getMenuHeight() * 0.46);
-      text(Math.round(highScore), getMenuWidth() / 2 + getMenuWidth() * 0.18, getMenuHeight() * 0.46);
+      text(level, getMenuWidth() / 2 - getMenuWidth() * 0.18, lose.value1);
+      text(Math.round(highScore), getMenuWidth() / 2 + getMenuWidth() * 0.18, lose.value1);
 
       textSize(24);
       fill(180, 220, 255);
-      text(`Round Score`, getMenuWidth() / 2 - getMenuWidth() * 0.20, getMenuHeight() * 0.56);
-      text(`Total Score`, getMenuWidth() / 2 + getMenuWidth() * 0.20, getMenuHeight() * 0.56);
+      text(`Round Score`, getMenuWidth() / 2 - getMenuWidth() * 0.20, lose.label2);
+      text(`Total Score`, getMenuWidth() / 2 + getMenuWidth() * 0.20, lose.label2);
 
       textSize(42);
       fill(240, 164, 0);
-      text(Math.round(intermissionScore), getMenuWidth() / 2 - getMenuWidth() * 0.20, getMenuHeight() * 0.61);
+      text(Math.round(intermissionScore), getMenuWidth() / 2 - getMenuWidth() * 0.20, lose.value2);
 
       fill(240, 164, 0);
-      text(Math.round(totalScore), getMenuWidth() / 2 + getMenuWidth() * 0.20, getMenuHeight() * 0.61);
+      text(Math.round(totalScore), getMenuWidth() / 2 + getMenuWidth() * 0.20, lose.value2);
 
       drawGameOverOptions();
       }
@@ -15852,7 +15896,7 @@ function endGame(){
       gamemusic.stop();
       endmusic.play();
     }
-    if (!queenShopMenu) handleGameOverInput();
+    if (!queenShopMenu && !evoTreeOpen) handleGameOverInput();
   }
 
 if (timeCount < 0) {
@@ -17762,6 +17806,7 @@ function nextRound(){
     // Update customAntStats to reflect actual winners (for viewing in dev tools)
     syncActualWinnersToCustomStats(topAnts);
   }
+  const evoNodeOf = recordEvolutionRound(topAnts); // The evolution tree shown on the lose screen (evolution.js)
   
   level++;
   startRoundIntro();
@@ -17840,6 +17885,7 @@ function nextRound(){
     while (usedSlots < group.slots && antIndex <= MAX_ANTS) {
       let i = antIndex;
       let parent = group.parent;
+      antEvoParent[i] = evoNodeOf[parent.id];
     
     strikeX[i] = 0;
     strikeY[i] = 0;
@@ -20158,6 +20204,21 @@ function drawDexCard(entry, x, top, w) {
     text('????????????', tx, top + DEX_CARD_HEIGHT - 22);
     return;
   }
+  if (isDexEntryInRound(entry)) {
+    // Pulsing outline and a tag for the ants in this round
+    noFill();
+    stroke(...style.glow, map(sin(frameCount * 0.08), -1, 1, 140, 255));
+    strokeWeight(5);
+    rect(x - 2, top - 2, w + 4, DEX_CARD_HEIGHT + 4, 22);
+    noStroke();
+    fill(...style.glow);
+    rect(x + w - 128, top - 10, 116, 22, 11); // Stays inside the list's clip area
+    fill(10);
+    textAlign(CENTER, CENTER);
+    textSize(14);
+    text('In this round', x + w - 70, top + 1);
+    textAlign(LEFT, BASELINE);
+  }
   fill(10);
   fitTextSize(entry.name, entry.name.length > 26 ? 21 : 24, tw);
   text(entry.name, tx, top + 38);
@@ -20261,6 +20322,11 @@ function antdexScreen() {
     textAlign(CENTER, CENTER);
     textSize(24);
     text(tabStyle.tab, dexTabRegions[section].x + tabWidth / 2, tabY);
+    // A dot on tabs holding entries from this round
+    if (antDexEntries.some(entry => entry.section === section && isDexEntryInRound(entry))) {
+      fill(...tabStyle.glow);
+      circle(dexTabRegions[section].x + tabWidth - 14, tabY - tabHeight / 2 + 2, 14);
+    }
   }
 
   let fadeAlpha = map(sin(frameCount * 0.05), -1, 1, 30, 70);
@@ -20335,12 +20401,14 @@ function antdexScreen() {
 
 function mouseWheel(event) {
   if (antdex) dexTargetScroll -= event.delta / 2;
+  if (evoTreeOpen) evoTargetScrollX -= event.delta;
   // Scrolling walks down (or back up) the difficulty map's path
   if (difficultyMenu) mapScroll(event.delta);
 }
 
 function touchMoved() {
   if (antdex) dexTargetScroll += (movedY);
+  if (evoTreeOpen) evoTargetScrollX += movedX;
 }
 
 function setDexCategory(nextCategory) {
@@ -20510,7 +20578,7 @@ function buildDexValueStatEntries() {
   }
 
   // Ant size below normal has no gene cap
-  range('smallAnts', 'Small Ants', 'Ants smaller than standard size, with smaller hitboxes. Very small ants glow blue.', 'Ant Size: < 1.0', 'antSize', 0, i => antSize[i] < 1.0, 0.5);
+  range('smallAnts', 'Small Ants', 'Ants smaller than standard size, with smaller hitboxes.', 'Ant Size: < 1.0', 'antSize', 0, i => antSize[i] < 1.0, 0.5);
   range('largeAnts', 'Large Ants', 'Ants larger than standard size.', 'Ant Size: > 1.0', 'antSize', 0, i => antSize[i] > 1.0, 1.4);
 
   // Five value bands per stat; ids match the old storage keys (offsetMin, offsetLow, ...)
@@ -20648,16 +20716,24 @@ function discoverAntDexEntry(entry) {
   triggerDiscoveryPopup(entry);
 }
 
-// Checks every ant on the field for new discoveries
+// Checks every ant on the field for new discoveries, and notes which entries are in this round
 function updateAntDexEntries() {
   if (antDexEntries.length === 0) buildAntDexEntries();
   if (start !== true || frameCount % 10 !== 0) return; // A few checks a second is plenty
   for (let i = 1; i <= enemyCount; i++) {
     if (hasAntAphidEffects(i)) continue; // Aphid boosts aren't the ant's own genes
     for (const entry of antDexEntries) {
-      if (!entry.discovered && entry.check(i)) discoverAntDexEntry(entry);
+      if (antDexRoundSeen[entry.id] && entry.discovered) continue;
+      if (!entry.check(i)) continue;
+      antDexRoundSeen[entry.id] = true;
+      if (!entry.discovered) discoverAntDexEntry(entry);
     }
   }
+}
+
+// Mid-run (opened from the intermission or game over menu) the Antdex highlights this round's entries
+function isDexEntryInRound(entry) {
+  return antdexReturnState !== 'menu' && !!antDexRoundSeen[entry.id];
 }
 
 // ----- Antdex pictures -----
@@ -20698,14 +20774,6 @@ function dexAnt(x, y, size = 1, angle = 0, alpha = 255, lift = 0) {
   if (alpha < 255) tint(255, alpha);
   image(ant, 0, 0, sz, sz);
   pop();
-  if (size < 0.8) {
-    // Small ants glow blue in the game
-    push();
-    noStroke();
-    fill(80, 150, 255, (60 + 40 * Math.sin(frameCount * 0.15)) * alpha / 255);
-    ellipse(x, y - lift, sz * 0.75, sz * 0.75);
-    pop();
-  }
   return sz;
 }
 
