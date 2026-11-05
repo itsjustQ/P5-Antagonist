@@ -1,0 +1,17 @@
+{
+  "source": "beetle-hit-loop.gif",
+  "frameWidth": 160,
+  "frameHeight": 160,
+  "frameCount": 9,
+  "durations": [
+    80,
+    80,
+    80,
+    80,
+    80,
+    80,
+    80,
+    80,
+    80
+  ]
+}

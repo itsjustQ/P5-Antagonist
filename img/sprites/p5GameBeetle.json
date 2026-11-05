@@ -1,0 +1,12 @@
+{
+  "source": "p5GameBeetle.gif",
+  "frameWidth": 96,
+  "frameHeight": 96,
+  "frameCount": 4,
+  "durations": [
+    80,
+    80,
+    80,
+    80
+  ]
+}

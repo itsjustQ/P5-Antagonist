@@ -841,16 +841,92 @@ let shieldEmpty;
 let acidFull;
 let acidEmpty;
 
+// Animated sprites are PNG sprite sheets in img/sprites (one row of equal-sized frames), each with a .json
+// giving the frame size and how long each frame shows. tools/gif_to_spritesheet.py makes them from the GIFs
+// in img/, so re-run it after editing a GIF. p5 plays a GIF on one clock shared by every draw of it (every
+// ant stepped in lockstep), re-uploads its pixels whenever the frame changes, and smooths it when scaled up.
+// image() takes a SpriteSheet anywhere it takes a p5.Image and draws its current frame.
+const PIXEL_ART_SPRITES = true; // Crisp pixels when sprites are scaled up (false = smoothed, like the old GIFs)
+
+class SpriteSheet {
+  constructor(name) {
+    this.name = name;
+    this.frames = [];    // One p5.Image per frame, cut from the sheet once it loads
+    this.durations = []; // ms each frame shows
+    this.loopMs = 1;
+    this.width = 1;
+    this.height = 1;
+  }
+
+  _build(sheet, meta) {
+    const w = meta.frameWidth, h = meta.frameHeight;
+    this.width = w;
+    this.height = h;
+    this.frames = [];
+    for (let i = 0; i < meta.frameCount; i++) {
+      const frame = sheet.get(i * w, 0, w, h);
+      frame.isSpriteFrame = true;
+      this.frames.push(frame);
+    }
+    this.durations = meta.durations.slice(0, meta.frameCount);
+    this.loopMs = this.durations.reduce((a, b) => a + b, 0) || 1;
+  }
+
+  // Which frame shows `ms` into the animation (loops; with loop false it holds the last frame)
+  frameIndexAt(ms, loop = true) {
+    const n = this.frames.length;
+    if (n <= 1) return 0;
+    if (!loop && ms >= this.loopMs) return n - 1;
+    let t = ((ms % this.loopMs) + this.loopMs) % this.loopMs;
+    for (let i = 0; i < n; i++) {
+      t -= this.durations[i];
+      if (t < 0) return i;
+    }
+    return n - 1;
+  }
+
+  frameAt(ms, loop = true) { return this.frames[this.frameIndexAt(ms, loop)]; }
+
+  // The frame on the shared clock right now (what image(sheet, ...) draws)
+  current() { return this.frameAt(millis()); }
+}
+
+function loadSpriteSheet(name) {
+  const sprite = new SpriteSheet(name);
+  let sheet = null, meta = null;
+  const build = () => { if (sheet && meta) sprite._build(sheet, meta); };
+  loadImage(`img/sprites/${name}.png`, img => { sheet = img; build(); },
+    () => console.error(`Couldn't load img/sprites/${name}.png (run tools/gif_to_spritesheet.py)`));
+  loadJSON(`img/sprites/${name}.json`, data => { meta = data; build(); },
+    () => console.error(`Couldn't load img/sprites/${name}.json (run tools/gif_to_spritesheet.py)`));
+  return sprite;
+}
+
+const p5ImageFn = p5.prototype.image;
+p5.prototype.image = function (img, ...args) {
+  if (img instanceof SpriteSheet) img = img.current();
+  if (!img) return; // A sprite sheet that hasn't loaded
+  const ctx = this.drawingContext;
+  if (!PIXEL_ART_SPRITES || !img.isSpriteFrame || !ctx) return p5ImageFn.call(this, img, ...args);
+  const smoothing = ctx.imageSmoothingEnabled;
+  ctx.imageSmoothingEnabled = false;
+  try {
+    return p5ImageFn.call(this, img, ...args);
+  } finally {
+    ctx.imageSmoothingEnabled = smoothing;
+  }
+};
+
 function preload(){
-  beetle = loadImage('img/p5GameBeetle.gif');
-  ant = loadImage('img/antenemy.gif');
+  beetle = loadSpriteSheet('p5GameBeetle');
+  ant = loadSpriteSheet('antenemy');
   bg = loadImage('img/background.png');
-  bulletImage = loadImage('img/bullet.gif');
+  bulletImage = loadSpriteSheet('bullet');
   shieldFull = loadImage('img/shieldfull.png');
   shieldEmpty = loadImage('img/shieldempty.png');
   acidFull = loadImage('img/acidfull.png');
   acidEmpty = loadImage('img/acidempty.png');
-  beetleHit = loadImage('img/beetle-hit-loop.gif');
+  beetleHit = loadSpriteSheet('beetle-hit-loop');
   splashScreen = loadImage('img/antagonist-splashscreen.png');
   
   //sounds
@@ -2985,7 +3061,8 @@ function drawAnt(i, airPass) {
         let a = atan2(playerY - antY[i], playerX - antX[i]);
         rotate(a);
         let antImageSize = 45 + (15 * antSize[i]);
-        image(getAntSprite(i), 0, 0, antImageSize, antImageSize);
+        // Each ant runs its walk cycle from its own starting point, so a crowd doesn't step in lockstep
+        image(getAntSprite(i).frameAt(millis() + i * 263), 0, 0, antImageSize, antImageSize);
       pop();
 
       // Nest shield: a light blue bubble that fills in as the shield grows

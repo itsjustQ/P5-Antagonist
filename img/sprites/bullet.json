@@ -1,0 +1,12 @@
+{
+  "source": "bullet.gif",
+  "frameWidth": 60,
+  "frameHeight": 60,
+  "frameCount": 4,
+  "durations": [
+    250,
+    250,
+    250,
+    250
+  ]
+}
