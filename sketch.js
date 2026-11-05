@@ -1056,7 +1056,63 @@ function checkIconImages() {
   }
 }
 
+// p5.sound 1.0.1 builds a new AudioWorklet node, plus a counter buffer as long as the whole sound filled in
+// sample by sample on the main thread, on every play(), just to track the playback position (which the game
+// never reads). A burst of hits and kills piled those up until the audio crackled and then cut out. Sounds
+// play here as plain buffer sources into the SoundFile's own output (so setVolume and master volume still
+// apply), with a cap on how many copies of one sound can overlap.
+const SFX_MAX_VOICES = 3;   // Copies of one sound effect playing at once (a new one stops the oldest)
+const MUSIC_MAX_VOICES = 1; // Starting a track again restarts it rather than layering a second copy
+
+function makeSoundLightweight(sf, maxVoices) {
+  if (!sf || sf._lightweight) return;
+  sf._lightweight = true;
+  const ac = getAudioContext();
+  const voices = [];   // { node, startedAt, offset } for each copy playing now
+  let resumeAt = null; // Where a paused sound picks back up (seconds in)
+  const silence = v => {
+    v.node.onended = null;
+    try { v.node.stop(); } catch (e) {} // Already stopped
+    v.node.disconnect();
+  };
+  sf.play = function () {
+    if (!this.buffer) return; // Not loaded
+    while (voices.length >= maxVoices) silence(voices.shift());
+    const node = ac.createBufferSource();
+    node.buffer = this.buffer;
+    node.connect(this.output);
+    const offset = resumeAt || 0;
+    resumeAt = null;
+    const v = { node, startedAt: ac.currentTime, offset };
+    node.onended = () => {
+      node.disconnect();
+      const k = voices.indexOf(v);
+      if (k >= 0) voices.splice(k, 1);
+    };
+    voices.push(v);
+    node.start(0, offset);
+  };
+  sf.stop = function () {
+    resumeAt = null;
+    voices.splice(0).forEach(silence);
+  };
+  sf.pause = function () {
+    const last = voices[voices.length - 1];
+    resumeAt = last ? (last.offset + ac.currentTime - last.startedAt) % this.buffer.duration : null;
+    voices.splice(0).forEach(silence);
+  };
+  sf.isPlaying = function () { return voices.length > 0; };
+  sf.isPaused = function () { return resumeAt !== null; };
+}
+
+function makeSoundsLightweight() {
+  [sFast, sGainShield, sGetHit1, sGetHit2, sHit1, sHit2, sLoseShield, sShieldHit1, sShieldHit2, sSpit1, sSpit2]
+    .forEach(sf => makeSoundLightweight(sf, SFX_MAX_VOICES));
+  [gamemusic, titlemusic, endmusic].forEach(sf => makeSoundLightweight(sf, MUSIC_MAX_VOICES));
+}
+
 function setup() {
+  makeSoundsLightweight();
   [shieldFull, shieldEmpty, acidFull, acidEmpty, splashScreen].forEach(moveToCpuCanvas);
   openingCinematic = getItem('openingCinematicSeen') !== true;
   // Canvas text only uses a web font once it has loaded, so fetch the title card font up front
@@ -4114,7 +4170,7 @@ function enemyInteraction1(){
         antLives[i]++;
         debugLog("Ant", i, "lives:", antLives[i]);
 
-        if(!sGetHit1.isPlaying() || !sGetHit2.isPlaying()) {
+        if(!sGetHit1.isPlaying() && !sGetHit2.isPlaying()) {
           sHit = round(random(1,2));
           if(sHit == 1) {
             sGetHit1.play();
@@ -4239,7 +4295,7 @@ function dashCollision() {
           addDeathEffect(antX[i], antY[i], scoreGained);
           respawnAnt(i);
           
-          if(!sGetHit1.isPlaying() || !sGetHit2.isPlaying()) {
+          if(!sGetHit1.isPlaying() && !sGetHit2.isPlaying()) {
             sHit = round(random(1,2));
             if(sHit == 1) {
               sGetHit1.play();
@@ -5483,7 +5539,7 @@ function handlePlayerHit(i, isKnockbackBullet = false, bulletX = 0, bulletY = 0,
       if (!isMine && hitInfo) spawnShellShrapnel(getShieldsLost(shieldBefore, shield), hitInfo.vx, hitInfo.vy);
       antPoints[i] = antPoints[i] + damage;
       debugLog("Ant", i, "points:", antPoints[i]);
-      if(!sShieldHit1.isPlaying() || !sShieldHit2.isPlaying()) {
+      if(!sShieldHit1.isPlaying() && !sShieldHit2.isPlaying()) {
         sHit = round(random(1,2));
         if(sHit == 1) {
           sShieldHit1.play();
@@ -5497,7 +5553,7 @@ function handlePlayerHit(i, isKnockbackBullet = false, bulletX = 0, bulletY = 0,
       lastBeetleDamager = i;
       antPoints[i] = antPoints[i] + damage;
       debugLog("Ant", i, "points:", antPoints[i]);
-      if(!sHit1.isPlaying() || !sHit2.isPlaying()) {
+      if(!sHit1.isPlaying() && !sHit2.isPlaying()) {
         sHit = round(random(1,2));
         if(sHit == 1) {
           sHit1.play();
@@ -15029,7 +15085,7 @@ function handleExplosionDamage(size, ownerId, reachesAir = false) {
   if (shield > 0) {
     shield -= damage;
     antPoints[ownerId] = antPoints[ownerId] + damage;
-    if(!sShieldHit1.isPlaying() || !sShieldHit2.isPlaying()) {
+    if(!sShieldHit1.isPlaying() && !sShieldHit2.isPlaying()) {
       sHit = round(random(1,2));
       if(sHit == 1) {
         sShieldHit1.play();
@@ -15042,7 +15098,7 @@ function handleExplosionDamage(size, ownerId, reachesAir = false) {
     health -= damage;
     lastBeetleDamager = ownerId;
     antPoints[ownerId] = antPoints[ownerId] + damage;
-    if(!sHit1.isPlaying() || !sHit2.isPlaying()) {
+    if(!sHit1.isPlaying() && !sHit2.isPlaying()) {
       sHit = round(random(1,2));
       if(sHit == 1) {
         sHit1.play();
