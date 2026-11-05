@@ -864,7 +864,7 @@ class SpriteSheet {
     this.height = h;
     this.frames = [];
     for (let i = 0; i < meta.frameCount; i++) {
-      const frame = sheet.get(i * w, 0, w, h);
+      const frame = moveToCpuCanvas(sheet.get(i * w, 0, w, h)); // Painted only once, so a GPU reset must not wipe it
       frame.isSpriteFrame = true;
       this.frames.push(frame);
     }
@@ -969,7 +969,7 @@ function getTintedImageCopy(img, tintLevels, pInst) {
   if (copy) return copy;
   if (copies.size >= TINT_CACHE_MAX) copies.clear();
   const src = img.canvas;
-  copy = new p5.Image(src.width, src.height);
+  copy = giveImageCpuCanvas(new p5.Image(src.width, src.height));
   const ctx = copy.drawingContext;
   // The same compositing p5 does, minus the alpha (applied when it's drawn)
   ctx.drawImage(src, 0, 0);
@@ -1003,24 +1003,32 @@ p5.Renderer2D.prototype.image = function (img, ...args) {
   }
 };
 
-// The shot/shield icons are static PNGs, painted into their own canvases once at load. If the
-// browser drops its graphics state (a GPU reset under heavy load), GPU-backed canvases can come back
-// blank while the animated GIFs repaint themselves, so the icons silently vanished. They're moved into
-// software (willReadFrequently) canvases, which a GPU reset can't wipe, and reloaded if a context is
-// ever lost anyway. (They used to be checked by reading their pixels back every 2 seconds, but every
-// readback made the browser flush all pending drawing first: a few ms each, and once most of a second.)
+// Every loaded image and sprite frame is painted into its own canvas once at load. If the browser drops
+// its graphics state (a GPU reset under heavy load: the screen flashes), GPU-backed canvases come back
+// blank and nothing would ever repaint them, so sprites and icons silently vanished.
+// They're moved into software (willReadFrequently) canvases, which a GPU reset can't wipe. The icons are
+// also reloaded if a context is ever lost anyway. (They used to be checked by reading their pixels back
+// every 2 seconds, but every readback made the browser flush all pending drawing first: a few ms each, and
+// once most of a second.)
 let iconImagesReloading = false;
 
-function moveIconToCpuCanvas(img) {
-  if (!img || !img.canvas || img.iconOnCpu) return img;
+function giveImageCpuCanvas(img) {
   const canvas = document.createElement('canvas');
   canvas.width = img.canvas.width;
   canvas.height = img.canvas.height;
-  const ctx = canvas.getContext('2d', { willReadFrequently: true });
-  ctx.drawImage(img.canvas, 0, 0);
   img.canvas = canvas;
-  img.drawingContext = ctx;
-  img.iconOnCpu = true;
+  img.drawingContext = canvas.getContext('2d', { willReadFrequently: true });
+  img.onCpuCanvas = true;
+  return img;
+}
+
+function moveToCpuCanvas(img) {
+  if (!img || !img.canvas || img.onCpuCanvas) return img;
+  // Copied as raw pixels: after a drawImage() from a GPU-backed canvas, a GPU reset blanks this canvas too.
+  // That readback is the stall described above, so this only runs while loading.
+  const pixels = img.drawingContext.getImageData(0, 0, img.canvas.width, img.canvas.height);
+  giveImageCpuCanvas(img);
+  img.drawingContext.putImageData(pixels, 0, 0);
   return img;
 }
 
@@ -1035,10 +1043,10 @@ function reloadIconImages() {
   debugLog('Icon images were wiped; reloading them');
   let remaining = 4;
   let done = () => { if (--remaining === 0) iconImagesReloading = false; };
-  loadImage('img/shieldfull.png', img => { shieldFull = moveIconToCpuCanvas(img); done(); }, done);
-  loadImage('img/shieldempty.png', img => { shieldEmpty = moveIconToCpuCanvas(img); done(); }, done);
-  loadImage('img/acidfull.png', img => { acidFull = moveIconToCpuCanvas(img); done(); }, done);
-  loadImage('img/acidempty.png', img => { acidEmpty = moveIconToCpuCanvas(img); done(); }, done);
+  loadImage('img/shieldfull.png', img => { shieldFull = moveToCpuCanvas(img); done(); }, done);
+  loadImage('img/shieldempty.png', img => { shieldEmpty = moveToCpuCanvas(img); done(); }, done);
+  loadImage('img/acidfull.png', img => { acidFull = moveToCpuCanvas(img); done(); }, done);
+  loadImage('img/acidempty.png', img => { acidEmpty = moveToCpuCanvas(img); done(); }, done);
 }
 
 function checkIconImages() {
@@ -1049,7 +1057,7 @@ function checkIconImages() {
 }
 
 function setup() {
-  [shieldFull, shieldEmpty, acidFull, acidEmpty].forEach(moveIconToCpuCanvas);
+  [shieldFull, shieldEmpty, acidFull, acidEmpty, splashScreen].forEach(moveToCpuCanvas);
   openingCinematic = getItem('openingCinematicSeen') !== true;
   // Canvas text only uses a web font once it has loaded, so fetch the title card font up front
   if (document.fonts) document.fonts.load('100px Creepster');
