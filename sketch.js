@@ -809,8 +809,8 @@ let aimAngle = 0;  // Current aim angle in degrees (atan2 returns degrees when a
 let lastAimInputTime = 0;  // Track when last aiming input was received
 let aimInputTimeout = 30;  // Frames before reverting to movement-based rotation
 let rightStickDeadzone = 0.2;  // Deadzone for right stick aiming
-let prevGameplayMouseX = 0;  // Previous frame's gameplay mouse X position
-let prevGameplayMouseY = 0;  // Previous frame's gameplay mouse Y position
+let prevAimMouseX = 0;  // Previous frame's mouse X position (window pixels)
+let prevAimMouseY = 0;  // Previous frame's mouse Y position (window pixels)
 
 // Actual upgrade stat variables
 let movementSpeed = 3;
@@ -1124,6 +1124,7 @@ function setup() {
   gameCanvas.elt.addEventListener('contextmenu', e => e.preventDefault()); // Right click switches shot mode
   // A restored canvas means the browser reset its graphics state, which can wipe the icons too
   drawingContext.canvas.addEventListener('contextrestored', reloadIconImages);
+  drawingContext.canvas.addEventListener('contextrestored', resetUnderbrushSprites);
   debugLog('Window Width:', windowWidth);
   debugLog('Window Height:', windowHeight);
   //enemyCount = windowWidth/150 + windowHeight/150;
@@ -1411,7 +1412,8 @@ function windowResized() {
   
   // Keep beetle centered in playable area when window resizes
   centerPlayer();
-  
+  requestCameraSnap();
+
   // Update button positions for mobile controls
   buttons.up = {x: 80, y: windowHeight - 140, w: 60, h: 60};
   buttons.down = {x: 80, y: windowHeight - 60, w: 60, h: 60};
@@ -1885,6 +1887,7 @@ function draw() {
       shieldBegin = shield;
       
       // UI elements (not scaled)
+      updateAdaptiveCamera();
       drawBackground();
       updateScoreAndTimer();
       
@@ -1945,7 +1948,8 @@ function draw() {
       drawQueenOverlays();
       drawFinalStageOverlays();
       endGameplayScaling();
-      
+      drawAdaptiveCameraOverlays(); // Off-screen indicators, and the debug overlay
+
       // Draw damage flash effects AFTER gameplay (not scaled)
       if (healthBegin > health || beamHealthFlashFrames > 0){
         noStroke();
@@ -2881,7 +2885,7 @@ function getGameplayReferenceWidth() {
   } else if (level <= 7) {
     return 1024;
   } else {
-    return 1280;
+    return Math.round(1280 * CAMERA_CONFIG.worldWidthScale); // World 3 is bigger than the screen: the camera follows the beetle
   }
 }
 
@@ -2892,19 +2896,30 @@ function getGameplayReferenceHeight() {
   } else if (level <= 7) {
     return 522;
   } else {
-    return 652;
+    return Math.round(652 * CAMERA_CONFIG.worldHeightScale);
   }
 }
 
+let gameplayShake = { x: 0, y: 0 };
+let gameplayShakeFrame = -1;
+
 function beginGameplayScaling() {
   push();
+  if (isAdaptiveCameraWorld()) {
+    applyAdaptiveCameraTransform(); // World 3 follows the beetle (camera.js)
+    return;
+  }
   let refWidth = getGameplayReferenceWidth();
   let refHeight = getGameplayReferenceHeight();
   let scaleX = windowWidth / refWidth;
   let scaleY = windowHeight / refHeight;
   scale(scaleX, scaleY);
-  const shake = getScreenShake();
-  if (shake.x !== 0 || shake.y !== 0) translate(shake.x, shake.y);
+  // One shake per frame, so the ground's edge and everything on it move together
+  if (gameplayShakeFrame !== frameCount) {
+    gameplayShakeFrame = frameCount;
+    gameplayShake = getScreenShake();
+  }
+  if (gameplayShake.x !== 0 || gameplayShake.y !== 0) translate(gameplayShake.x, gameplayShake.y);
 }
 
 function endGameplayScaling() {
@@ -2931,12 +2946,14 @@ function getGameplayHeight() {
 
 // Get scaled mouse coordinates for gameplay interactions
 function getGameplayMouseX() {
+  if (isAdaptiveCameraWorld()) return cameraScreenToWorldX(mouseX);
   let refWidth = getGameplayReferenceWidth();
   let scaleX = windowWidth / refWidth;
   return mouseX / scaleX;
 }
 
 function getGameplayMouseY() {
+  if (isAdaptiveCameraWorld()) return cameraScreenToWorldY(mouseY);
   let refHeight = getGameplayReferenceHeight();
   let scaleY = windowHeight / refHeight;
   return mouseY / scaleY;
@@ -2947,7 +2964,7 @@ function getGameplayMouseY() {
 function drawBackground() {
   // Orange at the forest's edge, darker and more purple the deeper into ant territory (see map.js)
   const c = getGroundColor();
-  background(c[0], c[1], c[2]);
+  drawWorldWithUnderbrush(c); // The ground, with under-brush around the edge of the world (camera.js)
   if (typeof drawFinalArenaBackground === 'function') drawFinalArenaBackground();
 }
 
@@ -3827,6 +3844,7 @@ function drawRoundRetreatSlide() {
 }
 
 function startRoundIntro() {
+  requestCameraSnap();
   antDexRoundSeen = {};
   roundIntroSnapshot = null;
   roundGoTimer = 0;
@@ -7996,6 +8014,7 @@ function isAntTargetInRange(i) {
 }
 
 function createAntBullet(i, originX, originY, size, spreadDegrees = 0) {
+  cameraOnAntFired(i, originX, originY);
   const targetX = playerX + shotOffsetX[i];
   const targetY = playerY + shotOffsetY[i];
   // Speed depends on bullet size and how far away the aim point is
@@ -8777,6 +8796,7 @@ function tryFireAntStream(i) {
   const stream = createAntStream(i);
   enemyStreams.push(stream);
   antStream[i] = stream;
+  cameraOnAntFired(i, antX[i], antY[i]);
   debugLog(`Ant ${i} started a stream - width ${stream.width.toFixed(1)}px, range ${stream.range.toFixed(0)}px, ${stream.duration}f`);
   beginStreamSpray(stream);
 }
@@ -10482,6 +10502,7 @@ function recordAntHitSpot(i, spot) {
 
 // Called by handlePlayerHit for every ant hit on the beetle
 function onAntHitPlayer(i) {
+  cameraOnEnemyDamagedPlayer(i);
   recordAntHitSpot(i, pendingHitSpot);
   pendingHitSpot = null;
   if (!isQueenFight() && !multiplayerMode) queenHitCount++;
@@ -10539,6 +10560,7 @@ function holdDormantAnts() {
 // at most one every ANT_RESPAWN_GAP_FRAMES: the rest wait off the field (dormant) in antRespawnQueue, so killing a
 // lot of ants at once gives the beetle a breather.
 function respawnAnt(i) {
+  cameraOnAntDespawn(i);
   if (antDormant[i]) {
     parkAnt(i);
     return;
@@ -11301,6 +11323,7 @@ function noteQueenBulletHit() {
 
 // A free defense: the panic ability her brain likes best out of the ones her living ants have, or else a wall of ants
 function queenPanic() {
+  cameraOnQueenAction();
   const { available } = getQueenAvailableAbilities();
   const logits = queen.decision.abilityLogits;
   let key = null;
@@ -11526,6 +11549,7 @@ function updateQueen() {
   if (!queen.abilityReady) {
     queen.abilityTimer = Math.min(QUEEN_ABILITY_FRAMES, queen.abilityTimer + cooldownRate * (queen.attackSpeed || 1));
     if (queen.abilityTimer >= QUEEN_ABILITY_FRAMES) queen.abilityReady = true;
+    cameraOnQueenCharging((QUEEN_ABILITY_FRAMES - queen.abilityTimer) / Math.max(0.01, cooldownRate * (queen.attackSpeed || 1)));
   }
   if (queen.abilityReady) {
     queen.abilityReady = false;
@@ -12342,6 +12366,7 @@ function drawRoyalGuards(alpha) {
 function queenHitPlayer(damage, silent = false, vel = null) {
   if (end) return;
   if (interceptPlayerDamage(damage, false)) return; // Flying over it, or the bunker takes it
+  cameraOnQueenDamagedPlayer();
   if (vel) {
     // Her acid, as a bullet: the same impact effect as the ants' bullets, by its speed
     const tier = getBulletSpeedTier(Math.sqrt(vel.vx * vel.vx + vel.vy * vel.vy)).knockbackTier;
@@ -12834,6 +12859,7 @@ function queenKnockbackPulse() {
 // --- Queen projectiles ---
 
 function fireQueenAcid(x, y, angle, size, speed, opts = {}) {
+  cameraOnQueenFired(x, y);
   queenProjectiles.push({
     kind: 'acid',
     x: x,
@@ -15179,6 +15205,7 @@ function drawEnemyExplosions() {
 function handleExplosionDamage(size, ownerId, reachesAir = false) {
   size *= getAntAttackMultiplier(ownerId); // Rainbow aphid ants hit 3x as hard
   if (interceptPlayerDamage(size / 60, reachesAir)) return; // Flying over it, or the bunker takes it
+  cameraOnEnemyDamagedPlayer(ownerId);
   let damage = size/60 * getPlayerDamageTakenMultiplier(); // same “units” as bulletSize
   onPlayerDamaged(damage);
 
@@ -15413,6 +15440,7 @@ function boostAntFromAphid(i, type) {
     fx.reroll.frames = APHID_EFFECT_FRAMES;
   } else {
     fx[type] = APHID_EFFECT_FRAMES;
+    if (type === 'rainbow') cameraOnEliteAnt(i);
   }
   applyAntAphidStats(i);
 }
@@ -22284,8 +22312,9 @@ function updateFreeAim() {
     aimAngle = atan2(rightStickY, rightStickX);
     playerRotationValue = aimAngle;  // Already in degrees from atan2
   }
-  // For mouse aiming, only update when mouse actually moves
-  else if (currentGameplayMouseX !== prevGameplayMouseX || currentGameplayMouseY !== prevGameplayMouseY) {
+  // For mouse aiming, only update when mouse actually moves (in window pixels: a moving camera changes where it
+  // points in the world without the mouse having moved)
+  else if (mouseX !== prevAimMouseX || mouseY !== prevAimMouseY) {
     // Calculate angle from player to mouse like ants do
     // Since angleMode is DEGREES globally, atan2 returns degrees
     aimAngle = atan2(currentGameplayMouseY - playerY, currentGameplayMouseX - playerX);
@@ -22299,8 +22328,8 @@ function updateFreeAim() {
   }
   
   // Update previous mouse position for next frame
-  prevGameplayMouseX = currentGameplayMouseX;
-  prevGameplayMouseY = currentGameplayMouseY;
+  prevAimMouseX = mouseX;
+  prevAimMouseY = mouseY;
 }
 
 // Check if enter/confirm is pressed (keyboard Enter or gamepad A button)

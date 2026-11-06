@@ -1124,11 +1124,13 @@ function drawRoundSceneFrame() {
     }
   }
   const S = roundScene;
+  updateAdaptiveCameraScene(S);
   drawBackground();
   beginGameplayScaling();
   S.update();
   S.draw();
   endGameplayScaling();
+  drawAdaptiveCameraOverlays();
 
   if (S.t < S.flashUntil) {
     push();
@@ -1218,6 +1220,7 @@ function getRetreatHeading(i) {
 }
 
 function drawRoundRetreatFrame(age) {
+  updateAdaptiveCameraOutro();
   drawBackground();
   beginGameplayScaling();
   const ramp = Math.min(1, age / 30);
