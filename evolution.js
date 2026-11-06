@@ -6,13 +6,20 @@
 // Only the current run is kept; resetRunState() clears it. Not recorded in multiplayer, the tutorial, the final
 // level or with dev tools custom ants.
 
-let evoNodes = [];          // {id, round, rank, parent (node id or null), score, sprite, size, abilities, movement, caps, numbers, final, killer}
+let evoNodes = [];          // {id, round, rank, parent (node id or null), score, sprite, size, abilities, movement, caps, numbers, final, killer, stats, damage, lives}
 let antEvoParent = [];      // Ant index -> node id of the top ant it was born from (undefined for founding ants)
 let lastBeetleDamager = 0;  // Ant index that last took the beetle's health (-1 = the queen)
 let evoTreeOpen = false;
 let evoTreeCooldown = 0;
 let evoScrollX = 0;
 let evoTargetScrollX = 0;
+let evoSelectedNode = null; // The card the mouse is over, or the keys/controller moved to
+let evoDetailNode = null;   // The ant whose full stats are up
+let evoNavCooldown = 0;
+let evoBackHeld = true;     // Esc or B takes a new press each time, so holding it can't close the stats and then the tree
+let evoLastMouseX = 0;
+let evoLastMouseY = 0;
+let evoTreeView = null;     // Where the tree was last drawn: { layout, ox, oy, top, bottom }, for finding the card under the mouse
 
 const EVO_CARD_W = 250;
 const EVO_CARD_H = 104;
@@ -26,11 +33,90 @@ const EVO_KILLER_COLOR = [255, 70, 70];
 const EVO_LINE_COLOR = [240, 190, 90];
 const EVO_EXTINCT_COLOR = [95, 95, 105];
 
+// The full stat sheet, in the order it's listed. Rows: [stat, label, optional format]. Each group is one heading.
+const EVO_STAT_GROUPS = [
+  ['General', [
+    ['bulletCooldown', 'Cooldown', v => `${Math.round(v)} frames`],
+    ['bulletSpeed', 'Bullet travel time', v => `${Math.round(v)} frames`],
+    ['antSpeed', 'Ant speed'],
+    ['antSize', 'Ant size', v => `${formatEvoStat(v)}x`],
+    ['bulletSize', 'Bullet size', v => `${formatEvoStat(v)}x`],
+    ['shotOffsetX', 'Shot offset X'],
+    ['shotOffsetY', 'Shot offset Y']
+  ]],
+  ['Movement', [
+    ['autonomy', 'Autonomy'],
+    ['followValue', 'Follow value'],
+    ['standingPointX', 'Standing point X'],
+    ['standingPointY', 'Standing point Y'],
+    ['distanceFromAnchor', 'Distance from anchor'],
+    ['anchorOffsetX', 'Anchor offset X'],
+    ['anchorOffsetY', 'Anchor offset Y'],
+    ['angleFromSpawn', 'Angle from spawn']
+  ]],
+  ['Special', [
+    ['specialExplosion', 'Explosion gene'],
+    ['explosionProximity', 'Explosion proximity'],
+    ['bulletExplodeAfter', 'Explode after', v => `${Math.round(v)} frames`],
+    ['radiusMultiplier', 'Radius multiplier', v => `${formatEvoStat(v)}x`],
+    ['residueMultiplier', 'Residue multiplier', v => `${formatEvoStat(v)}x`],
+    ['specialKnockback', 'Knockback gene'],
+    ['bulletKnockbackMultiplier', 'Knockback', v => `${formatEvoStat(v)}x`],
+    ['specialCamo', 'Camouflage gene'],
+    ['bulletCamoFlashRate', 'Flashes per second'],
+    ['specialRecoil', 'Recoil gene'],
+    ['specialPotential', 'Special potential']
+  ]],
+  ['Fire', [
+    ['fireBurst', 'Burst gene'],
+    ['bulletBurstCount', 'Bullets per burst'],
+    ['bulletBurstSpread', 'Burst spread', v => `${Math.round(v * 180 / Math.PI)}°`],
+    ['bulletBurstDelay', 'Burst delay', v => `${Math.round(v)} frames`],
+    ['fireRapid', 'Rapid gene'],
+    ['fireAlternating', 'Alternating gene'],
+    ['bulletCooldownMultiplier', 'Cooldown multiplier', v => `${formatEvoStat(v)}x`],
+    ['fireAlarm', 'Alarm gene'],
+    ['alarmInnerRadius', 'Alarm inner radius'],
+    ['firePotential', 'Fire potential']
+  ]],
+  ['Path', [
+    ['pathHighArc', 'High arc gene'],
+    ['bulletArcDuration', 'Arc duration', v => `${Math.round(v)} frames`],
+    ['pathCurve', 'Curve gene'],
+    ['bulletCurveStrength', 'Curve strength'],
+    ['pathAccelerate', 'Accelerate gene'],
+    ['bulletAccelerateDelay', 'Accelerate delay', v => `${Math.round(v)} frames`],
+    ['pathBlink', 'Blink gene'],
+    ['blinkDelay', 'Blink delay', v => `${Math.round(v)} frames`],
+    ['pathPotential', 'Path potential']
+  ]],
+  ['Death', [
+    ['deathLandmine', 'Landmine gene'],
+    ['deathRefire', 'Refire gene'],
+    ['deathTerritory', 'Territory gene'],
+    ['deathMound', 'Mound gene'],
+    ['bunkerRange', 'Bunker range'],
+    ['deathPotential', 'Death potential']
+  ]],
+  ['Gene tokens', [
+    ['geneTokens', 'Tokens unspent']
+  ]]
+];
+
+// Up to 2 decimals (more for very small values like curve strength), no trailing zeros
+function formatEvoStat(v) {
+  if (typeof v !== 'number') return v === undefined || v === null ? '-' : String(v);
+  const places = Math.abs(v) > 0 && Math.abs(v) < 1 ? 3 : 2;
+  return String(Number(v.toFixed(places)));
+}
+
 function resetEvolutionTree() {
   evoNodes = [];
   antEvoParent = [];
   lastBeetleDamager = 0;
   evoTreeOpen = false;
+  evoSelectedNode = null;
+  evoDetailNode = null;
 }
 
 function isEvolutionTracked() {
@@ -67,7 +153,10 @@ function snapshotEvoAnt(i) {
     abilities: exotic.concat(abilities),
     movement,
     caps: Object.values(caps),
-    numbers: `Speed ${antSpeed[i].toFixed(1)} · Cooldown ${Math.round(bulletCooldown[i])} · Size ${antSize[i].toFixed(2)}`
+    numbers: `Speed ${antSpeed[i].toFixed(1)} · Cooldown ${Math.round(bulletCooldown[i])} · Size ${antSize[i].toFixed(2)}`,
+    stats: snapshotAntStats(i),
+    damage: antPoints[i],
+    lives: antLives[i]
   };
 }
 
@@ -111,6 +200,9 @@ function recordEvolutionDeath() {
 function openEvolutionTree() {
   evoTreeOpen = true;
   evoTreeCooldown = 20;
+  evoSelectedNode = null;
+  evoDetailNode = null;
+  evoBackHeld = true;
   evoScrollX = evoTargetScrollX = -Infinity; // Starts at the death round; clamped when drawn
 }
 
@@ -188,6 +280,13 @@ function drawEvolutionTreeAt(layout, ox, oy, s, mini) {
     const p = layout.pos[n.id];
     if (mini) drawEvoMiniNode(layout, n, p, s);
     else drawEvoNode(layout, n, p);
+  }
+  if (!mini && evoSelectedNode !== null) {
+    const p = layout.pos[evoSelectedNode];
+    noFill();
+    stroke(255);
+    strokeWeight(3);
+    rect(p.x - 2, p.y - 2, EVO_CARD_W + 4, EVO_CARD_H + 4, 13);
   }
   pop();
 }
@@ -357,8 +456,8 @@ function drawEvolutionTree() {
   const treeTop = 100;
 
   if (evoTreeCooldown > 0) evoTreeCooldown--;
-  if (isLeftPressed()) evoTargetScrollX += 16;
-  if (isRightPressed()) evoTargetScrollX -= 16;
+  if (evoNavCooldown > 0) evoNavCooldown--;
+  if (!evoDetailNode) updateEvoTreeNavigation(layout, viewLeft, viewW);
   const minScroll = Math.min(0, viewW - layout.width);
   evoTargetScrollX = constrain(evoTargetScrollX, minScroll, 0);
   if (!isFinite(evoScrollX)) evoScrollX = evoTargetScrollX;
@@ -389,6 +488,7 @@ function drawEvolutionTree() {
   drawingContext.clip();
   drawEvolutionTreeAt(layout, ox, treeTop + 10, 1, false);
   drawingContext.restore();
+  evoTreeView = { layout: layout, ox: ox, oy: treeTop + 10, top: treeTop - 2, bottom: treeTop + EVO_TREE_H + 12 };
 
   // Header
   fill(18, 20, 26);
@@ -399,7 +499,7 @@ function drawEvolutionTree() {
   text('Evolution', getMenuWidth() / 2, 30);
   textSize(15);
   fill(185);
-  text('Each round\'s top 3 ants (by score: damage per life) and the top ant each was born from', getMenuWidth() / 2, 60);
+  text('Each round\'s top 3 ants (by score: damage per life) and the top ant each was born from. Click an ant to see all of its stats.', getMenuWidth() / 2, 60);
 
   // Legend
   const legend = [
@@ -423,7 +523,7 @@ function drawEvolutionTree() {
   textAlign(CENTER, CENTER);
   textSize(15);
   fill(200, map(sin(frameCount * 0.05), -1, 1, 30, 90));
-  text('A/D or ←/→ or scroll  Look around  |  Esc or B  Back', getMenuWidth() / 2, getMenuHeight() - 16);
+  text('A/D, ←/→, Left Stick or scroll  Look around  |  W/S, ↑/↓ or Up/Down on Left Stick  Pick an ant  |  Click, Enter or A  All its stats  |  Esc or B  Back', getMenuWidth() / 2, getMenuHeight() - 16);
 
   // Scroll bar
   if (minScroll < 0) {
@@ -431,10 +531,229 @@ function drawEvolutionTree() {
     fill(100, 100, 100, 150);
     rect(viewLeft + (evoTargetScrollX / minScroll) * (viewW - barW), treeTop + EVO_TREE_H + 18, barW, 8, 4);
   }
+  if (evoDetailNode) drawEvoDetailPanel(evoDetailNode);
   pop();
 
-  if (evoTreeCooldown === 0 && isBackPressed()) {
+  // isConfirmPressed() only fires once per press, so read it a single time
+  const confirmPressed = isConfirmPressed();
+  const backDown = isBackPressed();
+  const backPressed = backDown && !evoBackHeld;
+  evoBackHeld = backDown;
+  if (evoTreeCooldown > 0) return;
+  if (evoDetailNode) {
+    if (confirmPressed || backPressed) closeEvoDetail();
+  } else if (confirmPressed) {
+    // Nothing picked yet (a controller has no mouse to hover with): the first press picks a card to start from
+    if (evoSelectedNode === null) pickEvoCenterCard(layout, viewW);
+    else openEvoDetail(evoNodes[evoSelectedNode]);
+  } else if (backPressed) {
     evoTreeOpen = false;
     gameOverMenuCooldown = 20;
   }
+}
+
+// ----- Picking an ant -----
+
+function getEvoNodeAtMouse() {
+  if (!evoTreeView) return null;
+  const mx = getMenuMouseX();
+  const my = getMenuMouseY();
+  if (my < evoTreeView.top || my > evoTreeView.bottom) return null;
+  for (const n of evoNodes) {
+    const p = evoTreeView.layout.pos[n.id];
+    if (mx >= evoTreeView.ox + p.x && mx <= evoTreeView.ox + p.x + EVO_CARD_W &&
+        my >= evoTreeView.oy + p.y && my <= evoTreeView.oy + p.y + EVO_CARD_H) return n;
+  }
+  return null;
+}
+
+function evoTreeClicked() {
+  if (evoDetailNode) {
+    closeEvoDetail();
+    return;
+  }
+  const n = getEvoNodeAtMouse();
+  if (n) openEvoDetail(n);
+}
+
+function openEvoDetail(n) {
+  evoDetailNode = n;
+  evoSelectedNode = n.id;
+  evoTreeCooldown = 15;
+}
+
+function closeEvoDetail() {
+  evoDetailNode = null;
+  evoTreeCooldown = 15; // So the Esc that closed it doesn't also leave the tree
+}
+
+// The cards of one round, top to bottom
+function getEvoColumn(layout, round) {
+  return evoNodes.filter(n => n.round === round).sort((a, b) => layout.pos[a.id].y - layout.pos[b.id].y);
+}
+
+// The mouse picks whatever it's moved onto. Up and down pick a card; once one's picked, left and right go to the next
+// round's closest card. With nothing picked, left and right just scroll.
+function updateEvoTreeNavigation(layout, viewLeft, viewW) {
+  if (mouseX !== evoLastMouseX || mouseY !== evoLastMouseY) {
+    evoLastMouseX = mouseX;
+    evoLastMouseY = mouseY;
+    const under = getEvoNodeAtMouse();
+    evoSelectedNode = under ? under.id : null;
+  }
+  let vertical = isUpPressed() ? -1 : isDownPressed() ? 1 : 0;
+  let sideways = isLeftPressed() ? -1 : isRightPressed() ? 1 : 0;
+  // A stick is rarely dead straight: it goes whichever way it's mostly pushed
+  if (vertical !== 0 && sideways !== 0) {
+    if (Math.abs(getLeftStickX()) > Math.abs(getLeftStickY())) vertical = 0;
+    else sideways = 0;
+  }
+  if (evoSelectedNode === null && vertical === 0) {
+    evoTargetScrollX -= sideways * 16;
+    return;
+  }
+  if (evoNavCooldown > 0 || (vertical === 0 && sideways === 0)) return;
+  evoNavCooldown = 12;
+
+  let next = null;
+  if (evoSelectedNode === null) {
+    pickEvoCenterCard(layout, viewW);
+    return;
+  } else if (vertical !== 0) {
+    const column = getEvoColumn(layout, evoNodes[evoSelectedNode].round);
+    next = column[constrain(column.findIndex(n => n.id === evoSelectedNode) + vertical, 0, column.length - 1)];
+  } else {
+    const round = layout.rounds[layout.rounds.indexOf(evoNodes[evoSelectedNode].round) + sideways];
+    if (round === undefined) return;
+    const y = layout.pos[evoSelectedNode].y;
+    next = getEvoColumn(layout, round).reduce((best, n) =>
+      Math.abs(layout.pos[n.id].y - y) < Math.abs(layout.pos[best.id].y - y) ? n : best);
+  }
+  selectEvoCard(layout, next, viewW);
+}
+
+// The first pick without a mouse: the top card of the round nearest the middle of the view
+function pickEvoCenterCard(layout, viewW) {
+  const col = constrain(Math.round((viewW / 2 - EVO_CARD_W / 2 - evoTargetScrollX) / EVO_COL_W), 0, layout.rounds.length - 1);
+  selectEvoCard(layout, getEvoColumn(layout, layout.rounds[col])[0], viewW);
+}
+
+// Picks a card and scrolls just far enough to have it in view
+function selectEvoCard(layout, n, viewW) {
+  evoSelectedNode = n.id;
+  const x = layout.pos[n.id].x;
+  evoTargetScrollX = constrain(evoTargetScrollX, -x, viewW - EVO_CARD_W - x);
+}
+
+// ----- One ant's full stats -----
+
+function drawEvoDetailPanel(n) {
+  const m = { x: 50, y: 22, w: getMenuWidth() - 100, h: getMenuHeight() - 44 };
+  const rankColor = n.killer ? EVO_KILLER_COLOR : (n.rank ? EVO_RANK_COLORS[n.rank - 1] : EVO_KILLER_COLOR);
+
+  // Dim the tree behind it
+  noStroke();
+  fill(0, 170);
+  rect(0, 0, getMenuWidth(), getMenuHeight());
+  fill(30, 31, 40);
+  stroke(...rankColor);
+  strokeWeight(3);
+  rect(m.x, m.y, m.w, m.h, 16);
+  noStroke();
+
+  // Left column: who it was and what it could do
+  const leftW = 300;
+  const lx = m.x + 22;
+  textAlign(LEFT, CENTER);
+  fill(...rankColor);
+  textSize(26);
+  text(n.rank ? `#${n.rank} of Round ${n.round}` : `Killer, Round ${n.round}`, lx, m.y + 30);
+  drawEvoDetailPicture(n, lx + 46, m.y + 92);
+  textSize(16);
+  fill(235);
+  text(`Score ${n.score.toFixed(1)}`, lx + 104, m.y + 66);
+  fill(195);
+  text(`${Math.round(n.damage)} damage`, lx + 104, m.y + 92);
+  text(`${n.lives} ${n.lives === 1 ? 'life' : 'lives'}`, lx + 104, m.y + 118);
+
+  // Everything has to fit, so the lists share what's left of the column
+  const groups = [
+    ['Abilities', [130, 215, 255], n.abilities.length ? n.abilities : ['None']],
+    ['Movement', [205, 205, 205], [n.movement || 'Unknown']],
+    ['Gene caps', [225, 200, 140], n.caps.length ? n.caps : ['None']]
+  ];
+  const listTop = m.y + 150;
+  const rows = groups.reduce((sum, g) => sum + g[2].length + 1, 0);
+  const lineH = Math.min(21, (m.y + m.h - 18 - listTop) / rows);
+  let y = listTop;
+  for (const [heading, c, entries] of groups) {
+    fill(245);
+    textSize(lineH * 0.8);
+    text(heading, lx, y);
+    y += lineH;
+    fill(...c);
+    for (const entry of entries) {
+      fitTextSize(entry, lineH * 0.74, leftW - 14);
+      text(entry, lx + 12, y);
+      y += lineH;
+    }
+  }
+
+  // The rest: every stat, flowing down three columns
+  const columnsX = m.x + leftW + 40;
+  const columnW = (m.x + m.w - columnsX - 14) / 3;
+  const statRows = EVO_STAT_GROUPS.reduce((sum, g) => sum + g[1].length + 1, 0) + EVO_STAT_GROUPS.length - 1;
+  const perColumn = Math.ceil(statRows / 3);
+  const rowH = (m.h - 56) / perColumn;
+  let col = 0;
+  let row = 0;
+  const place = () => [columnsX + col * columnW, m.y + 28 + row * rowH];
+  const advance = () => {
+    row++;
+    if (row >= perColumn) {
+      row = 0;
+      col++;
+    }
+  };
+  for (const [heading, stats] of EVO_STAT_GROUPS) {
+    if (row + 2 > perColumn) { // A heading never ends a column
+      row = 0;
+      col++;
+    }
+    if (row > 0) advance(); // A gap between groups, except at the top of a column
+    const [hx, hy] = place();
+    textAlign(LEFT, CENTER);
+    fill(...rankColor);
+    textSize(15);
+    text(heading, hx, hy);
+    advance();
+    for (const [stat, label, format] of stats) {
+      const [x, ry] = place();
+      const v = n.stats[stat];
+      const off = v === 0 || v === undefined;
+      textAlign(LEFT, CENTER);
+      textSize(14);
+      fill(off ? 120 : 215);
+      text(label, x + 8, ry);
+      textAlign(RIGHT, CENTER);
+      fill(off ? 120 : 255);
+      text(format && typeof v === 'number' ? format(v) : formatEvoStat(v), x + columnW - 16, ry);
+      advance();
+    }
+  }
+
+  textAlign(CENTER, CENTER);
+  textSize(13);
+  fill(170);
+  text('Click, Enter, A, Esc or B  Close', columnsX + (m.x + m.w - columnsX) / 2, m.y + m.h - 12);
+}
+
+// Bigger than on its card, but still sized by the ant's own size
+function drawEvoDetailPicture(n, cx, cy) {
+  if (!n.sprite) return;
+  const sz = Math.min(92, (45 + 15 * n.size) * 1.3);
+  push();
+  imageMode(CENTER);
+  image(n.sprite, cx, cy, sz, sz);
+  pop();
 }

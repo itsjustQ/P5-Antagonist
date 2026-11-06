@@ -1,8 +1,8 @@
 // ========== ADAPTIVE CAMERA (WORLD 3) ==========
 // World 3 (rounds 8+) is a bigger arena than fits on screen, so the camera follows the beetle, always keeps the closest
 // ant in view, and briefly frames whatever else the player needs to see. Worlds 1 and 2 and the final nest keep their
-// fixed view: beginGameplayScaling() only uses this camera when isAdaptiveCameraWorld() says so. The under-brush at the
-// world's edge (bottom of this file) is drawn on every level.
+// fixed view during play: beginGameplayScaling() only uses this camera when isCameraDriven() says so. Round opening scenes
+// use it on every level (see Opening shots). The under-brush at the world's edge (bottom of this file) is drawn on every level.
 //
 // Everything here is in world units and seconds, except the indicators and the debug overlay, which are drawn in window
 // pixels. It only reads gameplay state: it never changes what the ants or the beetle do.
@@ -14,8 +14,7 @@
 const CAMERA_CONFIG = {
   enabled: true,
   firstLevel: 8,                 // Where world 3 starts (see getGameplayReferenceWidth)
-  worldWidthScale: 1.5,          // World 3's size, x the 1280x652 arena
-  worldHeightScale: 1.5,
+  worldScaleByTier: { easy: 1, medium: 1.17, hard: 1.33, insane: 1.5 }, // World 3 grows with the difficulty, x the 1280x652 arena
 
   // --- Zoom range ---
   restViewHeight: 435,           // The view at rest, and the tightest it gets: world 1's height, so the beetle looks the same size
@@ -93,12 +92,25 @@ const CAMERA_CONFIG = {
     incomingColor: [255, 95, 70]
   },
 
-  // --- Round intro scene: pull out to reveal, hold, return smoothly ---
+  // --- Opening scenes: down on the ground with the beetle, widening only as far as the action needs ---
   intro: {
-    pullFromFraction: 0.8,       // Starts this tight (x the whole-arena view), then eases out
-    pullFrames: 70,
-    returnFrames: 85,            // Frames at the end spent easing back to the beetle
-    beetleBias: 0.12             // How much the wide shot drifts toward the beetle
+    closeView: 320,              // View height with nothing else to frame: the beetle fills about 40% of the screen
+    pushIn: 1.12,                // Starts this much wider than closeView and slowly pushes in
+    widestView: 640,             // Never pulls out further than this, whatever's going on
+    arenaOverscan: 60,           // World units past the arena's edge the view can show
+    followSmoothing: 8,          // Per second. Stays with the beetle...
+    maxFollowSpeed: 0.045,       // ...but no faster than this, x the view's height per frame: a dash can briefly outrun the shot
+    offsetSmoothing: 1.5,        // ...and drifts slowly to frame whatever else is happening
+    zoomSmoothing: 1.1,          // Per second, in log space
+    pointSmoothing: 2.5,         // Per second: how gently a point of interest joins or leaves the shot
+    beetleWait: 90,              // Frames the shot holds on the beetle's entrance before framing anything else
+    maxPoints: 3,                // Points of interest framed along with the beetle
+    padding: 85,                 // World units kept around them
+    emoteLead: 30,               // Frames before an ant reacts that the shot starts turning toward it
+    beetleReach: 0.6,            // The beetle stays within this fraction of the way from the center to the edge
+    returnFrames: 70,            // Frames at the end spent easing into the round's own view
+    letterbox: 0.085,            // Bars, x the window's height
+    vignette: 0.55               // Darkness at the corners of the screen
   },
 
   // --- Shake: amounts were tuned for this view height, so they look the same size on screen at any zoom ---
@@ -109,11 +121,12 @@ const CAMERA_CONFIG = {
 
   // --- World edge, on every level. Drawn from sprites made once, because live vector bushes were slow to rasterize. ---
   underbrush: {
-    forest: { base: [24, 42, 26], shadow: [15, 28, 19], leaf: [38, 64, 36], leafLight: [54, 86, 44] },
-    nest:   { base: [14, 7, 18],  shadow: [8, 3, 11],   leaf: [30, 15, 38], leafLight: [46, 25, 56] },
+    forest: { base: [24, 42, 26], shadow: [15, 28, 19], leaf: [38, 64, 36], canopy: [29, 49, 30] },
+    nest:   { base: [14, 7, 18],  shadow: [8, 3, 11],   leaf: [30, 15, 38], canopy: [19, 10, 24] },
     spritePixels: 128,           // Each bush sprite's size
     variants: 6,                 // Different bush sprites
-    cell: 72,                    // World units between the clumps beyond the edge
+    canopyCell: 150,             // World units between the plain shapes beyond the edge (past canopyDepth it's just flat color)
+    canopyDepth: 320,
     fringeSpacing: 30            // World units between the bushes along the edge
   },
 
@@ -153,6 +166,8 @@ const gameCam = {
   nextIncoming: [],              // By ant index
   incoming: [],                  // Warnings about off-screen shots: { key, x, y, until }
   indicators: {},
+  scene: null,                   // The opening shot's state, while a scene plays
+  stretch: 0,                    // Levels with a fixed view: how far into that view's stretch-to-window a scene has eased
   debugOn: false,
   debugKeyHeld: false,
   debugBox: null
@@ -160,6 +175,16 @@ const gameCam = {
 
 function isAdaptiveCameraWorld() {
   return CAMERA_CONFIG.enabled && level >= CAMERA_CONFIG.firstLevel && !isFinalLevel() && !isTutorialRun();
+}
+
+// World 3's size for the current difficulty. The nest isn't world 3 (see getGameplayReferenceWidth).
+function getWorld3Scale() {
+  return CAMERA_CONFIG.worldScaleByTier[getDifficultyTier()];
+}
+
+// Whether the gameplay space is drawn through this camera right now: world 3, or any level's opening scene
+function isCameraDriven() {
+  return isAdaptiveCameraWorld() || !!roundScene;
 }
 
 function getCameraMinView() {
@@ -188,20 +213,29 @@ function getCameraScale() {
   return windowHeight / getCameraViewHeight();
 }
 
+// Same as getCameraScale, except while an opening scene eases into a fixed view, whose width and height stretch separately
+function getCameraScaleX() {
+  return gameCam.stretch > 0 ? lerp(getCameraScale(), windowWidth / getGameplayWidth(), gameCam.stretch) : getCameraScale();
+}
+
+function getCameraScaleY() {
+  return gameCam.stretch > 0 ? lerp(getCameraScale(), windowHeight / getGameplayHeight(), gameCam.stretch) : getCameraScale();
+}
+
 function cameraWorldToScreenX(x) {
-  return (x - gameCam.x) * getCameraScale() + windowWidth / 2;
+  return (x - gameCam.x) * getCameraScaleX() + windowWidth / 2;
 }
 
 function cameraWorldToScreenY(y) {
-  return (y - gameCam.y) * getCameraScale() + windowHeight / 2;
+  return (y - gameCam.y) * getCameraScaleY() + windowHeight / 2;
 }
 
 function cameraScreenToWorldX(x) {
-  return (x - windowWidth / 2) / getCameraScale() + gameCam.x;
+  return (x - windowWidth / 2) / getCameraScaleX() + gameCam.x;
 }
 
 function cameraScreenToWorldY(y) {
-  return (y - windowHeight / 2) / getCameraScale() + gameCam.y;
+  return (y - windowHeight / 2) / getCameraScaleY() + gameCam.y;
 }
 
 function isOnCameraScreen(x, y, marginPx = 0) {
@@ -213,7 +247,7 @@ function isOnCameraScreen(x, y, marginPx = 0) {
 // Called by beginGameplayScaling in place of the stretch-to-window scale
 function applyAdaptiveCameraTransform() {
   translate(windowWidth / 2, windowHeight / 2);
-  scale(getCameraScale());
+  scale(getCameraScaleX(), getCameraScaleY());
   translate(-gameCam.x + gameCam.shakeX, -gameCam.y + gameCam.shakeY);
 }
 
@@ -607,6 +641,7 @@ function updateAdaptiveCamera() {
   }
   updateCameraDebugKey();
   gameCam.mode = 'play';
+  gameCam.stretch = 0;
   if (gameCam.snapPending) snapCameraToBeetle();
   // The round's over or the beetle's dead: hold still behind whatever screen comes up
   if (end) {
@@ -652,33 +687,205 @@ function cameraSmoothstep(t) {
   return u * u * (3 - 2 * u);
 }
 
-// The round's intro scene: starts pulled in on the arena, eases out to reveal all of it, holds, then returns to the
-// beetle so the round starts exactly where this leaves off. Driven by the scene's own clock.
+// ---------- Opening shots ----------
+// The player's down on the ground with the beetle. The shot stays close on it and only widens as far as it takes to
+// bring in what the scene is about: its star ants, whatever's reacting nearby, big explosions. The scene's own actors
+// say what that is, so scenes don't need to script the camera. Moves are slow and eased, with no sway (see the comfort
+// note at the top of this file). Runs on the scene's clock (60 a second), so it stays in step with what it's filming.
+
+// What's worth framing right now, most important first: { key, x, y, r }. r is how much room it takes up itself.
+function getSceneCameraPoints(S) {
+  const c = CAMERA_CONFIG.intro;
+  const b = S.beetle;
+  // The shot waits for the beetle to walk in before looking anywhere else, unless it's going to be gone for a while
+  const offStage = b.x < c.arenaOverscan || b.x > S.W - c.arenaOverscan || b.y < c.arenaOverscan || b.y > S.H - c.arenaOverscan;
+  if (offStage && S.t < c.beetleWait) return [];
+  const found = [];
+  const add = (key, x, y, rank, r) => {
+    const dx = x - b.x;
+    const dy = y - b.y;
+    found.push({ key: key, x: x, y: y, r: r, rank: rank, d: dx * dx + dy * dy });
+  };
+  for (const a of S.actors) {
+    if (a === b || !a.visible || a.alpha < 0.05) continue;
+    if (a.x < -40 || a.x > S.W + 40 || a.y < -40 || a.y > S.H + 40) continue;
+    let rank = a.kind === 'queen' ? 4 : a.featured ? 3 : a.extra ? 2 : 0;
+    for (const e of a.emotes) {
+      if (S.t >= e.t - c.emoteLead && S.t <= e.t + e.dur) rank = Math.max(rank, 1);
+    }
+    if (rank > 0) add(a, a.x, a.y, rank, a.imageSize() * a.scale / 2);
+  }
+  for (const f of S.fx) {
+    if (f.kind === 'boom') add(f, f.x, f.y, 3, 0);
+  }
+  for (const g of S.ground) {
+    if (S.t - g.t0 < 90) add(g, g.x, g.y, 2, 0); // Something just landed or got built
+  }
+  found.sort((p, q) => q.rank - p.rank || p.d - q.d);
+  return found.slice(0, c.maxPoints);
+}
+
+// Fades points in and out of the shot, so nothing tugs on it the moment it starts or stops mattering
+function updateSceneCameraPoints(S, dt) {
+  const points = gameCam.scene.points;
+  const ease = cameraEase(CAMERA_CONFIG.intro.pointSmoothing, dt);
+  for (const p of points.values()) p.wanted = false;
+  for (const f of getSceneCameraPoints(S)) {
+    let p = points.get(f.key);
+    if (!p) {
+      p = { w: 0 };
+      points.set(f.key, p);
+    }
+    p.x = f.x;
+    p.y = f.y;
+    p.r = f.r;
+    p.wanted = true;
+  }
+  for (const [key, p] of points) {
+    p.w += ((p.wanted ? 1 : 0) - p.w) * ease;
+    if (!p.wanted && p.w < 0.02) points.delete(key);
+  }
+}
+
+// How tall the view wants to be, and how far off the beetle it wants to sit
+function getSceneCameraTarget(S, widest) {
+  const c = CAMERA_CONFIG.intro;
+  const b = S.beetle;
+  const aspect = getCameraAspect();
+  let minX = b.x, maxX = b.x, minY = b.y, maxY = b.y;
+  let framing = false;
+  for (const p of gameCam.scene.points.values()) {
+    const x = b.x + (p.x - b.x) * p.w;
+    const y = b.y + (p.y - b.y) * p.w;
+    const r = Math.max(0, p.r * p.w - c.padding * 0.5); // The padding already covers something ant-sized
+    minX = Math.min(minX, x - r);
+    maxX = Math.max(maxX, x + r);
+    minY = Math.min(minY, y - r);
+    maxY = Math.max(maxY, y + r);
+    framing = true;
+  }
+  const pushed = c.closeView * lerp(c.pushIn, 1, constrain(S.t / Math.max(1, S.duration), 0, 1));
+  let view = pushed;
+  // The letterbox bars cover part of the height
+  if (framing) view = Math.max(view, ((maxY - minY) + c.padding * 2) / (1 - c.letterbox * 2), ((maxX - minX) + c.padding * 2) / aspect);
+  view = Math.min(view, widest);
+  // Centered on what's framed, but it never leaves the beetle behind
+  const reachY = c.beetleReach * view / 2;
+  const reachX = reachY * aspect;
+  return {
+    view: view,
+    offsetX: constrain((minX + maxX) / 2 - b.x, -reachX, reachX),
+    offsetY: constrain((minY + maxY) / 2 - b.y, -reachY, reachY)
+  };
+}
+
+// The closest the center of a view this tall can get to the arena's edges
+function clampSceneCameraX(x, view) {
+  const room = CAMERA_CONFIG.intro.arenaOverscan - view * getCameraAspect() / 2;
+  const W = getGameplayWidth();
+  return room * 2 + W < 0 ? W / 2 : constrain(x, -room, W + room);
+}
+
+function clampSceneCameraY(y, view) {
+  const room = CAMERA_CONFIG.intro.arenaOverscan - view / 2;
+  const H = getGameplayHeight();
+  return room * 2 + H < 0 ? H / 2 : constrain(y, -room, H + room);
+}
+
+// Called every frame of a round's opening scene, on every level
 function updateAdaptiveCameraScene(S) {
-  if (!isAdaptiveCameraWorld()) return;
   updateCameraDebugKey();
   gameCam.mode = 'scene';
-  const c = CAMERA_CONFIG.intro;
-  const whole = getCameraWholeWorldView();
-  const returnFrames = Math.min(c.returnFrames, S.duration * 0.5);
-  const returnStart = S.duration - returnFrames;
-  const reveal = cameraSmoothstep(S.t / c.pullFrames);
-  const wideView = whole * lerp(c.pullFromFraction, 1, reveal);
-  const midX = getGameplayWidth() / 2;
-  const midY = getGameplayHeight() / 2;
-  const wideX = midX + (S.beetle.x - midX) * c.beetleBias;
-  const wideY = midY + (S.beetle.y - midY) * c.beetleBias;
-  const back = cameraSmoothstep((S.t - returnStart) / returnFrames);
-  // Ends exactly where the round will snap to
   gameCam.focus = [];
   gameCam.lookX = 0;
   gameCam.lookY = 0;
-  const start = getCameraFraming();
-  gameCam.logView = lerp(Math.log(wideView), Math.log(start.view), back);
+  const c = CAMERA_CONFIG.intro;
+  const dt = 1 / 60;
+  const b = S.beetle;
+  const widest = Math.min(c.widestView, getGameplayHeight() + c.arenaOverscan * 2);
+
+  let shot = gameCam.scene;
+  if (!shot || shot.owner !== S) {
+    // First frame: on the spot the beetle's about to walk into, with nothing else framed yet. Everything else fades in.
+    shot = gameCam.scene = { owner: S, points: new Map() };
+    const start = getSceneCameraTarget(S, widest);
+    shot.logView = Math.log(start.view);
+    shot.offsetX = start.offsetX;
+    shot.offsetY = start.offsetY;
+    shot.followX = clampSceneCameraX(b.x, start.view);
+    shot.followY = clampSceneCameraY(b.y, start.view);
+  }
+  updateSceneCameraPoints(S, dt);
+
+  const target = getSceneCameraTarget(S, widest);
+  shot.logView += (Math.log(target.view) - shot.logView) * cameraEase(c.zoomSmoothing, dt);
+  const view = Math.exp(shot.logView);
+  // The beetle often starts past the arena's edge: the follow waits at the edge for it, so the move starts smoothly
+  const follow = cameraEase(c.followSmoothing, dt);
+  const stepX = (clampSceneCameraX(b.x, view) - shot.followX) * follow;
+  const stepY = (clampSceneCameraY(b.y, view) - shot.followY) * follow;
+  const slow = Math.min(1, c.maxFollowSpeed * view / Math.max(1e-6, Math.sqrt(stepX * stepX + stepY * stepY)));
+  shot.followX += stepX * slow;
+  shot.followY += stepY * slow;
+  const drift = cameraEase(c.offsetSmoothing, dt);
+  shot.offsetX += (target.offsetX - shot.offsetX) * drift;
+  shot.offsetY += (target.offsetY - shot.offsetY) * drift;
+  const x = clampSceneCameraX(shot.followX + shot.offsetX, view);
+  const y = clampSceneCameraY(shot.followY + shot.offsetY, view);
+
+  // Eases into exactly what the round's first frame will show
+  const returnFrames = Math.min(c.returnFrames, S.duration * 0.4);
+  const back = cameraSmoothstep((S.t - (S.duration - returnFrames)) / returnFrames);
+  let endX, endY, endView;
+  if (isAdaptiveCameraWorld()) {
+    const start = getCameraFraming();
+    endX = start.x;
+    endY = start.y;
+    endView = start.view;
+    gameCam.stretch = 0;
+  } else {
+    endX = getGameplayWidth() / 2;
+    endY = getGameplayHeight() / 2;
+    endView = getGameplayHeight();
+    gameCam.stretch = back;
+  }
+  gameCam.logView = lerp(shot.logView, Math.log(endView), back);
   gameCam.logTarget = gameCam.logView;
-  gameCam.x = lerp(wideX, start.x, back);
-  gameCam.y = lerp(wideY, start.y, back);
+  gameCam.x = lerp(x, endX, back);
+  gameCam.y = lerp(y, endY, back);
   updateCameraShake();
+}
+
+function endCameraScene() {
+  gameCam.scene = null;
+  gameCam.stretch = 0;
+}
+
+let sceneVignette = null;
+
+// Soft dark corners, painted once and stretched over the window
+function getSceneVignette() {
+  if (sceneVignette) return sceneVignette;
+  const w = 256, h = 144;
+  sceneVignette = document.createElement('canvas');
+  sceneVignette.width = w;
+  sceneVignette.height = h;
+  const ctx = sceneVignette.getContext('2d', { willReadFrequently: true });
+  ctx.translate(w / 2, h / 2);
+  ctx.scale(w / h, 1);
+  const g = ctx.createRadialGradient(0, 0, h * 0.28, 0, 0, h * 0.72);
+  g.addColorStop(0, 'rgba(0,0,0,0)');
+  g.addColorStop(1, `rgba(0,0,0,${CAMERA_CONFIG.intro.vignette})`);
+  ctx.fillStyle = g;
+  ctx.fillRect(-w, -h, w * 2, h * 2);
+  return sceneVignette;
+}
+
+function drawSceneVignette(alpha) {
+  drawingContext.save();
+  drawingContext.globalAlpha = alpha;
+  drawingContext.drawImage(getSceneVignette(), 0, 0, windowWidth, windowHeight);
+  drawingContext.restore();
 }
 
 // The round is over: ease out to the whole arena while the ants run off (and over a queen's death burst)
@@ -798,10 +1005,13 @@ function drawCameraIndicators() {
 
 let underbrushSprites = {};      // By palette name
 let underbrushFringe = null;     // Bushes along the arena's edge: { key, stamps }
+let canopySprites = {};          // By palette name: the plain shapes further out
 
 function resetUnderbrushSprites() {
   underbrushSprites = {};
   underbrushFringe = null;
+  canopySprites = {};
+  sceneVignette = null;
 }
 
 // Repeatable random number from 0 to 1 (doesn't depend on angleMode, unlike p5's sin)
@@ -831,8 +1041,23 @@ function makeBushSprite(palette, seed) {
   }
   for (const l of leaves) blob(palette.shadow, l.x + 0.025, l.y + 0.03, l.r + 0.03);
   for (const l of leaves) blob(palette.leaf, l.x, l.y, l.r);
-  for (const l of leaves) {
-    if (brushRand(l.x * 91 + seed) > 0.4) blob(palette.leafLight, l.x - l.r * 0.25, l.y - l.r * 0.25, l.r * 0.4);
+  return canvas;
+}
+
+// The forest beyond the edge is only backdrop: one flat, low-contrast shape, a little lighter than the ground under it
+function makeCanopySprite(palette, seed) {
+  const size = CAMERA_CONFIG.underbrush.spritePixels;
+  const canvas = document.createElement('canvas');
+  canvas.width = size;
+  canvas.height = size;
+  const ctx = canvas.getContext('2d', { willReadFrequently: true });
+  ctx.fillStyle = `rgb(${palette.canopy[0]},${palette.canopy[1]},${palette.canopy[2]})`;
+  for (let k = 0; k < 4; k++) {
+    const a = brushRand(seed + k * 5 + 1) * Math.PI * 2;
+    const d = k === 0 ? 0 : 0.2;
+    ctx.beginPath();
+    ctx.arc((0.5 + Math.cos(a) * d) * size, (0.5 + Math.sin(a) * d) * size, (k === 0 ? 0.3 : 0.2 + brushRand(seed + k) * 0.08) * size, 0, Math.PI * 2);
+    ctx.fill();
   }
   return canvas;
 }
@@ -848,6 +1073,15 @@ function getUnderbrushSprites(name) {
     for (let k = 0; k < c.variants; k++) underbrushSprites[name].push(makeBushSprite(c[name], k * 31 + 5));
   }
   return underbrushSprites[name];
+}
+
+function getCanopySprites(name) {
+  if (!canopySprites[name]) {
+    const c = CAMERA_CONFIG.underbrush;
+    canopySprites[name] = [];
+    for (let k = 0; k < c.variants; k++) canopySprites[name].push(makeCanopySprite(c[name], k * 17 + 3));
+  }
+  return canopySprites[name];
 }
 
 // The bushes along all four edges. They only change with the arena's size.
@@ -898,7 +1132,7 @@ function drawWorldWithUnderbrush(groundColor) {
   const ctx = drawingContext;
   ctx.imageSmoothingEnabled = true;
   // What's on screen, in world units. Fixed-view levels only ever see the arena itself (give or take a shake).
-  const adaptive = isAdaptiveCameraWorld();
+  const adaptive = isCameraDriven();
   const margin = 50;
   const view = adaptive ? {
     minX: cameraScreenToWorldX(0) - margin,
@@ -907,16 +1141,19 @@ function drawWorldWithUnderbrush(groundColor) {
     maxY: cameraScreenToWorldY(windowHeight) + margin
   } : { minX: -margin, maxX: W + margin, minY: -margin, maxY: H + margin };
 
-  // Beyond the edge: clumps on a fixed grid, so they stay put in the world
+  // Beyond the edge: a few plain shapes on a fixed grid, so they stay put in the world. Further out it's flat color.
   if (adaptive) {
-    for (let col = Math.floor(view.minX / c.cell); col <= Math.ceil(view.maxX / c.cell); col++) {
-      for (let row = Math.floor(view.minY / c.cell); row <= Math.ceil(view.maxY / c.cell); row++) {
-        const px = col * c.cell;
-        const py = row * c.cell;
-        if (px > 0 && px < W - c.cell && py > 0 && py < H - c.cell) continue; // Under the ground anyway
+    const canopy = getCanopySprites(name);
+    const cell = c.canopyCell;
+    for (let col = Math.floor(view.minX / cell) - 1; col <= Math.ceil(view.maxX / cell); col++) {
+      for (let row = Math.floor(view.minY / cell) - 1; row <= Math.ceil(view.maxY / cell); row++) {
+        const px = col * cell;
+        const py = row * cell;
+        if (px > 0 && px < W - cell && py > 0 && py < H - cell) continue; // Under the ground anyway
+        if (px < -c.canopyDepth || px > W + c.canopyDepth || py < -c.canopyDepth || py > H + c.canopyDepth) continue;
         const seed = (col + 500) * 37 + (row + 500) * 101;
-        const r = 50 + brushRand(seed) * 40;
-        ctx.drawImage(sprites[seed % c.variants], px + brushRand(seed + 1) * c.cell - r, py + brushRand(seed + 2) * c.cell - r, r * 2, r * 2);
+        const r = 95 + brushRand(seed) * 45;
+        ctx.drawImage(canopy[seed % c.variants], px + brushRand(seed + 1) * cell - r, py + brushRand(seed + 2) * cell - r, r * 2, r * 2);
       }
     }
   }
@@ -937,7 +1174,7 @@ function drawWorldWithUnderbrush(groundColor) {
 // ---------- Overlays (window space) ----------
 
 function drawAdaptiveCameraOverlays() {
-  if (!isAdaptiveCameraWorld()) return;
+  if (!isCameraDriven()) return;
   if (gameCam.mode === 'play' && CAMERA_CONFIG.indicators.enabled) drawCameraIndicators();
   if (gameCam.debugOn) drawCameraDebugOverlay();
 }

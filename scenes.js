@@ -905,17 +905,17 @@ function drawSceneFx(S, f) {
       break;
     }
     case 'title': {
-      // A name card across the middle of the scene
+      // A name card across the lower part of the screen, wherever the shot is
       const a = 255 * Math.min(1, f.age / 15, (f.life - f.age) / 20);
       const grow = sceneEase('snap', Math.min(1, f.age / 12));
       textAlign(CENTER, CENTER);
       textStyle(BOLD);
-      textSize(S.H * 0.09 * (1.3 - 0.3 * grow));
+      textSize(getCameraViewHeight() * 0.09 * (1.3 - 0.3 * grow));
       stroke(0, a);
       strokeWeight(6);
       strokeJoin(ROUND);
       fill(225, 160, 255, a);
-      text(f.text, S.W / 2, S.H * 0.7);
+      text(f.text, cameraScreenToWorldX(windowWidth / 2), cameraScreenToWorldY(windowHeight * 0.72));
       textStyle(NORMAL);
       break;
     }
@@ -1139,8 +1139,9 @@ function drawRoundSceneFrame() {
     rect(0, 0, windowWidth, windowHeight);
     pop();
   }
-  // Letterbox bars and the skip hint
-  const bar = windowHeight * 0.06 * Math.min(1, S.t / 15, (S.duration - S.t) / 15);
+  // Dark corners, letterbox bars and the skip hint
+  drawSceneVignette(Math.min(1, S.t / 30, (S.duration - S.t) / 30));
+  const bar = windowHeight * CAMERA_CONFIG.intro.letterbox * Math.min(1, S.t / 15, (S.duration - S.t) / 15);
   push();
   noStroke();
   fill(0);
@@ -1150,7 +1151,7 @@ function drawRoundSceneFrame() {
     fill(255, 150);
     textAlign(RIGHT, CENTER);
     textSize(14);
-    text('Enter / Click: skip', windowWidth - 18, windowHeight - bar / 2);
+    text('Enter / A / Click: skip', windowWidth - 18, windowHeight - bar / 2);
   }
   pop();
 
@@ -1163,6 +1164,7 @@ function finishRoundScene() {
   if (roundScene && roundScene.t < roundScene.duration) stopRumble(); // Skipped: don't keep rumbling into the countdown
   roundScene = null;
   roundScenePending = false;
+  endCameraScene();
   roundIntroTimer = ROUND_INTRO_FRAMES;
   roundIntroSnapshot = null;
   menuNavigationCooldown = 15;

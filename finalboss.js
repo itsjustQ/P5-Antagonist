@@ -134,7 +134,14 @@ function startFinalLevel() {
   multiplayerMode = false;
   numPlayers = 1;
   applyPermanentUpgrades();
+  start = false;
+  startMenu = false;
+  difficultyMenu = false;
+  pendingGameMode = null;
+  openPreGamePicks(getNestPreGamePicks(), beginFinalLevel); // A basic stat, a specialized stat and an ability, free
+}
 
+function beginFinalLevel() {
   let best = getBestAnts();
   if (best.length === 0) {
     // Nothing saved yet (only possible with the dev unlock): use whatever ant is set up now
@@ -147,9 +154,6 @@ function startFinalLevel() {
   setupWarmupRound();
 
   start = true;
-  startMenu = false;
-  difficultyMenu = false;
-  pendingGameMode = null;
   titlemusic.stop();
   endmusic.stop();
   if (!gamemusic.isPlaying()) gamemusic.play();
@@ -1339,6 +1343,7 @@ function drawFinalLevelPanel(x, y, w, h) {
     `${rounds} round${rounds === 1 ? '' : 's'} against the ants that did best against you, back for more`,
     'The best 3 groups become the army of the Queen of Queens',
     'Her tunnels attack with her ants\' abilities, and her ants evolve as you fight',
+    'Start with 3 free upgrades, and any upgrade can show up from the first round',
     'Single player only'
   ];
   lines.forEach((l, k) => text('• ' + l, left, headerY + 32 + k * 24));

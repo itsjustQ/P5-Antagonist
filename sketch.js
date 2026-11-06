@@ -14,7 +14,7 @@ let cinematicFrame = 0;
 let cinematicTimer = 0; // frames spent on the current still
 let cinematicFlash = 0; // white flash when cutting to the splash screen
 let pendingGameMode = null; // stores whether we're starting single or multiplayer
-let preGameUpgradeMenu = false; // For difficulty 8-10
+let preGameUpgradeMenu = false; // Free upgrades before a run: difficulty 8-10 and the nest
 let antdex = false;
 let antdexReturnState = 'menu';
 let antdexOpenCooldown = 0;
@@ -797,10 +797,14 @@ const UPGRADE_COUNT = 63;
 const UPGRADE_MAX_LEVELS = [4, 5, 5, 9, 8, 5, 5, 5, 1, 1, 1, 4, 4, 1, 5, 5, 5, 3, 4, 5, 1, 7, 10, 4, 1, 1, 1, 1, 4, 4, 1, 9, 1, 1, 1, 3, 1, 3, 2, 1, 1, 1, 1, 1, 1, 1, 1, 1, 3, 5, 4, 1, 1, 2, 1, 1, 1, 1, 1, 1, 1, 1, 1];
 let displayedUpgrades = [];  // Array of up to 3 randomly selected upgrade indices (0-9)
 
-// Pre-game upgrade menu variables (insane difficulty 8-10)
-let preGameUpgradeOptions = [];  // Array of 3 starting-viable upgrade indices
-let preGameSelectedUpgrade = 0;  // 0, 1, or 2 for three options
+// Pre-game upgrade menu variables (insane difficulty 8-10 and the nest)
+let preGameUpgradeOptions = [];  // The cards on screen (upgrade ids)
+let preGameSelectedUpgrade = 0;
 let preGameEnterPressed = false;  // Track if Enter was pressed to prevent bleed-through
+let preGameBackHeld = false;      // Each skip takes its own press of Esc or B, so holding it can't skip a whole row of picks
+let preGamePick = null;           // The pick on screen: { title, subtitle, pool, backup }
+let preGamePicksLeft = [];        // The picks after it
+let preGameOnDone = null;         // Starts the run once the picks are over
 
 // Free aiming variables
 let freeAimEnabled = false;  // Based on upgrade9Level
@@ -1712,7 +1716,7 @@ function draw() {
     return;
   }
 
-  // Show pre-game upgrade menu (insane difficulty 8-10)
+  // Show pre-game upgrade menu (insane difficulty 8-10 and the nest)
   if (preGameUpgradeMenu) {
     drawPreGameUpgradeScreen();
     
@@ -1751,10 +1755,15 @@ function draw() {
         preGameEnterPressed = false;
       }
       
-      // Skip with Escape
-      if (isBackPressed() && upgradeKeyDebounce === 0) {
-        skipPreGameUpgrade();
-        upgradeKeyDebounce = 20;
+      // Skip with Escape or B
+      if (isBackPressed()) {
+        if (!preGameBackHeld && upgradeKeyDebounce === 0) {
+          skipPreGameUpgrade();
+          upgradeKeyDebounce = 20;
+        }
+        preGameBackHeld = true;
+      } else {
+        preGameBackHeld = false;
       }
     }
     
@@ -2032,7 +2041,7 @@ function draw() {
   }
   updateAntDexEntries();
   
-  if (!queenShopMenu) drawDiscoveryPopup(); // It waits while the shop is open over the lose screen
+  if (!queenShopMenu && !evoTreeOpen) drawDiscoveryPopup(); // It waits while the shop or the evolution tree is open over the lose screen
 }
 
 function resetRunState() {
@@ -2191,17 +2200,26 @@ function restartGame() {
   }
   resetRunState();
   if (!multiplayerMode) applyPermanentUpgrades();
-  
+  startMenu = false;
+  // Every insane run starts with its free upgrade, not just the first one
+  if (!multiplayerMode && getDifficultyTier() === 'insane') {
+    start = false;
+    openPreGamePicks(getInsanePreGamePicks(), beginRestartedRun);
+  } else {
+    beginRestartedRun();
+  }
+}
+
+function beginRestartedRun() {
   // Apply custom ant stats if enabled in dev tools
   if (devToolsUseCustomAnts) {
     applyCustomAntsToInitialPopulation();
   } else {
     applyDifficultyToInitialPopulation();
   }
-  
+
   start = true;
   startRoundIntro();
-  startMenu = false;
   endmusic.stop();
   titlemusic.stop();
   if (!gamemusic.isPlaying()) {
@@ -2879,13 +2897,13 @@ function getMenuMouseY() {
 
 // Gameplay scaling helpers - reference size changes based on level
 function getGameplayReferenceWidth() {
-  if (isFinalLevel()) return 1280; // The nest is always the full-size arena
+  if (isFinalLevel()) return 1280; // The nest is always world 3's easy size: it's only 10 ants
   if (level <= 3) {
     return 853;
   } else if (level <= 7) {
     return 1024;
   } else {
-    return Math.round(1280 * CAMERA_CONFIG.worldWidthScale); // World 3 is bigger than the screen: the camera follows the beetle
+    return Math.round(1280 * getWorld3Scale()); // World 3 is bigger than the screen, more so at higher difficulties: the camera follows the beetle
   }
 }
 
@@ -2896,7 +2914,7 @@ function getGameplayReferenceHeight() {
   } else if (level <= 7) {
     return 522;
   } else {
-    return Math.round(652 * CAMERA_CONFIG.worldHeightScale);
+    return Math.round(652 * getWorld3Scale());
   }
 }
 
@@ -2905,8 +2923,8 @@ let gameplayShakeFrame = -1;
 
 function beginGameplayScaling() {
   push();
-  if (isAdaptiveCameraWorld()) {
-    applyAdaptiveCameraTransform(); // World 3 follows the beetle (camera.js)
+  if (isCameraDriven()) {
+    applyAdaptiveCameraTransform(); // World 3 follows the beetle, and every level's opening scene is filmed up close (camera.js)
     return;
   }
   let refWidth = getGameplayReferenceWidth();
@@ -13768,6 +13786,11 @@ function applyPermanentUpgrades() {
   for (let id = 0; id < UPGRADE_COUNT; id++) {
     if (permanent[id] > current[id]) setUpgradeLevel(id, permanent[id]);
   }
+  refillBeetleForRunStart();
+}
+
+// Health, shields and bullets as they should be once a run's starting upgrades are all in
+function refillBeetleForRunStart() {
   health = getStartingHealth();
   shield = shieldQuantity > 0 ? shieldQuantity : 0;
   shot = bulletQuantity > 0 ? bulletQuantity : 0;
@@ -17229,7 +17252,14 @@ function drawUpgradeScreen() {
       case 51:
       case 52:
       case 54:
-      case 55:{ cur = level > 0 ? 'ON' : 'OFF'; nxt = 'ON'; break; }
+      case 55:
+      case 56:
+      case 57:
+      case 58:
+      case 59:
+      case 60:
+      case 61:
+      case 62:{ cur = level > 0 ? 'ON' : 'OFF'; nxt = 'ON'; break; }
       case 27:
       case 30:
       case 32:
@@ -17269,7 +17299,13 @@ function drawUpgradeScreen() {
       textSize(24);
       text('Press Enter to continue', getMenuWidth() / 2, getMenuHeight() * 0.65);
     } else {
-      text('LEVEL UP! Choose an Upgrade', getMenuWidth() / 2, getMenuHeight() * 0.08);
+      text(preGameUpgradeMenu ? preGamePick.title : 'LEVEL UP! Choose an Upgrade', getMenuWidth() / 2, getMenuHeight() * 0.08);
+      if (preGameUpgradeMenu) {
+        fill(255, 220, 120);
+        noStroke();
+        textSize(24);
+        text(preGamePick.subtitle, getMenuWidth() / 2, getMenuHeight() * 0.17);
+      }
 
       // Draw side-by-side cards
       let cardWidth = getMenuWidth() * 0.25;
@@ -17391,23 +17427,29 @@ function drawUpgradeScreen() {
       noStroke();
       textSize(20);
       textAlign(CENTER, CENTER);
-      let navText = '← →  Navigate  |  ';
+      let navText = '← → or Left Stick  Navigate  |  ';
       for (let i = 0; i < numOptions; i++) {
         navText += (i + 1);
         if (i < numOptions - 1) navText += ' ';
       }
-      navText += '  Quick Select  |  Enter  Confirm';
+      navText += '  Quick Select  |  Enter or A  Confirm';
       text(navText, getMenuWidth() / 2, getMenuHeight() * 0.85);
 
-      // Rerolls left this run
-      let rerollText = `R / Y  Reroll  (${upgradeRerolls} left this run)`;
-      if (canRerollUpgrades()) {
-        fill(255);
+      if (preGameUpgradeMenu) {
+        fill(200);
+        textSize(20);
+        text('Esc or B  Skip this one', getMenuWidth() / 2, getMenuHeight() * 0.9);
       } else {
-        fill(120);
+        // Rerolls left this run
+        let rerollText = `R / Y  Reroll  (${upgradeRerolls} left this run)`;
+        if (canRerollUpgrades()) {
+          fill(255);
+        } else {
+          fill(120);
+        }
+        textSize(22);
+        text(rerollText, getMenuWidth() / 2, getMenuHeight() * 0.9);
       }
-      textSize(22);
-      text(rerollText, getMenuWidth() / 2, getMenuHeight() * 0.9);
     }
   endMenuScaling();
 }
@@ -17478,7 +17520,7 @@ function upgradePrereqsMet(i, lv) {
 
 // Whether an upgrade can be offered this round
 function isUpgradeUnlocked(i) {
-  if (!isCoreUpgrade(i) && level <= 5) return false;  // Only core base stats in rounds 1-5
+  if (!isCoreUpgrade(i) && level <= 5 && !isFinalLevel()) return false;  // Only core base stats in rounds 1-5 (the nest has no such limit)
   return upgradePrereqsMet(i, getCurrentUpgradeLevels());
 }
 
@@ -17502,19 +17544,22 @@ function pickUpgradeOptions(exclude = []) {
   displayedUpgrades = [];
   let freshUpgrades = availableUpgrades.filter(id => !exclude.includes(id));
   let repeatUpgrades = availableUpgrades.filter(id => exclude.includes(id));
-  for (let pool of [freshUpgrades, repeatUpgrades]) {
-    while (displayedUpgrades.length < 3 && pool.length > 0) {
-      let totalWeight = 0;
-      for (let id of pool) totalWeight += getUpgradeRarity(id).weight;
-      let roll = random(totalWeight);
-      let pick = 0;
-      while (pick < pool.length - 1 && roll >= getUpgradeRarity(pool[pick]).weight) {
-        roll -= getUpgradeRarity(pool[pick]).weight;
-        pick++;
-      }
-      displayedUpgrades.push(pool[pick]);
-      pool.splice(pick, 1);
+  for (let pool of [freshUpgrades, repeatUpgrades]) moveRandomUpgrades(pool, displayedUpgrades);
+}
+
+// Moves upgrades from pool to out, weighted by rarity, until out has 3 cards or the pool runs dry
+function moveRandomUpgrades(pool, out) {
+  while (out.length < 3 && pool.length > 0) {
+    let totalWeight = 0;
+    for (let id of pool) totalWeight += getUpgradeRarity(id).weight;
+    let roll = random(totalWeight);
+    let pick = 0;
+    while (pick < pool.length - 1 && roll >= getUpgradeRarity(pool[pick]).weight) {
+      roll -= getUpgradeRarity(pool[pick]).weight;
+      pick++;
     }
+    out.push(pool[pick]);
+    pool.splice(pick, 1);
   }
 }
 
@@ -20188,31 +20233,12 @@ function drawStartScreen(){
         
         // For insane difficulty (8-10), show pre-game upgrade menu
         if (getDifficultyTier() === 'insane') {
-          preGameUpgradeMenu = true;
           difficultyMenu = false;
-          menuNavigationCooldown = 20;
+          openPreGamePicks(getInsanePreGamePicks(), startPendingGameMode);
         } else {
-          // Start appropriate game mode
-          if (pendingGameMode === 'single') {
-            multiplayerMode = false;
-            numPlayers = 1;
-            if (devToolsUseCustomAnts) {
-              applyCustomAntsToInitialPopulation();
-            } else {
-              applyDifficultyToInitialPopulation();
-            }
-            start = true;
-            startRoundIntro();
-            difficultyMenu = false;
-            pendingGameMode = null;
-            titlemusic.stop();
-            gamemusic.play();
-          } else if (pendingGameMode === 'multiplayer') {
-            playerSelectScreen = true;
-            difficultyMenu = false;
-          }
+          startPendingGameMode();
         }
-        
+
         menuNavigationCooldown = 20;
       }
     }
@@ -20220,176 +20246,8 @@ function drawStartScreen(){
   endMenuScaling();
 }
 
-function drawPreGameUpgradeScreen() {
-  // Initialize upgrade options if not already done
-  if (preGameUpgradeOptions.length === 0) {
-    // Only include basic upgrades (no round 5+ locked upgrades)
-    let basicUpgrades = [
-      0,  // Walking Speed
-      1,  // Dash Speed
-      2,  // Dash Cooldown
-      3,  // Add Shield
-      4,  // Add Bullets
-      5,  // Shield Regen (requires shield)
-      6,  // Bullet Reload (requires bullets)
-      7,  // Bullet Speed (requires bullets)
-      8   // Free-Angle Aiming (requires bullets + speed + reload)
-    ];
-    
-    // Filter out upgrades with unmet prerequisites
-    let availableUpgrades = [];
-    for (let i of basicUpgrades) {
-      if (i === 5 && upgrade4Level === 0) continue;  // Shield Regen requires Add Shield
-      if (i === 6 && upgrade5Level === 0) continue;  // Bullet Reload requires Add Bullets
-      if (i === 7 && upgrade5Level === 0) continue;  // Bullet Speed requires Add Bullets
-      if (i === 8) continue;  // Skip Free-Angle Aiming (too complex for first upgrade)
-      availableUpgrades.push(i);
-    }
-    
-    // Select 3 random upgrades
-    preGameUpgradeOptions = [];
-    let numToSelect = min(3, availableUpgrades.length);
-    for (let i = 0; i < numToSelect; i++) {
-      let randomIndex = floor(random(availableUpgrades.length));
-      preGameUpgradeOptions.push(availableUpgrades[randomIndex]);
-      availableUpgrades.splice(randomIndex, 1);
-    }
-    preGameSelectedUpgrade = 0;
-  }
-  
-  beginMenuScaling();
-  
-  // Dark background
-  imageMode(CORNER);
-  fill(20);
-  rect(0, 0, getMenuWidth(), getMenuHeight());
-  
-  // Title
-  fill(255, 80, 80);
-  textAlign(CENTER);
-  textSize(60);
-  text("INSANE MODE BONUS", getMenuWidth() / 2, getMenuHeight() * 0.12);
-  
-  fill(255);
-  textSize(32);
-  text("Choose One Free Upgrade", getMenuWidth() / 2, getMenuHeight() * 0.20);
-  
-  // Define upgrade names and descriptions
-  let upgradeNames = [
-    'Walking Speed', 'Dash Speed', 'Dash Cooldown', 'Add Shield', 
-    'Add Bullets', 'Shield Regeneration', 'Bullet Reload', 'Bullet Speed', 
-    'Free-Angle Aiming'
-  ];
-  let upgradeDescriptions = [
-    'Increase your movement speed.',
-    'Increase dash velocity.',
-    'Reduce time between dashes.',
-    'Gain 1 shield capacity.',
-    'Gain 2 bullet capacity.',
-    'Regenerate shields over time.',
-    'Faster bullet reload speed.',
-    'Increase bullet velocity.',
-    'Aim with mouse or right stick.'
-  ];
-  
-  // Draw upgrade options as cards
-  let cardWidth = 300;
-  let cardHeight = 350;
-  let spacing = 40;
-  let totalWidth = (cardWidth * preGameUpgradeOptions.length) + (spacing * (preGameUpgradeOptions.length - 1));
-  let startX = (getMenuWidth() - totalWidth) / 2 + cardWidth / 2;
-  
-  for (let i = 0; i < preGameUpgradeOptions.length; i++) {
-    let upgradeId = preGameUpgradeOptions[i];
-    let x = startX + i * (cardWidth + spacing);
-    let y = getMenuHeight() * 0.5;
-    
-    push();
-      // Card background
-      rectMode(CENTER);
-      if (preGameSelectedUpgrade === i) {
-        // Selected card - bright border
-        fill(80);
-        stroke(255, 255, 100);
-        strokeWeight(6);
-        // Pulsing effect
-        let pulseOffset = sin(frameCount * 0.1) * 5;
-        rect(x, y + pulseOffset, cardWidth, cardHeight, 15);
-      } else {
-        // Unselected card
-        fill(50);
-        stroke(120);
-        strokeWeight(2);
-        rect(x, y, cardWidth, cardHeight, 15);
-      }
-      
-      // Upgrade name
-      fill(255);
-      noStroke();
-      textSize(28);
-      textAlign(CENTER, TOP);
-      text(upgradeNames[upgradeId], x, y - cardHeight / 2 + 20, cardWidth - 30);
-      
-      // Description
-      fill(200);
-      textSize(18);
-      text(upgradeDescriptions[upgradeId], x, y - cardHeight / 2 + 90, cardWidth - 30);
-      
-      // Level indicator
-      fill(255, 255, 100);
-      textSize(22);
-      text('Level: 0 → 1', x, y + cardHeight / 2 - 50);
-      
-      // Selection hint
-      if (preGameSelectedUpgrade === i) {
-        fill(255, 255, 100, map(sin(frameCount * 0.1), -1, 1, 100, 255));
-        textSize(20);
-        text('[ SELECTED ]', x, y + cardHeight / 2 - 20);
-      }
-    pop();
-  }
-  
-  // Instructions
-  let fadeAlpha = map(sin(frameCount * 0.05), -1, 1, 30, 70);
-  fill(200, fadeAlpha);
-  textSize(18);
-  textAlign(CENTER);
-  text('←/→  Select  |  1/2/3  Quick Select  |  Enter or A  Confirm  |  Esc or B  Skip', getMenuWidth() / 2, getMenuHeight() * 0.88);
-  
-  // Skip hint
-  fill(150);
-  textSize(16);
-  text('(You can skip this bonus upgrade if you prefer)', getMenuWidth() / 2, getMenuHeight() * 0.93);
-  
-  endMenuScaling();
-}
-
-function applyPreGameUpgrade(selectionIndex) {
-  // Get the actual upgrade ID from the displayed upgrades
-  let upgradeId = preGameUpgradeOptions[selectionIndex];
-  
-  // Increment upgrade level
-  if (upgradeId === 0) upgrade1Level++;
-  else if (upgradeId === 1) upgrade2Level++;
-  else if (upgradeId === 2) upgrade3Level++;
-  else if (upgradeId === 3) upgrade4Level++;
-  else if (upgradeId === 4) upgrade5Level++;
-  else if (upgradeId === 5) upgrade6Level++;
-  else if (upgradeId === 6) upgrade7Level++;
-  else if (upgradeId === 7) upgrade8Level++;
-  else if (upgradeId === 8) upgrade9Level++;
-  
-  // Update upgrade booleans to apply effects
-  updateUpgradeBooleans();
-  
-  let upgradeNames = ['Walking Speed', 'Dash Speed', 'Dash Cooldown', 'Add Shield', 'Add Bullets', 'Shield Regeneration', 'Bullet Reload', 'Bullet Speed', 'Free-Angle Aiming'];
-  debugLog(`Pre-game bonus upgrade applied: ${upgradeNames[upgradeId]}`);
-  
-  // Reset menu state
-  preGameUpgradeMenu = false;
-  preGameUpgradeOptions = [];
-  
-  // Start appropriate game mode
+// Start the game mode picked on the menus
+function startPendingGameMode() {
   if (pendingGameMode === 'single') {
     multiplayerMode = false;
     numPlayers = 1;
@@ -20400,38 +20258,95 @@ function applyPreGameUpgrade(selectionIndex) {
     }
     start = true;
     startRoundIntro();
+    difficultyMenu = false;
     pendingGameMode = null;
     titlemusic.stop();
     gamemusic.play();
   } else if (pendingGameMode === 'multiplayer') {
     playerSelectScreen = true;
+    difficultyMenu = false;
   }
+}
+
+// ----- Free upgrades before a run -----
+// The kinds of upgrade a pick can offer (Shockwave Knockback, id 17, was removed).
+const PRE_GAME_BASIC_STATS = [0, 1, 2, 3, 4, 5, 6, 7];
+const PRE_GAME_SPECIAL_STATS = [11, 12, 14, 15, 16, 19, 21, 22, 23, 28, 29, 31, 35, 37, 38, 48, 49, 50, 53]; // Horns, Shockwave Radius, ...
+const PRE_GAME_ABILITIES = [8, 9, 10, 13, 18, 20, 24, 25, 26, 27, 30, 32, 33, 34, 36, 39, 40, 41, 42, 43, 44, 45, 46, 47, 51, 52, 54, 55, 56, 57, 58, 59, 60, 61, 62]; // Beam Deflection, the rove beetles, bombs, ...
+
+// The player may already own a lot of these from the Queen Upgrades shop. A pick that runs short on its own kind of
+// upgrade fills up from its backup kinds, so buying everything basic doesn't leave insane with nothing to offer.
+function getInsanePreGamePicks() {
+  return [
+    { title: 'INSANE MODE BONUS', subtitle: 'Choose One Free Upgrade', pool: PRE_GAME_BASIC_STATS, backup: PRE_GAME_SPECIAL_STATS.concat(PRE_GAME_ABILITIES) }
+  ];
+}
+
+function getNestPreGamePicks() {
+  return [
+    { title: 'THE MAIN NEST', subtitle: 'Free Upgrade 1 of 3: A Basic Stat', pool: PRE_GAME_BASIC_STATS, backup: PRE_GAME_SPECIAL_STATS.concat(PRE_GAME_ABILITIES) },
+    { title: 'THE MAIN NEST', subtitle: 'Free Upgrade 2 of 3: A Specialized Stat', pool: PRE_GAME_SPECIAL_STATS, backup: PRE_GAME_BASIC_STATS.concat(PRE_GAME_ABILITIES) },
+    { title: 'THE MAIN NEST', subtitle: 'Free Upgrade 3 of 3: An Ability', pool: PRE_GAME_ABILITIES, backup: PRE_GAME_SPECIAL_STATS.concat(PRE_GAME_BASIC_STATS) }
+  ];
+}
+
+// Up to 3 upgrades the beetle can actually take right now, from what it has after the shop and any earlier picks
+function pickPreGameOptions(pick) {
+  const levels = getCurrentUpgradeLevels();
+  const usable = ids => ids.filter(id => levels[id] < UPGRADE_MAX_LEVELS[id] && upgradePrereqsMet(id, levels));
+  const options = [];
+  moveRandomUpgrades(usable(pick.pool), options);
+  moveRandomUpgrades(usable(pick.backup), options);
+  return options;
+}
+
+function openPreGamePicks(picks, onDone) {
+  preGamePicksLeft = picks.slice();
+  preGameOnDone = onDone;
+  preGameBackHeld = true; // Whatever's still held from the screen before doesn't count
+  menuNavigationCooldown = 20;
+  showNextPreGamePick();
+}
+
+// Moves on to the next pick that has anything to offer, or starts the run
+function showNextPreGamePick() {
+  while (preGamePicksLeft.length > 0) {
+    preGamePick = preGamePicksLeft.shift();
+    preGameUpgradeOptions = pickPreGameOptions(preGamePick);
+    if (preGameUpgradeOptions.length > 0) {
+      preGameSelectedUpgrade = 0;
+      preGameUpgradeMenu = true;
+      return;
+    }
+  }
+  preGameUpgradeMenu = false;
+  preGamePick = null;
+  preGameUpgradeOptions = [];
+  displayedUpgrades = [];
+  refillBeetleForRunStart();
+  const onDone = preGameOnDone;
+  preGameOnDone = null;
+  if (onDone) onDone();
+}
+
+// The same cards as a level up
+function drawPreGameUpgradeScreen() {
+  displayedUpgrades = preGameUpgradeOptions;
+  selectedUpgrade = preGameSelectedUpgrade;
+  drawUpgradeScreen();
+}
+
+function applyPreGameUpgrade(selectionIndex) {
+  const id = preGameUpgradeOptions[selectionIndex];
+  setUpgradeLevel(id, getCurrentUpgradeLevels()[id] + 1);
+  updateUpgradeBooleans();
+  debugLog(`Pre-game bonus upgrade applied: ${UPGRADE_NAMES[id]}`);
+  showNextPreGamePick();
 }
 
 function skipPreGameUpgrade() {
   debugLog('Pre-game upgrade skipped');
-  
-  // Reset menu state
-  preGameUpgradeMenu = false;
-  preGameUpgradeOptions = [];
-  
-  // Start game without bonus upgrade
-  if (pendingGameMode === 'single') {
-    multiplayerMode = false;
-    numPlayers = 1;
-    if (devToolsUseCustomAnts) {
-      applyCustomAntsToInitialPopulation();
-    } else {
-      applyDifficultyToInitialPopulation();
-    }
-    start = true;
-    startRoundIntro();
-    pendingGameMode = null;
-    titlemusic.stop();
-    gamemusic.play();
-  } else if (pendingGameMode === 'multiplayer') {
-    playerSelectScreen = true;
-  }
+  showNextPreGamePick();
 }
 
 // Tab names, colors and progress bar gradients for each Antdex section
@@ -20682,14 +20597,14 @@ function antdexScreen() {
 
 function mouseWheel(event) {
   if (antdex) dexTargetScroll -= event.delta / 2;
-  if (evoTreeOpen) evoTargetScrollX -= event.delta;
+  if (evoTreeOpen && !evoDetailNode) evoTargetScrollX -= event.delta;
   // Scrolling walks down (or back up) the difficulty map's path
   if (difficultyMenu) mapScroll(event.delta);
 }
 
 function touchMoved() {
   if (antdex) dexTargetScroll += (movedY);
-  if (evoTreeOpen) evoTargetScrollX += movedX;
+  if (evoTreeOpen && !evoDetailNode) evoTargetScrollX += movedX;
 }
 
 function setDexCategory(nextCategory) {
@@ -20705,6 +20620,24 @@ function pointInRect(px, py, rect) {
     px >= rect.x && px <= rect.x + rect.w &&
     py >= rect.y && py <= rect.y + rect.h
   );
+}
+
+// Which upgrade card the mouse is over (see drawUpgradeScreen), or -1
+function getUpgradeCardAtMouse(count) {
+  const cardWidth = getMenuWidth() * 0.25;
+  const cardHeight = getMenuHeight() * 0.48;
+  const cardY = getMenuHeight() * 0.50;
+  const spacing = getMenuWidth() * 0.05;
+  const totalWidth = (cardWidth * count) + (spacing * (count - 1));
+  const startX = (getMenuWidth() - totalWidth) / 2 + cardWidth / 2;
+  for (let i = 0; i < count; i++) {
+    const cardX = startX + i * (cardWidth + spacing);
+    if (getMenuMouseX() > cardX - cardWidth / 2 && getMenuMouseX() < cardX + cardWidth / 2 &&
+        getMenuMouseY() > cardY - cardHeight / 2 && getMenuMouseY() < cardY + cardHeight / 2) {
+      return i;
+    }
+  }
+  return -1;
 }
 
 function mousePressed() {
@@ -20724,23 +20657,25 @@ function mousePressed() {
     }
   }
 
+  // Free upgrades before a run, on the same cards as a level up
+  if (preGameUpgradeMenu && mouseButton === LEFT) {
+    const card = getUpgradeCardAtMouse(preGameUpgradeOptions.length);
+    if (card >= 0) applyPreGameUpgrade(card);
+    return;
+  }
+
+  // The evolution tree's cards open that ant's full stats
+  if (evoTreeOpen && mouseButton === LEFT) {
+    evoTreeClicked();
+    return;
+  }
+
   // Handle upgrade menu clicks (left button only; right click switches shot mode)
   if (upgradeMenuActive && mouseButton === LEFT) {
-    let cardWidth = getMenuWidth() * 0.25;
-    let cardHeight = getMenuHeight() * 0.48;
-    let cardY = getMenuHeight() * 0.50;
-    let spacing = getMenuWidth() * 0.05;
-    let totalWidth = (cardWidth * 3) + (spacing * 2);
-    let startX = (getMenuWidth() - totalWidth) / 2 + cardWidth / 2;
-    
-    for (let i = 0; i < 3; i++) {
-      let cardX = startX + i * (cardWidth + spacing);
-      // Check if click is within card bounds
-      if (getMenuMouseX() > cardX - cardWidth/2 && getMenuMouseX() < cardX + cardWidth/2 &&
-          getMenuMouseY() > cardY - cardHeight/2 && getMenuMouseY() < cardY + cardHeight/2) {
-        applyUpgrade(i);
-        return;
-      }
+    const card = getUpgradeCardAtMouse(displayedUpgrades.length);
+    if (card >= 0) {
+      applyUpgrade(card);
+      return;
     }
   }
   
