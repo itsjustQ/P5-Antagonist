@@ -15,6 +15,12 @@ let sceneAbilitySeen = {};        // Ability key -> round it first showed up thi
 let sceneForcedId = null;         // Dev/tutorial override for the next scene
 
 const SCENE_MAX_FRAMES = 840;     // Nothing runs longer than 14 seconds
+const HOVER_SCENE_ANTS = 4;
+const HOVER_SCENE_MAX_RY = 190;   // The oval the hover ants circle the beetle on (through its four corners)
+const HOVER_SCENE_OVAL = 1.42;    // ...and how much wider than tall it is
+const HOVER_SCENE_TOP_ROOM = 85;  // Kept clear above and below it: they fly high up, with the score bar over them
+const HOVER_SCENE_LAP_FRAMES = 180;
+const HOVER_SCENE_LEG_FRAMES = 6;
 const SCENE_SKIP_GRACE = 15;      // Frames before a scene can be skipped (so the key that started the round doesn't)
 
 function sceneEase(kind, x) {
@@ -1162,9 +1168,14 @@ function finishRoundScene() {
 
 // ---------- Round end: the ants retreat ----------
 // No freeze: the game keeps running while the round-over message shows, and every ant runs off to the right,
-// deeper into ant territory. The beetle holds its ground. Then the upgrade and round-over screens slide in.
+// deeper into ant territory, going around the beetle on whichever side is closer. The beetle holds its ground. Then
+// the upgrade and round-over screens slide in.
 const RETREAT_FRAMES = 150;
+const RETREAT_BEETLE_RADIUS = 65;  // Half the beetle's sprite
+const RETREAT_TURN_RATE = 0.2;
 let retreatSpeeds = [];
+let retreatSides = [];             // -1 = going around above the beetle, 1 = below (decided once, so it can't dither)
+let retreatHeadings = [];          // Radians
 
 function startRoundRetreat() {
   // Bullets in the air fizzle out
@@ -1176,29 +1187,59 @@ function startRoundRetreat() {
   enemyStreams = [];
   antStream = [];
   queenProjectiles = [];
+  antWarpFall = [];
+  antHoverBunker = [];
   retreatSpeeds = [];
-  for (let i = 1; i <= enemyCount; i++) retreatSpeeds[i] = random(2.2, 3.4);
+  retreatSides = [];
+  retreatHeadings = [];
+  for (let i = 1; i <= enemyCount; i++) {
+    retreatSpeeds[i] = random(2.2, 3.4);
+    retreatHeadings[i] = 0;
+  }
+}
+
+// Which way ant i wants to run: straight right, unless the beetle is in the way. Then it heads for the edge of a
+// circle around the beetle, on its closer side (or the other one, if the screen ends before it gets around).
+function getRetreatHeading(i) {
+  const clearance = RETREAT_BEETLE_RADIUS + (45 + 15 * antSize[i]) / 2 + 12;
+  const dx = playerX - antX[i];
+  const dy = antY[i] - playerY;
+  if (dx < 0 || Math.abs(dy) >= clearance) return 0;
+  if (!retreatSides[i]) {
+    let side = dy === 0 ? (i % 2 ? 1 : -1) : Math.sign(dy);
+    const edge = playerY + side * clearance;
+    if (edge < scoreBarHeight + 15 || edge > getGameplayHeight() - expBarHeight - expBarBuffer) side = -side;
+    retreatSides[i] = side;
+  }
+  const side = retreatSides[i];
+  const d = Math.sqrt(dx * dx + dy * dy);
+  if (d <= clearance) return side * Math.PI / 2; // Already too close: straight out to the side
+  return constrain(Math.atan2(-dy, dx) + side * Math.asin(clearance / d), -Math.PI / 2, Math.PI / 2);
 }
 
 function drawRoundRetreatFrame(age) {
   drawBackground();
   beginGameplayScaling();
   const ramp = Math.min(1, age / 30);
+  const faceAngles = [];
   for (let i = 1; i <= enemyCount; i++) {
     if (antDormant[i] || !retreatSpeeds[i]) continue;
-    antX[i] += retreatSpeeds[i] * ramp;
-    antY[i] += Math.sin(age * 0.15 + i) * 0.6;
+    const heading = sceneLerpAngle(retreatHeadings[i], getRetreatHeading(i), RETREAT_TURN_RATE);
+    retreatHeadings[i] = heading;
+    faceAngles[i] = heading * 180 / Math.PI;
+    antX[i] += Math.cos(heading) * retreatSpeeds[i] * ramp;
+    antY[i] += Math.sin(heading) * retreatSpeeds[i] * ramp + Math.sin(age * 0.15 + i) * 0.6;
     antAirHeight[i] = 0;
     antInBunker[i] = null;
   }
   drawEnemySmokeImpacts();
-  // Ants face the way they're running: drawEnemy turns them toward the beetle, so point that far off to the right
+  // Ants face the way they're running. Their shadows turn toward the beetle, so point that far off to the right.
   const beetleX = playerX;
-  const beetleY = playerY;
   playerX = getGameplayWidth() * 10;
+  antFaceAngles = faceAngles;
   drawEnemy();
+  antFaceAngles = null;
   playerX = beetleX;
-  playerY = beetleY;
   drawBeetleShadow();
   push();
   angleMode(DEGREES);
@@ -1565,32 +1606,70 @@ const ROUND_SCENES = [
   {
     id: 'hoverAnts', key: 'hoverAnts', need: p => p.has('hoverAnts'),
     build: S => {
-      // They fly in on their streams of acid
+      // Four of them fly in from the right on their streams of acid, split up and circle the beetle both ways,
+      // ending on its four corners. Hover ants the round really has start the round on those corners; if it has
+      // fewer than four, the rest of the squadron are extras who fade out before the countdown.
       const b = S.beetle;
-      const flyers = S.feature(sceneHas('hoverAnts'), 6);
-      const arrive = sceneBeetleWalkIn(S, 0, 120, { x: -120, y: S.cy });
+      const real = S.feature(sceneHas('hoverAnts'), HOVER_SCENE_ANTS);
+      const flyers = real.slice();
+      while (flyers.length < HOVER_SCENE_ANTS) flyers.push(S.extra(S.W + 100, S.cy, { size: real.length ? real[0].size : 1, look: 'move' }));
+      const arrive = sceneBeetleWalkIn(S, 0, 100, { x: -120, y: S.cy });
+
+      // Above the beetle going counterclockwise, below it going clockwise; each pair flies a lap, then on to its corner
+      const plans = [
+        { side: -1, end: -Math.PI / 4 },     // Upper right
+        { side: -1, end: -3 * Math.PI / 4 }, // Upper left
+        { side: 1, end: Math.PI / 4 },       // Lower right
+        { side: 1, end: 3 * Math.PI / 4 }    // Lower left
+      ];
+      const ry = Math.min(HOVER_SCENE_MAX_RY, S.cy - HOVER_SCENE_TOP_ROOM, S.H - S.cy - HOVER_SCENE_TOP_ROOM);
+      const rx = ry * HOVER_SCENE_OVAL;
+      const flyIn = arrive - 25;
+      let landed = flyIn;
       flyers.forEach((a, k) => {
-        const from = S.edgeBehind(a.home.x, a.home.y, 80);
-        a.x = from.x;
-        a.y = from.y;
+        const plan = plans[k];
+        const t0 = flyIn + k * 6;
+        a.x = S.W + 100 + k * 30;
+        a.y = S.cy + (k - 1.5) * 26;
         a.look = 'move';
-        const t0 = arrive - 10 + k * 8;
-        a.move(t0, 70, a.home.x, a.home.y, 'out');
-        for (let f = 0; f <= 70; f++) a.at(t0 + f, () => { a.airOverride = f < 70 ? 40 * Math.min(1, (70 - f) / 15) : 0; });
-        S.stream(t0, a, { angle: Math.atan2(from.y - a.home.y, from.x - a.home.x) + 0.5, len: 60, width: 18, dur: 70 });
-        a.face(t0 + 70, b);
+        const entryDur = Math.round(dist(a.x, a.y, S.cx + rx, S.cy) / 10);
+        a.move(t0, entryDur, S.cx + rx, S.cy + plan.side * 12, 'linear');
+        // The lap, a leg at a time around the oval that goes through the corners
+        const sweep = plan.end + plan.side * Math.PI * 2;
+        const legs = Math.round(HOVER_SCENE_LAP_FRAMES / HOVER_SCENE_LEG_FRAMES);
+        const points = [];
+        for (let l = 1; l <= legs; l++) {
+          const ang = sweep * sceneEase('inOut', l / legs * 0.5 + 0.5) * 2 - sweep; // Full speed from the first leg, easing into the corner
+          points.push([S.cx + Math.cos(ang) * rx, S.cy + Math.sin(ang) * ry]);
+        }
+        const lapStart = t0 + entryDur;
+        a.path(lapStart, HOVER_SCENE_LEG_FRAMES, points);
+        const land = lapStart + legs * HOVER_SCENE_LEG_FRAMES;
+        landed = Math.max(landed, land);
+        for (let f = t0; f <= land; f++) a.at(f, () => { a.airOverride = 40 * Math.min(1, (land - f) / 15); });
+        S.stream(t0, a, { aim: () => ({ x: a.x - Math.cos(a.angle) * 100, y: a.y - Math.sin(a.angle) * 100 }), len: 60, width: 18, dur: land - t0 });
+        a.face(land, b);
+        // It stays where it lands
+        const corner = points[points.length - 1];
+        if (a.home) {
+          a.home = { x: corner[0], y: corner[1] };
+          antX[a.antIndex] = antPrevX[a.antIndex] = corner[0];
+          antY[a.antIndex] = antPrevY[a.antIndex] = corner[1];
+        }
       });
-      // A heavy rumble rolls in with them, building as more take to the air, until the last one lands
-      const flyStart = arrive - 10;
-      const flyEnd = flyStart + (flyers.length - 1) * 8 + 70;
-      for (let t = flyStart; t < flyEnd; t += 8) {
-        const up = Math.min(1, (t - flyStart) / 40);
+
+      // A heavy rumble rolls in with them, easing off as they land
+      for (let t = flyIn; t < landed; t += 8) {
+        const up = Math.min(1, (t - flyIn) / 40) * Math.min(1, (landed - t) / 30);
         S.at(t, () => rumble(200, 0.35 + 0.4 * up, 0.3 + 0.2 * up));
       }
       b.emote(arrive, '!', 50);
       b.at(arrive + 5, () => { b.look = flyers[0]; });
+      b.emote(landed - 20, 'sweat', 70);
       const done = S.gather(arrive + 40, 'run');
-      S.extend(Math.max(done, arrive + 100) + 20);
+      const end = Math.max(done, landed) + 25;
+      for (const a of flyers) if (a.extra) a.fade(end, 14, 0);
+      S.extend(end);
     }
   },
   {

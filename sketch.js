@@ -660,6 +660,9 @@ let enemyStreams = []; // Acid streams sprayed by stream fire ants (rapid fire t
 let antStream = []; // The stream each ant is currently firing (fusing, charging or spraying), or null
 let antStreamEndFrame = []; // frameCount each ant last stopped spraying (ghost stream ants fade back in from it)
 let antPortalSprayFrame = []; // Portal stream ants: frameCount they may spray after teleporting (see portalStreamAnt)
+let antWarpFall = [];         // Portal stream ants warped up to a flying beetle: { x, y, left } while they slow fall (see portalStreamAnt)
+let antHoverBunker = [];      // Launch stream ants flying out of a bunker: their spot in it, to drop back into (see tryFireAntStream)
+let antFaceAngles = null;     // Set while the retreat draws the ants: the way (degrees) each one is running
 let antSelfDestructFuse = []; // Proximity explosion stream ants: { life, lives } while their self-destruct fuse burns, or null
 let enemySmokeImpacts = []; // Grey smoke puffs from explosions and exploding streams (visual only)
 let enemyTerritories = []; // Territory / nest areas left by dead bullets
@@ -1771,6 +1774,9 @@ function draw() {
   } else if (start == true && roundOutroTimer > 0 && roundOutroSnapshot) {
     // Round outro: frozen and darkened with "Victory" / "Queen Defeated" before the round-over screen
     drawRoundOutro();
+  } else if (start == true && isRoundOverSliding()) {
+    // The round-over screen slides up over the ants still running off, not over the round starting back up
+    drawRoundRetreatSlide();
   } else if (start == true){
       // Only snapshot a round that was already started before this frame; nextRound() runs
       // inside endGame() from the round-over screen, which would otherwise freeze that screen
@@ -2484,6 +2490,8 @@ function resetAntToStartingGenes(i) {
   antRecoilAirTimer[i] = 0;
   antShield[i] = 0;
   antInBunker[i] = null;
+  antWarpFall[i] = null;
+  antHoverBunker[i] = null;
   antDormant[i] = false;
 }
 
@@ -3122,7 +3130,7 @@ function drawAnt(i, airPass) {
         imageMode(CENTER);
         // Offset ant visual position upward when airborne
         translate(antX[i], antY[i] - antAirHeight[i]);
-        let a = atan2(playerY - antY[i], playerX - antX[i]);
+        let a = antFaceAngles ? antFaceAngles[i] : atan2(playerY - antY[i], playerX - antX[i]);
         rotate(a);
         let antImageSize = 45 + (15 * antSize[i]);
         // Each ant runs its walk cycle from its own starting point, so a crowd doesn't step in lockstep
@@ -3804,6 +3812,20 @@ function drawRoundOutro() {
   }
 }
 
+// The outro is done and the round-over screen is on its way up
+function isRoundOverSliding() {
+  return timeCount < 0 && levelEnd === 1 && roundOutroTimer <= 0 && intermissionSlideFrame < INTERMISSION_SLIDE_FRAMES;
+}
+
+function drawRoundRetreatSlide() {
+  drawRoundRetreatFrame(roundOutroFrames + intermissionSlideFrame);
+  noStroke();
+  fill(0, 0, 0, 50);
+  rectMode(CORNER);
+  rect(0, 0, windowWidth, windowHeight);
+  endGame(); // Moves the slide along and draws the screen
+}
+
 function startRoundIntro() {
   antDexRoundSeen = {};
   roundIntroSnapshot = null;
@@ -4388,6 +4410,13 @@ function handleAntKnockback() {
       antAirHeight[i] = Math.max(antAirHeight[i], streamLift);
     }
 
+    // Warp sprayers up at a flying beetle slow fall back to the ground
+    if (antWarpFall[i]) {
+      antWarpFall[i].left--;
+      if (antWarpFall[i].left <= 0) antWarpFall[i] = null;
+      else antAirHeight[i] = Math.max(antAirHeight[i], WARP_AIR_HEIGHT * antWarpFall[i].left / WARP_FALL_FRAMES);
+    }
+
     // Handle stun timer
     if (antStunned[i] && antStunTimer[i] > 0) {
       antStunTimer[i]--;
@@ -4630,6 +4659,8 @@ function drawDeferredEnemyBullets() {
 
 function enemyShoot1() {
   if (end == false) {
+    // The frozen first frame of a round runs once, for the countdown's backdrop: nobody fires until the countdown ends
+    const roundFrozen = roundIntroTimer > 0;
     for (let i = 1; i < enemyCount + 1; i++) {
       // Check if ant is in rapid fire sequence and ready to fire next bullet
       if (antRapidFireActive[i] && frameCount >= antRapidFireNextFrame[i]) {
@@ -4651,7 +4682,7 @@ function enemyShoot1() {
       
       // Only skip shooting new bullets if ant is stunned (or dormant in a queen fight, or lured in by a rove
       // beetle), but still update existing bullets
-      if (!antStunned[i] && !antDormant[i] && !antLure[i]) {
+      if (!antStunned[i] && !antDormant[i] && !antLure[i] && !roundFrozen) {
         // Determine cooldown based on fire type
         let currentCooldown = bulletCooldown[i];
         const fireType = getFireType(i);
@@ -8731,12 +8762,17 @@ function tryFireAntStream(i) {
   if (getPathType(i) === 3 && pathBlink[i] >= 1) {
     const sprayAt = antPortalSprayFrame[i];
     if (sprayAt === undefined || frameCount > sprayAt + PORTAL_STREAM_STALE) {
+      antPortalSprayFrame[i] = frameCount + (isPlayerFlying() ? WARP_AIR_SPRAY_DELAY : PORTAL_STREAM_DELAY);
       portalStreamAnt(i);
-      antPortalSprayFrame[i] = frameCount + PORTAL_STREAM_DELAY;
       return;
     }
     if (frameCount < sprayAt) return;
     antPortalSprayFrame[i] = undefined;
+  }
+  // Hover ants don't spray from inside a bunker: they fly up out of it and drop back in when they're done
+  if (antInBunker[i] && getSpecialType(i) === -3) {
+    antHoverBunker[i] = antInBunker[i];
+    antInBunker[i] = null;
   }
   const stream = createAntStream(i);
   enemyStreams.push(stream);
@@ -8836,21 +8872,27 @@ function stopStreamSpray(stream, died) {
 
 // The base aims straight at the beetle; the rest of the stream only catches up as new spray flows out
 function aimStream(stream) {
-  stream.aimX = playerX + shotOffsetX[stream.owner];
-  stream.aimY = playerY + shotOffsetY[stream.owner];
+  // A warp sprayer up in the air sprays straight at the beetle it warped to
+  const warping = !!antWarpFall[stream.owner];
+  stream.aimX = playerX + (warping ? 0 : shotOffsetX[stream.owner]);
+  stream.aimY = playerY + (warping ? 0 : shotOffsetY[stream.owner]);
   stream.aimAngle = Math.atan2(stream.aimY - stream.originY, stream.aimX - stream.originX);
 }
 
 // A new bit of stream sprayed from the base toward where it's aiming
 function createStreamNode(stream) {
+  // Sprayed by a warp sprayer on its way down: an airborne stream, which only meets a flying beetle
+  const airStart = antWarpFall[stream.owner] ? Math.max(antAirHeight[stream.owner], STREAM_GROUND_HEIGHT + 1) : 0;
+  if (airStart > 0) stream.airborne = true;
   return {
+    airStart: airStart,      // Height it was sprayed from (0 = the ground)
     ox: stream.originX,      // Where it was sprayed from
     oy: stream.originY,
     x: stream.originX,
     y: stream.originY,
     px: stream.originX,      // Where it was last frame (for going through a mound ring's gaps)
     py: stream.originY,
-    h: 0,                    // Height above the ground (high arc streams)
+    h: airStart,             // Height above the ground (high arc and warp sprayer streams)
     startHeading: stream.aimAngle,
     heading: stream.aimAngle,
     landX: stream.aimX,      // High arc streams: where it lands
@@ -8933,6 +8975,8 @@ function advanceStreamNode(stream, node, spawned) {
   node.x += Math.cos(node.heading) * STREAM_GROWTH_SPEED;
   node.y += Math.sin(node.heading) * STREAM_GROWTH_SPEED;
   if (stream.blink && !node.blinked && node.s >= stream.blinkDistance) blinkStreamNode(stream, node);
+  // Airborne bits level out at the height of a flying beetle
+  if (node.airStart > 0) node.h = node.airStart + (FLIGHT_HEIGHT - node.airStart) * along;
   return true;
 }
 
@@ -9494,7 +9538,7 @@ function drawStreamSlices(stream, slices, beamSlice) {
   const flicker = 1 + 0.08 * Math.sin(stream.life * 1.3);
   const { glow, core } = getAttackColors(stream.owner, stream.colors);
 
-  if (stream.pathType === 1) {
+  if (stream.pathType === 1 || stream.airborne) {
     // Shadow along the ground under a lofted stream
     for (const slice of slices) fillStreamRibbon(slice, 0.6, false, [0, 0, 0], alpha * 0.2);
   }
@@ -9717,6 +9761,10 @@ const MAX_COOLDOWN_BOOST = 3;              // Alarm and territory boosts multipl
 const AVENGE_RADIUS = 180;               // Avenge: deaths within this distance make the ant fire again
 const PORTAL_STREAM_DELAY = 20;            // Portal stream ants: frames between teleporting and spraying
 const PORTAL_STREAM_STALE = 10;            // ...and how late that spray can be before they teleport again
+const WARP_AIR_SPRAY_DELAY = 10;           // Warping up to a flying beetle: frames before spraying (the fall is short)
+const WARP_AIR_HEIGHT = 60;                // ...how high the ant comes out
+const WARP_AIR_OFFSET = 110;               // ...how far above the beetle on the screen (clear of its body, in reach of the stream)
+const WARP_FALL_FRAMES = 50;               // ...and how long its slow fall takes
 const BLINK_MIN_DELAY = 10;               // Blink / portal: frames after firing before the jump (genetic stat)
 const BLINK_MAX_DELAY = 120;
 const BLINK_DEFAULT_DELAY = 60;
@@ -9905,9 +9953,19 @@ function blinkStreamNode(stream, node) {
 }
 
 // Portal stream ants: right before spraying, the ant itself teleports to a spot around the beetle - at its
-// angle from spawn, its distance from anchor away - or the closest on-screen spot to it
+// angle from spawn, its distance from anchor away - or the closest on-screen spot to it. If the beetle is flying
+// it comes out in the air above it instead, and slow falls while it sprays (ants can't fly).
 function portalStreamAnt(i) {
   spawnBlinkFlash(antX[i], antY[i], 30, true);
+  if (isPlayerFlying()) {
+    antInBunker[i] = null;
+    antX[i] = constrain(playerX, sideBuffer, getGameplayWidth() - sideBuffer);
+    antY[i] = constrain(playerY - WARP_AIR_OFFSET, scoreBarHeight + 15, getGameplayHeight() - expBarHeight - expBarBuffer);
+    antWarpFall[i] = { x: antX[i], y: antY[i], left: WARP_FALL_FRAMES };
+    antAirHeight[i] = WARP_AIR_HEIGHT;
+    spawnBlinkFlash(antX[i], antY[i] - WARP_AIR_HEIGHT, 30, true);
+    return;
+  }
   antX[i] = constrain(playerX + Math.cos(angleFromSpawn[i]) * distanceFromAnchor[i],
     sideBuffer, getGameplayWidth() - sideBuffer);
   antY[i] = constrain(playerY + Math.sin(angleFromSpawn[i]) * distanceFromAnchor[i],
@@ -10124,7 +10182,7 @@ function updateEnemyWalls() {
   }
 
   for (let i = 1; i <= enemyCount; i++) {
-    if (antInBunker[i] || antAirHeight[i] > 0 || antKnockedBack[i] || antDormant[i]) continue;
+    if (antInBunker[i] || antHoverBunker[i] || antAirHeight[i] > 0 || antKnockedBack[i] || antDormant[i]) continue;
     if (vortexPull && vortexPull.ants.includes(i)) continue; // Being sucked toward the beetle, can't duck back in
     const range = bunkerRange[i] ?? BUNKER_DEFAULT_RANGE;
     for (const wall of enemyWalls) {
@@ -10137,9 +10195,45 @@ function updateEnemyWalls() {
   }
 }
 
+// Hover ants flying out of a bunker, and warp sprayers on their way down, stay over their spot
+function isAntHeldInAir(i) {
+  return !!(antHoverBunker[i] || antWarpFall[i]);
+}
+
+// Hold an ant in the air where it is. A hover ant drops back into its bunker once it has landed.
+function holdAirborneAnt(i) {
+  const fall = antWarpFall[i];
+  if (fall) {
+    if (antKnockedBack[i]) {
+      antWarpFall[i] = null; // Knocked out of the fall: the knockback takes it from here
+    } else {
+      antX[i] = fall.x;
+      antY[i] = fall.y;
+      antRecoilVelX[i] = 0;
+      antRecoilVelY[i] = 0;
+    }
+  }
+  const hover = antHoverBunker[i];
+  if (!hover) return;
+  if (hover.wall.health <= 0 || !enemyWalls.includes(hover.wall)) {
+    antHoverBunker[i] = null; // Its bunker is gone: it just lands
+    return;
+  }
+  antX[i] = hover.wall.x + hover.dx;
+  antY[i] = hover.wall.y + hover.dy;
+  antKnockedBack[i] = false;
+  antRecoilVelX[i] = 0;
+  antRecoilVelY[i] = 0;
+  if (!antStream[i] && antRecoilAirTimer[i] <= 0) {
+    antInBunker[i] = hover;
+    antHoverBunker[i] = null;
+  }
+}
+
 // Ants in a bunker stay put in it (movement elsewhere this frame is undone here)
 function holdBunkeredAnts() {
   for (let i = 1; i <= enemyCount; i++) {
+    if (isAntHeldInAir(i)) holdAirborneAnt(i);
     const spot = antInBunker[i];
     if (!spot) continue;
     antX[i] = spot.wall.x + spot.dx;
@@ -10428,6 +10522,8 @@ function parkAnt(i) {
   antRecoilVelY[i] = 0;
   antRecoilAirTimer[i] = 0;
   antInBunker[i] = null;
+  antWarpFall[i] = null;
+  antHoverBunker[i] = null;
   antSelfDestructFuse[i] = null;
   antOrder[i] = null;
 }
@@ -10546,6 +10642,8 @@ function placeSpawnedAnt(i, x, y) {
   antCooldownBoost[i] = 1;
   antShield[i] = 0;
   antInBunker[i] = null;
+  antWarpFall[i] = null;
+  antHoverBunker[i] = null;
   antAirHeight[i] = 0;
   antRecoilVelX[i] = 0;
   antRecoilVelY[i] = 0;
@@ -11811,12 +11909,13 @@ function pushBeetleOutOf(bx, by, reach) {
 
 // Her passive answer to a beetle that hugs her (her royal guards do it too): QUEEN_GRAB_FRAMES in total (breaks
 // don't reset it) touching her or within QUEEN_GRAB_RANGE of her body, and she grabs it, swings it once around
-// herself and throws it off
+// herself and throws it off for QUEEN_THROW_DAMAGE
 const QUEEN_GRAB_RANGE = 50;
 const QUEEN_GRAB_FRAMES = 180;
 const QUEEN_GRAB_WARN_FRAMES = 60;      // Her warning ring shows for the last second before she grabs
 const QUEEN_SWING_FRAMES = 40;          // One full circle, speeding up
 const QUEEN_THROW_SPEED = 20;
+const QUEEN_THROW_DAMAGE = 1;
 
 function updateQueenGrab() {
   updateGrabber(queen, getQueenBodyRadius(), isQueenImmune() || !!queen.bunker);
@@ -11854,6 +11953,7 @@ function updateGrabber(g, bodyRadius, blocked) {
       const tx = -Math.sin(angle) * grab.dir + Math.cos(angle) * 0.5;
       const ty = Math.cos(angle) * grab.dir + Math.sin(angle) * 0.5;
       const tl = Math.sqrt(tx * tx + ty * ty);
+      queenHitPlayer(QUEEN_THROW_DAMAGE / (queen.strength || 1)); // A flat hit, however strong she is
       knockPlayerFrom(playerX - tx / tl, playerY - ty / tl, QUEEN_THROW_SPEED);
       queenEffects.push({ kind: 'ring', x: playerX, y: playerY, life: 0, frames: 18, maxR: 50, color: [220, 160, 255] });
       g.grab = null;
@@ -15524,7 +15624,7 @@ function drawAphidEffectRings() {
 function autonomousAntMovement(){
   for (let i = 1; i <= enemyCount; i++) {
     // Skip knocked back ants - they use knockback movement instead (and ants hiding in a bunker)
-    if (antKnockedBack[i] || antInBunker[i] || antDormant[i] || antOrder[i] || antLure[i]) continue;
+    if (antKnockedBack[i] || antInBunker[i] || isAntHeldInAir(i) || antDormant[i] || antOrder[i] || antLure[i]) continue;
     
     if (findLocation[i] === true){
       if (followTarget[i] === true){
@@ -15546,7 +15646,7 @@ function autonomousAntMovement(){
   }
   for (let i = 1; i <= enemyCount; i++) {
     // Skip knocked back ants and ants hiding in a bunker
-    if (antKnockedBack[i] || antInBunker[i] || antDormant[i] || antOrder[i] || antLure[i]) continue;
+    if (antKnockedBack[i] || antInBunker[i] || isAntHeldInAir(i) || antDormant[i] || antOrder[i] || antLure[i]) continue;
     
     if (!keepDistance[i]) continue; // only handle autonomous keep-distance ants
 
@@ -17838,6 +17938,8 @@ Next generation distribution:`);
 
 
 
+const BREEDING_PARENT_SLOT = 501;  // Past MAX_ANTS in nextRound()
+
 // Drop lingering effects so nothing carries over between rounds and the arrays start fresh
 function clearRoundEffects() {
   playerBullets = [];
@@ -17868,6 +17970,8 @@ function clearRoundEffects() {
   blinkFlashes = [];
   antShield = [];
   antInBunker = [];
+  antWarpFall = [];
+  antHoverBunker = [];
   antAvengeQueue = [];
   antAvengeArmed = [];
   antCooldownBoost = [];
@@ -17882,6 +17986,20 @@ function clearRoundEffects() {
   antHitSpots = [];
   pendingHitSpot = null;
   queenDefeatedThisRound = false;
+}
+
+// Copies of the top ants' genes, kept past the last ant slot while nextRound() breeds from them
+function copyBreedingParents(topAnts) {
+  const copies = new Map();
+  return topAnts.map(top => {
+    if (top.custom) return top;
+    if (!copies.has(top.id)) {
+      const slot = BREEDING_PARENT_SLOT + copies.size;
+      cloneAntGenes(top.id, slot);
+      copies.set(top.id, slot);
+    }
+    return { ...top, id: copies.get(top.id), sourceId: top.id };
+  });
 }
 
 function nextRound(){
@@ -17996,10 +18114,14 @@ function nextRound(){
   const MAX_ANTS = 500;  // Safety limit
   
   // Process each winner's slot allocation
+  // The new ants overwrite ants 1, 2, 3... as they're made, which can be the next group's parent: breed from copies
+  const breedingArrays = getCloneableAntArrays().concat([geneTokenInvestments]);
+  const breedingArrayLengths = breedingArrays.map(arr => arr.length);
+  const breedingParents = copyBreedingParents(topAnts);
   let winnerGroups = [
-    { parent: topAnts[0], slots: slots1, name: '#1' },
-    { parent: topAnts[1], slots: slots2, name: '#2' },
-    { parent: topAnts[2], slots: slots3, name: '#3' }
+    { parent: breedingParents[0], slots: slots1, name: '#1' },
+    { parent: breedingParents[1], slots: slots2, name: '#2' },
+    { parent: breedingParents[2], slots: slots3, name: '#3' }
   ];
   
   for (let group of winnerGroups) {
@@ -18015,7 +18137,7 @@ function nextRound(){
     while (usedSlots < group.slots && antIndex <= MAX_ANTS) {
       let i = antIndex;
       let parent = group.parent;
-      antEvoParent[i] = evoNodeOf[parent.id];
+      antEvoParent[i] = evoNodeOf[parent.sourceId];
     
     strikeX[i] = 0;
     strikeY[i] = 0;
@@ -18848,6 +18970,7 @@ function nextRound(){
   
   // Set enemyCount to actual number of ants created
   enemyCount = antIndex - 1;
+  breedingArrays.forEach((arr, k) => { arr.length = Math.max(breedingArrayLengths[k], antIndex + 1); }); // Drop the copies
   playerSpeed = movementSpeed / enemyCount;
   debugLog(`Total: Created ${enemyCount} ants across all winners`);
 
@@ -20801,7 +20924,7 @@ function buildDexExoticEntries() {
     ['flickerLandmine', 'Flickering Landmines', 'Camouflage bullets become landmines that keep flickering in and out of sight.', 'Camouflage + Landmine', 'flickerLandmine', i => getSpecialType(i) === 2 && mines(i)],
     ['twinBeam', 'Twin Beam Ants', "Explosive beam bullets don't explode: their beam fires both ways at once and burns like an explosion.", 'Explosion + Beam', 'twinBeam', i => explosive(i) && isBeamAccelerate(i) && !stream(i)],
     ['beamStream', 'Laser Hose Ants', 'Beam stream ants fire a beam straight on from wherever their stream ends, for as long as the stream keeps arriving there.', 'Beam + Stream', 'beamStream', i => isBeamAccelerate(i) && stream(i)],
-    ['portalStream', 'Warp Sprayer Ants', "Portal stream ants don't send their stream through a portal: they step through one themselves, coming out at their own spot around the beetle right before they spray.", 'Portal + Stream', 'portalStream', i => getPathType(i) === 3 && pathBlink[i] >= 1 && stream(i)],
+    ['portalStream', 'Warp Sprayer Ants', "Portal stream ants don't send their stream through a portal: they step through one themselves, coming out at their own spot around the beetle right before they spray. If the beetle is flying, they come out in the air above it and spray it as they slow fall.", 'Portal + Stream', 'portalStream', i => getPathType(i) === 3 && pathBlink[i] >= 1 && stream(i)],
     ['sprinkler', 'Sprinkler Ants', 'Accelerating stream ants throw particles off the end of their stream that fan out to the edge of the screen.', 'Accelerate + Stream', 'sprinkler', i => getPathType(i) === 2 && !isBeamAccelerate(i) && stream(i)],
     ['clusterBomb', 'Cluster Bomb Ants', 'One lofted bullet splits into a burst, then every bullet of the burst splits into 3 more at the top of its arc. Arcs are timed so the two splits never happen at once.', 'Delayed Burst + Split Arc', 'clusterBomb', i => getFireType(i) === 3 && isSplitArc(i)]
   ];
