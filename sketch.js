@@ -2798,8 +2798,8 @@ function drawGameOverOptions() {
       stroke(option.color[0], option.color[1], option.color[2]);
       strokeWeight(3);
     } else {
-      fill(50);
-      stroke(100);
+      menuCardFill();
+      menuCardStroke();
       strokeWeight(2);
     }
     rect(r.x, r.y, r.w, r.h, 12);
@@ -13988,9 +13988,8 @@ function tryBuyQueenShopItem(id) {
 function drawQueenShop() {
   const items = getQueenShopItems();
   const levels = getPermanentUpgradeLevels();
-  fill(20);
+  drawMenuBackdrop();
   noStroke();
-  rect(0, 0, getMenuWidth(), getMenuHeight());
 
   // Navigation: up/down within a column, left/right across columns
   if (menuNavigationCooldown === 0) {
@@ -14033,10 +14032,10 @@ function drawQueenShop() {
       stroke(230, 180, 255);
       strokeWeight(3);
     } else {
-      if (status === 'max') fill(30, 60, 30);
-      else if (status === 'locked') fill(32);
-      else fill(50);
-      stroke(80);
+      if (status === 'max') fill(...getMenuTheme().cardDone);
+      else if (status === 'locked') menuLockedFill();
+      else menuCardFill();
+      menuDimStroke();
       strokeWeight(1);
     }
     rect(r.x, r.y, r.w, r.h, 8);
@@ -16494,9 +16493,8 @@ function endGame(){
         drawEvolutionTree(); // Opened from the lose screen's preview; backing out returns here
       } else {
       // Background
-      fill(40, 0, 0);
+      drawMenuBackdrop([110, 0, 0, 120]); // Forest floor washed red
       rectMode(CORNER);
-      rect(0, 0, getMenuWidth(), getMenuHeight());
       const lose = getLoseScreenLayout();
       rectMode(CENTER);
       fill(0, 0, 0, 180);
@@ -16614,9 +16612,8 @@ if (timeCount < 0) {
 
     beginMenuScaling();
       // Background
-      fill(10, 20, 10);
+      drawMenuBackdrop([20, 90, 30, 70]); // Forest floor washed green
       rectMode(CORNER);
-      rect(0, 0, getMenuWidth(), getMenuHeight());
       rectMode(CENTER);
       fill(0, 0, 0, 170);
       rect(getMenuWidth() / 2, getMenuHeight() / 2, getMenuWidth() * 0.65, getMenuHeight() * 0.6, 40);
@@ -16818,8 +16815,7 @@ if (timeCount < 0) {
     } else {
       // Dark background like AntDex
       rectMode(CORNER);
-      fill(20);
-      rect(0, 0, getMenuWidth(), getMenuHeight());
+      drawMenuBackdrop();
 
       // Menu navigation with arrow keys, WASD, and gamepad
       if (menuNavigationCooldown === 0) {
@@ -16850,8 +16846,8 @@ if (timeCount < 0) {
           stroke(255, 255, 100);
           strokeWeight(3);
         } else {
-          fill(50, 50, 50);  // Dark grey for unselected
-          stroke(100, 100, 100);
+          menuCardFill();
+          menuCardStroke();
           strokeWeight(2);
         }
         rect(option0X, option0Y, option0W, option0H, 12);
@@ -16879,8 +16875,8 @@ if (timeCount < 0) {
           stroke(160, 120, 255);  // Purple stroke like exotic tab
           strokeWeight(3);
         } else {
-          fill(50, 50, 50);  // Dark grey for unselected
-          stroke(100, 100, 100);
+          menuCardFill();
+          menuCardStroke();
           strokeWeight(2);
         }
         rect(option1X, option1Y, option1W, option1H, 12);
@@ -17648,9 +17644,8 @@ function drawUpgradeScreen() {
 
   beginMenuScaling();
     // Background - matching AntDex background
-    fill(20);
+    drawMenuBackdrop();
     rectMode(CORNER);
-    rect(0, 0, getMenuWidth(), getMenuHeight());
     
     // Pulsing title at top
     let pulseSize = map(sin(frameCount * 0.08), -1, 1, 48, 56);
@@ -17702,10 +17697,10 @@ function drawUpgradeScreen() {
         strokeWeight(6);
         fill(235);
       } else {
-        // Unselected card - dark grey
-        stroke(90, 90, 90);
+        // Unselected card - dark soil
+        menuCardStroke();
         strokeWeight(2);
-        fill(40);
+        menuCardFill();
       }
       rect(cardX, cardY, cardWidth, cardHeight, 15);
 
@@ -20262,8 +20257,7 @@ function drawStartScreen(){
     // Player selection screen for multiplayer
     if (playerSelectScreen) {
       // Dark background
-      fill(20);
-      rect(0, 0, getMenuWidth(), getMenuHeight());
+      drawMenuBackdrop();
       
       // Title
       fill(255);
@@ -20298,8 +20292,8 @@ function drawStartScreen(){
             stroke(255, 255, 100);
             strokeWeight(3);
           } else {
-            fill(50, 50, 50);
-            stroke(100, 100, 100);
+            menuCardFill();
+            menuCardStroke();
             strokeWeight(2);
           }
           rect(optionX, optionY, optionSize, optionSize, 12);
@@ -20373,10 +20367,9 @@ function drawStartScreen(){
       if(!titlemusic.isPlaying()) {
         titlemusic.play();
       }
-      // Dark background like AntDex
+      // The forest floor, tinted by how far the player has gotten (menutheme.js)
       imageMode(CORNER);
-      fill(20);
-      rect(0, 0, getMenuWidth(), getMenuHeight());
+      drawMenuBackdrop();
       
       const menuOptions = getMainMenuOptions();
       startMenuSelection = constrain(startMenuSelection, 0, menuOptions.length - 1);
@@ -20412,8 +20405,8 @@ function drawStartScreen(){
             stroke(option.color[0], option.color[1], option.color[2]);
             strokeWeight(3);
           } else {
-            fill(50, 50, 50);
-            stroke(100, 100, 100);
+            menuCardFill();
+            menuCardStroke();
             strokeWeight(2);
           }
           rect(optionX, optionY(k), optionW, optionH, 12);
@@ -20466,8 +20459,7 @@ function drawStartScreen(){
     if (difficultyMenu === true) {
       // Dark background
       imageMode(CORNER);
-      fill(20);
-      rect(0, 0, getMenuWidth(), getMenuHeight());
+      drawMenuBackdrop();
       
       // Menu navigation - left/right to adjust slider
       if (menuNavigationCooldown === 0) {
@@ -20521,7 +20513,7 @@ function drawStartScreen(){
       } else {
       push();
         rectMode(CORNER);
-        fill(35);
+        menuPanelFill();
         stroke(selInfo.color);
         strokeWeight(2);
         rect(panelX, panelY, panelW, panelH, 12);
@@ -20542,7 +20534,7 @@ function drawStartScreen(){
 
         // Divider
         let dividerX = panelX + panelW * 0.62;
-        stroke(80);
+        menuDimStroke();
         strokeWeight(1);
         line(dividerX, panelY + 18, dividerX, panelY + panelH - 18);
         noStroke();
@@ -20757,7 +20749,7 @@ function skipPreGameUpgrade() {
 // Tab names, colors and progress bar gradients for each Antdex section
 const DEX_SECTION_STYLES = {
   stats: {
-    tab: 'Stats', stroke: [255, 255, 255], fill: [90, 90, 90], dim: [45, 45, 45], card: [235, 235, 235], bar: [60, 60, 60],
+    tab: 'Stats', stroke: [255, 236, 200], fill: [120, 88, 48], dim: [58, 42, 26], card: [240, 232, 214], bar: [70, 52, 34],
     gradient: [[255, 0, 0], [0, 255, 0], [160, 32, 240], [255, 255, 255], [255, 215, 0]], glow: [255, 215, 0]
   },
   abilities: {
@@ -20786,7 +20778,7 @@ function drawDexCard(entry, x, top, w) {
   const style = DEX_SECTION_STYLES[entry.section];
   const locked = !entry.discovered;
   noStroke();
-  fill(locked ? color(40) : color(...style.card));
+  if (locked) menuCardFill(255); else fill(...style.card);
   rect(x, top, w, DEX_CARD_HEIGHT, 20);
 
   const pic = DEX_CARD_HEIGHT - 28;
@@ -20859,8 +20851,7 @@ function antdexScreen() {
   imageMode(CORNER);
   rectMode(CORNER);
   noStroke();
-  fill(20);
-  rect(0, 0, getMenuWidth(), getMenuHeight());
+  drawMenuBackdrop();
 
   // ----- Entry list (drawn first, clipped to the area under the header) -----
   if (isUpPressed()) dexTargetScroll += dexScrollSpeed;
@@ -20894,7 +20885,7 @@ function antdexScreen() {
     const barH = max(60, viewHeight * (viewHeight / contentHeight));
     const scrollProgress = (-dexTargetScroll) / maxOffset;
     noStroke();
-    fill(100, 100, 100, 150);
+    menuScrollBarFill();
     rect(getMenuWidth() - 30, DEX_LIST_TOP + scrollProgress * (viewHeight - barH), 10, barH, 5);
   }
 
@@ -22474,7 +22465,7 @@ function drawDexPicture(entry, x, y, w, h, alpha = 255, locked = false) {
   rectMode(CORNER);
   noStroke();
   if (locked) {
-    fill(55);
+    menuLockedFill(255);
     rect(x, y, w, h);
     fill(120);
     textAlign(CENTER, CENTER);
@@ -23198,8 +23189,7 @@ function advanceToNextAlivePlayer() {
 function drawMultiplayerScoreboard() {
   beginMenuScaling();
     rectMode(CORNER);
-    fill(20);
-    rect(0, 0, getMenuWidth(), getMenuHeight());
+    drawMenuBackdrop();
     
     fill(255);
     textAlign(CENTER);
@@ -23313,8 +23303,7 @@ function drawMultiplayerScoreboard() {
 function drawPlayerTurnScreen() {
   beginMenuScaling();
     rectMode(CORNER);
-    fill(20);
-    rect(0, 0, getMenuWidth(), getMenuHeight());
+    drawMenuBackdrop();
     
     let currentPlayer = players[currentPlayerIndex];
     
@@ -23890,9 +23879,8 @@ function drawDevTools() {
     beginMenuScaling();
     
     // Background - matching AntDex/Upgrade screen style
-    fill(20);
+    drawMenuBackdrop();
     rectMode(CORNER);
-    rect(0, 0, getMenuWidth(), getMenuHeight());
     
     // Title
     textAlign(CENTER, CENTER);
@@ -23919,8 +23907,8 @@ function drawDevTools() {
       fill(100, 255, 100);
       stroke(150, 255, 150);
     } else {
-      fill(60);
-      stroke(90);
+      menuCardFill();
+      menuCardStroke();
     }
     strokeWeight(2);
     rect(unlockX, unlockY, unlockW, unlockH, 8);
@@ -23956,8 +23944,8 @@ function drawDevTools() {
       fill(235);
       stroke(255);
     } else {
-      fill(60);
-      stroke(90);
+      menuCardFill();
+      menuCardStroke();
     }
     strokeWeight(2);
     rect(singleTabX, tabY, tabWidth, tabHeight, 8, 8, 0, 0);
@@ -23973,8 +23961,8 @@ function drawDevTools() {
       fill(235);
       stroke(255);
     } else {
-      fill(60);
-      stroke(90);
+      menuCardFill();
+      menuCardStroke();
     }
     strokeWeight(2);
     rect(multiTabX, tabY, tabWidth, tabHeight, 8, 8, 0, 0);
@@ -23990,8 +23978,8 @@ function drawDevTools() {
       fill(235);
       stroke(255);
     } else {
-      fill(60);
-      stroke(90);
+      menuCardFill();
+      menuCardStroke();
     }
     strokeWeight(2);
     rect(antsTabX, tabY, tabWidth, tabHeight, 8, 8, 0, 0);
@@ -24333,8 +24321,8 @@ function drawDevTools() {
           fill(235);
           stroke(255);
         } else {
-          fill(60);
-          stroke(90);
+          menuCardFill();
+          menuCardStroke();
         }
         strokeWeight(2);
         rect(subTabX, subTabY, subTabWidth, subTabHeight, 6);
@@ -24378,7 +24366,7 @@ function drawDevTools() {
       if (devToolsSelectedUpgrade === i) {
         fill(235); // Selected - white
       } else {
-        fill(60); // Unselected - dark grey
+        menuCardFill(); // Unselected
       }
       rect(x, y, cardWidth, cardHeight, 12);
       

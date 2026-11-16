@@ -528,7 +528,7 @@ function drawTutorialCard(card, age, footer) {
   for (const line of card.lines) bodyH += Math.ceil(textWidth(line) / (w - pad * 2)) * 26 * s + 10 * s;
   const h = 70 * s + bodyH + 60 * s;
   rectMode(CENTER);
-  fill(22, 26, 30, 240);
+  menuPanelFill(240);
   stroke(255, 230, 120);
   strokeWeight(2.5);
   rect(0, 0, w, h, 14 * s);
@@ -669,7 +669,7 @@ function drawTutorialMenu() {
   fill(0, 0, 0, 180);
   rect(0, 0, w, h);
   rectMode(CENTER);
-  fill(30, 34, 40);
+  menuPanelFill(245);
   stroke(120, 200, 255);
   strokeWeight(2);
   const panelH = 110 + choices.length * 66;
@@ -682,8 +682,8 @@ function drawTutorialMenu() {
   const rowY = k => h / 2 - panelH / 2 + 100 + k * 66;
   choices.forEach(([label], k) => {
     const sel = k === tutorialMenuSelection;
-    fill(sel ? 255 : 55);
-    stroke(sel ? color(120, 200, 255) : color(100));
+    if (sel) fill(255); else menuCardFill();
+    if (sel) stroke(120, 200, 255); else menuCardStroke();
     strokeWeight(sel ? 3 : 2);
     rect(w / 2, rowY(k), 320, 52, 10);
     noStroke();

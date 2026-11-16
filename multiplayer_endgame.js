@@ -791,7 +791,7 @@ function mpDrawGameOver(inp) {
     return;
   }
   // Leaderboards, scrolling through slowly, with the other titles popping up around them
-  mpBackground([16, 18, 26]);
+  mpBackground();
   const per = 360;
   const b = R.boards[Math.floor(R.frames / per) % R.boards.length];
   mpTitle(b.title, 46, 40);
@@ -862,7 +862,7 @@ function mpDrawGameOver(inp) {
 function mpDrawAllTitles(inp) {
   const R = mp.result;
   const W = getMenuWidth();
-  mpBackground([16, 18, 26]);
+  mpBackground();
   mpTitle('Who did what', 40, 40);
   const defs = mpTitleDefs();
   const rowH = 24;

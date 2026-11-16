@@ -484,8 +484,7 @@ function drawEvolutionTree() {
   push();
   rectMode(CORNER);
   noStroke();
-  fill(18, 20, 26);
-  rect(0, 0, getMenuWidth(), getMenuHeight());
+  drawMenuBackdrop();
 
   // Round labels over each column
   textAlign(CENTER, CENTER);
@@ -507,8 +506,6 @@ function drawEvolutionTree() {
   evoTreeView = { layout: layout, ox: ox, oy: treeTop + 10, top: treeTop - 2, bottom: treeTop + EVO_TREE_H + 12 };
 
   // Header
-  fill(18, 20, 26);
-  rect(0, 0, getMenuWidth(), treeTop - 28);
   textAlign(CENTER, CENTER);
   textSize(38);
   fill(255);
@@ -549,7 +546,7 @@ function drawEvolutionTree() {
   // Scroll bar
   if (minScroll < 0) {
     const barW = viewW * viewW / layout.width;
-    fill(100, 100, 100, 150);
+    menuScrollBarFill();
     rect(viewLeft + (evoTargetScrollX / minScroll) * (viewW - barW), treeTop + EVO_TREE_H + 18, barW, 8, 4);
   }
   if (evoDetailNode) drawEvoDetailPanel(evoDetailNode);

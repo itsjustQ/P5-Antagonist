@@ -81,13 +81,13 @@ function mpButton(r, label, selected, opts = {}) {
   rectMode(CORNER);
   const c = opts.color || [90, 200, 120];
   if (opts.disabled) {
-    fill(45);
-    stroke(70);
+    menuLockedFill();
+    menuDimStroke();
   } else if (selected) {
     fill(c[0], c[1], c[2]);
     stroke(255);
   } else {
-    fill(30, 34, 40);
+    menuCardFill();
     stroke(c[0], c[1], c[2]);
   }
   strokeWeight(selected ? 3 : 2);
@@ -187,7 +187,12 @@ function mpTitle(str, y = 52, size = 44) {
   pop();
 }
 
-function mpBackground(rgb = [22, 18, 14]) {
+// No color: the themed forest floor (menutheme.js)
+function mpBackground(rgb) {
+  if (!rgb) {
+    drawMenuBackdrop();
+    return;
+  }
   push();
   noStroke();
   fill(rgb[0], rgb[1], rgb[2]);
@@ -274,7 +279,7 @@ function mpDrawPause(inp) {
 // ---------- Setup ----------
 
 function mpDrawSetup(inp) {
-  mpBackground([20, 26, 22]);
+  mpBackground();
   mpTitle('Multiplayer', 60, 52);
   push();
   textAlign(CENTER, CENTER);
@@ -304,8 +309,8 @@ function mpDrawSetup(inp) {
   push();
   rectMode(CORNER);
   let r = rects.players;
-  fill(sel === 'players' ? 45 : 32);
-  stroke(sel === 'players' ? 255 : 80);
+  if (sel === 'players') menuCardFill(); else menuLockedFill();
+  if (sel === 'players') stroke(255); else menuDimStroke();
   strokeWeight(2);
   rect(r.x, r.y, r.w, r.h, 12);
   noStroke();
@@ -323,8 +328,8 @@ function mpDrawSetup(inp) {
   }
   // Limit
   r = rects.limit;
-  fill(sel === 'limit' ? 45 : 32);
-  stroke(sel === 'limit' ? 255 : 80);
+  if (sel === 'limit') menuCardFill(); else menuLockedFill();
+  if (sel === 'limit') stroke(255); else menuDimStroke();
   strokeWeight(2);
   rect(r.x, r.y, r.w, r.h, 12);
   noStroke();
@@ -334,8 +339,8 @@ function mpDrawSetup(inp) {
   text(`Round limit:  ◀ ${lim} rounds ▶`, r.x + 20, r.y + r.h / 2);
   // Starting levels
   r = rects.levels;
-  fill(sel === 'levels' ? 45 : 32);
-  stroke(sel === 'levels' ? 255 : 80);
+  if (sel === 'levels') menuCardFill(); else menuLockedFill();
+  if (sel === 'levels') stroke(255); else menuDimStroke();
   strokeWeight(2);
   rect(r.x, r.y, r.w, r.h, 12);
   noStroke();
@@ -504,7 +509,7 @@ function mpDrawHandoff(inp) {
   const p = mp.players[mp.handoff.player];
   const c = p.color;
   const t = mp.phaseFrames;
-  mpBackground([18, 16, 14]);
+  mpBackground();
   // The player's color sweeps in from the left
   const sweep = Math.min(1, t / 18);
   push();
@@ -760,7 +765,7 @@ function mpContinueHint(what) {
 
 // End of a round: one big static sheet of where everyone stands
 function mpDrawRoundBoard(inp) {
-  mpBackground([16, 22, 30]);
+  mpBackground();
   mpTitle(`End of round ${mp.board.round}`, 46, 44);
   const n = mp.board.after.length;
   const rowH = Math.min(58, 430 / n);
