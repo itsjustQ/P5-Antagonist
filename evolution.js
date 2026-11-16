@@ -8,7 +8,8 @@
 
 let evoNodes = [];          // {id, round, rank, parent (node id or null), score, sprite, size, abilities, movement, caps, numbers, final, killer, stats, damage, lives}
 let antEvoParent = [];      // Ant index -> node id of the top ant it was born from (undefined for founding ants)
-let lastBeetleDamager = 0;  // Ant index that last took the beetle's health (-1 = the queen)
+let lastBeetleDamager = 0;  // Ant index that last took the beetle's health (-1 = the queen, -2 = a royal guard)
+let evoKilledBy = null;     // 'queen' or 'guard' when one of them (they have no genes) landed the killing blow
 let evoTreeOpen = false;
 let evoTreeCooldown = 0;
 let evoScrollX = 0;
@@ -114,6 +115,7 @@ function resetEvolutionTree() {
   evoNodes = [];
   antEvoParent = [];
   lastBeetleDamager = 0;
+  evoKilledBy = null;
   evoTreeOpen = false;
   evoSelectedNode = null;
   evoDetailNode = null;
@@ -183,6 +185,7 @@ function recordEvolutionRound(topAnts) {
 // Called once when the beetle dies: the death round's top 3, plus the ant that landed the killing blow
 function recordEvolutionDeath() {
   if (!isEvolutionTracked()) return;
+  evoKilledBy = lastBeetleDamager === -1 ? 'queen' : lastBeetleDamager === -2 ? 'guard' : null;
   const topAnts = getTopAnts();
   let rank = 1;
   for (const top of topAnts) {
@@ -408,6 +411,13 @@ function drawEvoTag(label, cx, cy, bg, fg) {
 // ----- Lose screen preview -----
 
 // Just above the lose screen's option cards, as wide as their row
+// The queen and her royal guards have no genes, so they aren't in the tree: the tree says who it was instead
+function getEvoKillerText() {
+  if (evoKilledBy === 'queen') return 'You were killed by the queen herself';
+  if (evoKilledBy === 'guard') return 'You were killed by a royal guard';
+  return null;
+}
+
 function getEvoPreviewRect() {
   const w = 778, h = 104;
   return { x: getMenuWidth() / 2 - w / 2, y: getLoseScreenLayout().buttons - 29 - 14 - h, w, h };
@@ -431,7 +441,13 @@ function drawEvoPreview(r, selected) {
   text('Evolution', r.x + 18, r.y + r.h / 2 - 12);
   textSize(13);
   fill(170);
-  text('How the ants that beat\nyou evolved. Select it to\nsee the whole tree.', r.x + 18, r.y + r.h / 2 + 20);
+  const killer = getEvoKillerText();
+  if (killer) {
+    fill(...EVO_KILLER_COLOR);
+    text(killer.replace('killed by ', 'killed by\n') + '.\nSelect to see the tree.', r.x + 18, r.y + r.h / 2 + 20);
+  } else {
+    text('How the ants that beat\nyou evolved. Select it to\nsee the whole tree.', r.x + 18, r.y + r.h / 2 + 20);
+  }
 
   // Right-aligned so the death round is always in view
   const area = { x: r.x + labelW, y: r.y + 8, w: r.w - labelW - 14, h: r.h - 16 };
@@ -497,9 +513,14 @@ function drawEvolutionTree() {
   textSize(38);
   fill(255);
   text('Evolution', getMenuWidth() / 2, 30);
+  const killer = getEvoKillerText();
   textSize(15);
   fill(185);
-  text('Each round\'s top 3 ants (by score: damage per life) and the top ant each was born from. Click an ant to see all of its stats.', getMenuWidth() / 2, 60);
+  text('Each round\'s top 3 ants (by score: damage per life) and the top ant each was born from. Click an ant to see all of its stats.', getMenuWidth() / 2, killer ? 52 : 60);
+  if (killer) {
+    fill(...EVO_KILLER_COLOR);
+    text(killer + ' (no genes, so not in the tree)', getMenuWidth() / 2, 70);
+  }
 
   // Legend
   const legend = [

@@ -174,7 +174,8 @@ function applyHardModeRandomInitialAbility(antIndex) {
     type: 'trait',
     category: trait.category,
     lockedUntilRound: 3,
-    percentage: 1
+    percentage: 1,
+    cost: 1 // A free bonus token, so it's refunded as one
   });
 
   debugLog(`Hard mode: Ant ${antIndex} 6th token spent on ${trait.target}`);
@@ -575,6 +576,8 @@ let antRapidFireNextFrame = []; // Frame when next rapid fire bullet should spaw
 let alarmInnerRadius = []; // Alarm fire type: inner radius (25-100px) where the ant fires 2x faster; the outer radius follows it
 let antAvengeQueue = [];   // Avenge fire type: witnessed deaths still waiting for their reload + shot
 let antAvengeArmed = [];   // Avenge fire type: a reload is under way and its shot hasn't gone yet
+let antSizeGene = [];      // The size the ant's genes lean toward; below 1 it only shows once shrink tokens are bought
+let antAbilityLock = [];   // By ant: { category: { stat, since } }, the ability each category is locked to (and since when)
 let antCooldownBoost = []; // How much faster each ant's cooldown is running this frame (alarm / territory, max 3x)
 
 // Death category (mutation-based)
@@ -793,8 +796,9 @@ let upgrade60Level = 0; // Sceptobius lativentris (max 1, requires Shockwave): c
 let upgrade61Level = 0; // Lomechusoides strumosus (max 1, requires Sceptobius): chemical shockwave also lures ants in to feed the beetle
 let upgrade62Level = 0; // Homing Deprogramming (max 1, requires Shockwave): homing bullets a shockwave doesn't deflect fly straight
 let upgrade63Level = 0; // Homing Redirect (max 1, requires Homing Deprogramming): deflected homing bullets home in on enemies
-const UPGRADE_COUNT = 63;
-const UPGRADE_MAX_LEVELS = [4, 5, 5, 9, 8, 5, 5, 5, 1, 1, 1, 4, 4, 1, 5, 5, 5, 3, 4, 5, 1, 7, 10, 4, 1, 1, 1, 1, 4, 4, 1, 9, 1, 1, 1, 3, 1, 3, 2, 1, 1, 1, 1, 1, 1, 1, 1, 1, 3, 5, 4, 1, 1, 2, 1, 1, 1, 1, 1, 1, 1, 1, 1];
+let upgrade64Level = 0; // Enhanced Digestion (max 4): health from eating ants and aphids x1.25 / 1.5 / 1.75 / 2
+const UPGRADE_COUNT = 64;
+const UPGRADE_MAX_LEVELS = [4, 5, 5, 9, 8, 5, 5, 5, 1, 1, 1, 4, 4, 1, 5, 5, 5, 3, 4, 5, 1, 7, 10, 4, 1, 1, 1, 1, 4, 4, 1, 9, 1, 1, 1, 3, 1, 3, 2, 1, 1, 1, 1, 1, 1, 1, 1, 1, 3, 5, 4, 1, 1, 2, 1, 1, 1, 1, 1, 1, 1, 1, 1, 4];
 let displayedUpgrades = [];  // Array of up to 3 randomly selected upgrade indices (0-9)
 
 // Pre-game upgrade menu variables (insane difficulty 8-10 and the nest)
@@ -1683,6 +1687,18 @@ function draw() {
     return;
   }
 
+  // A queen tournament fight runs on the real game, without a beetle (multiplayer_duel.js)
+  if (mp && mpInDuel()) {
+    mpDuelFrame();
+    return;
+  }
+
+  // Multiplayer's screens between combat turns (multiplayer_screens.js)
+  if (mp && !mpInCombat()) {
+    mpDraw();
+    return;
+  }
+
   // Show multiplayer scoreboard
   if (multiplayerScoreboard) {
     drawMultiplayerScoreboard();
@@ -1909,7 +1925,8 @@ function draw() {
       updateAphids();
       updateAntRespawnQueue();
       drawEnemy();
-      updateQueen();
+      if (typeof mpActive === 'function' && mpActive()) mpUpdateQueens();
+      else updateQueen();
       updateFinalStage(); // Queen of Queens tunnel attacks (finalboss.js)
       updateTutorial();
       drawBeetleShadow();
@@ -1976,7 +1993,9 @@ function draw() {
       if (beamShieldFlashFrames > 0) beamShieldFlashFrames--;
 
       drawRoundTimer();
-      drawQueenHud();
+      if (mp) mpDrawCombatHud();
+      if (typeof mpActive === 'function' && mpActive()) mpDrawQueenHuds();
+      else drawQueenHud();
       
       // Shield regeneration (outside scaling)
       let maxShields = shieldQuantity > 0 ? shieldQuantity : 0;
@@ -2171,6 +2190,7 @@ function resetRunState() {
   upgrade61Level = 0;
   upgrade62Level = 0;
   upgrade63Level = 0;
+  upgrade64Level = 0;
   upgradeRerolls = UPGRADE_REROLLS_PER_RUN;
   displayedUpgrades = [];
   updateUpgradeBooleans();  // Reset all upgrade booleans to false
@@ -2842,6 +2862,7 @@ function handleGameOverInput() {
 }
 
 function returnToMainMenu() {
+  if (typeof mpQuit === 'function' && mp) mpQuit();
   gamePaused = false;
   gamePauseSnapshot = null;
   resetRunState();
@@ -3040,6 +3061,11 @@ function drawRoundTimer() {
   pop();
 }
 
+// How much each EXP level's cost grows by (and the first level's cost). Multiplayer levels cost a fraction of normal.
+function getExpStepSize() {
+  return typeof mp !== 'undefined' && mp ? 500 * MP_LEVEL_COST_SCALE : 500;
+}
+
 // EXP needed for the next level, after Increased Metabolism's discount
 function getExpRequired() {
   return Math.round(expRequired * (1 - 0.1 * upgrade22Level));
@@ -3146,6 +3172,7 @@ function drawAnt(i, airPass) {
       angleMode(DEGREES);
       let antShadowAngle = atan2(playerY - antY[i], playerX - antX[i]);
       drawGroundShadow(antX[i], antY[i], antShadowScale * 0.6, antShadowScale * 0.26, antShadowAngle, antShadowAlpha);
+      if (mp && mpAntOwner[i] !== undefined) mpDrawAntRing(i, fadeAmount); // Multiplayer: its designer's color
 
       // In the air: the body waits for the air pass
       if (antAirHeight[i] > 0) {
@@ -3287,12 +3314,13 @@ function drawHitHealthBar(x, barY, health, maxHealth, lastHitTime) {
 
 // Soft oval under a sprite, matching the bullet shadow style. Sized to the bug's body
 // (not its image frame), rotated with it, and nudged a few pixels down-right.
-function drawGroundShadow(x, y, w, h, angle, alpha, offsetX = 2, offsetY = 3) {
+function drawGroundShadow(x, y, w, h, angle, alpha, offsetX = 2, offsetY = 3, rgb = null) {
   push();
   angleMode(DEGREES);
   ellipseMode(CENTER);
   noStroke();
-  fill(0, 0, 0, alpha);
+  if (rgb) fill(rgb[0], rgb[1], rgb[2], alpha);
+  else fill(0, 0, 0, alpha);
   translate(x + offsetX, y + offsetY);
   rotate(angle);
   ellipse(0, 0, w, h);
@@ -3432,7 +3460,9 @@ function drawBeetleShadow() {
   }
   beetleShadowW = lerp(beetleShadowW, targetW, 0.15);
   beetleShadowH = lerp(beetleShadowH, targetH, 0.15);
-  drawGroundShadow(playerX, playerY, beetleShadowW, beetleShadowH, 0, 90, 0, 9);
+  // Multiplayer: the shadow takes on a hint of the player's color
+  const tintRgb = mp && mpInCombat() ? mpGetBeetleShadowColor() : null;
+  drawGroundShadow(playerX, playerY, beetleShadowW, beetleShadowH, 0, tintRgb ? 120 : 90, 0, 9, tintRgb);
 }
 
 function drawBeetle(){
@@ -4067,7 +4097,7 @@ function getExpDisplayState() {
   while (cost > 0 && progress >= cost) {
     progress -= cost;
     lvl++;
-    required += 500 * Math.ceil(lvl / 5);
+    required += getExpStepSize() * Math.ceil(lvl / 5);
     cost = Math.round(required * (1 - 0.1 * upgrade22Level));
   }
   return { level: lvl, progress: progress, required: cost };
@@ -6203,7 +6233,12 @@ function tryPlayerShoot() {
 // Eating a kill heals the beetle, but only while it's alive: healing a dead beetle back above 0
 // hides the "You Lost" screen and leaves the round stuck with end set
 function healFromKill(amount) {
-  if (end == false && health > 0) health += amount;
+  if (end == false && health > 0) health += amount * getDigestionMultiplier();
+}
+
+// Enhanced Digestion: x1.25 health per level from everything the beetle eats (ants and aphids)
+function getDigestionMultiplier(lv = upgrade64Level) {
+  return 1 + 0.25 * lv;
 }
 
 // Player acid hits ant j for one bullet's damage. Kills from every shot type count as bullet kills.
@@ -6370,6 +6405,7 @@ function firePlayerSpray(beetleX, beetleY, angle) {
     let halfWidth = lerp(baseWidth, tipWidth, constrain(along, 0, len) / len) / 2;
     if (across <= halfWidth + wall.radius) damageEnemyWall(wall, getPlayerBulletDamage());
   }
+  forEachLiveQueen(() => {
   if (!isQueenImmune()) {
     let dx = queen.x - x;
     let dy = queen.y - y;
@@ -6392,6 +6428,7 @@ function firePlayerSpray(beetleX, beetleY, angle) {
       }
     }
   }
+  });
   playerSprays.push({ x: x, y: y, angle: angle, len: len, baseWidth: baseWidth, tipWidth: tipWidth, life: 0 });
   // Smoke puffs along the cone, like an ant's bursting stream
   for (let k = 1; k <= 3; k++) {
@@ -6651,10 +6688,14 @@ function applyShockwaveImpact(maxRadius, windDamage, once = null, killSource = '
     }
   }
   
-  if (isQueenHitAt(playerX, playerY, maxRadius) && !(once && once.queen)) {
-    if (once) once.queen = true;
-    damageQueen(windDamage);
-  }
+  forEachLiveQueen(() => {
+    const hitSet = once && (once.queens || (once.queens = new Set()));
+    if (!isQueenImmune() && dist(playerX, playerY, queen.x, queen.y) < getQueenBodyRadius() + maxRadius && !(hitSet && hitSet.has(queen))) {
+      if (hitSet) hitSet.add(queen);
+      if (once) once.queen = true;
+      damageQueen(windDamage);
+    }
+  });
   for (const g of getRoyalGuardsWithin(playerX, playerY, maxRadius)) {
     if (once && once.guards.has(g)) continue;
     if (once) once.guards.add(g);
@@ -8524,11 +8565,13 @@ function updateEnemyBeams() {
     const closestX = beam.x1 + segX * t;
     const closestY = beam.y1 + segY * t;
 
-    if (beam.vacuumBullet && !beam.hasHit) {
+    // Beams run along the ground: a flying (or burrowed) beetle is out of their reach
+    const reachable = !isPlayerUntouchable();
+    if (beam.vacuumBullet && !beam.hasHit && reachable) {
       applyVacuumPull({ x: closestX, y: closestY, knockbackMultiplier: beam.knockbackMultiplier });
     }
 
-    const touching = dist(playerX, playerY, closestX, closestY) <= beam.width / 2 + 25;
+    const touching = reachable && dist(playerX, playerY, closestX, closestY) <= beam.width / 2 + 25;
 
     // Explosive beams: every frame the beetle is inside, do a tick of explosion damage (not once it's deflected)
     if (beam.explosive && touching && !beam.deflected) {
@@ -8686,8 +8729,11 @@ function updatePlayerBeams() {
         damageAntWithPlayerAcid(j, getPlayerBulletDamage(), 'bullet');
       }
     }
-    if (!beam.hitQueen && !isQueenImmune() &&
+    forEachLiveQueen(() => {
+    const queenHits = beam.hitQueens || (beam.hitQueens = new Set());
+    if (!queenHits.has(queen) && !isQueenImmune() &&
       distToSegment(queen.x, queen.y, beam.x1, beam.y1, beam.x2, beam.y2) <= beam.width / 2 + getQueenBodyRadius()) {
+      queenHits.add(queen);
       beam.hitQueen = true;
       damageQueen(getPlayerBulletDamage());
     }
@@ -8700,6 +8746,7 @@ function updatePlayerBeams() {
         damageRoyalGuard(g, getPlayerBulletDamage());
       }
     }
+    });
     drawBeamLine(beam.x1, beam.y1, beam.x2, beam.y2, beam.width, beam.life, beam.maxLife, PLAYER_BEAM_COLORS);
   }
 }
@@ -9308,6 +9355,19 @@ function updateStreamSpray(stream) {
   }
   const touching = contact && contact.touching;
 
+  // Laser hoses: the beam part hits like an ant's beam does, with the same flash and impact (held while it burns)
+  const beamContact = beamSlice && !isPlayerUntouchable() ? getStreamContact([beamSlice]) : null;
+  const beamTouching = !!(beamContact && beamContact.touching);
+  if (beamTouching && !playerBunker && !isPlayerAphidActive('rainbow')) {
+    if (shield > 0) beamShieldFlashFrames = BEAM_HIT_FLASH_FRAMES;
+    else beamHealthFlashFrames = BEAM_HIT_FLASH_FRAMES;
+    if (!stream.beamTouching) {
+      const tier = getBulletSpeedTier(BEAM_HIT_SPEED).knockbackTier;
+      spawnBeetleHitEffect(beamContact.x, beamContact.y, beamContact.dirX * BEAM_HIT_SPEED, beamContact.dirY * BEAM_HIT_SPEED, tier, shield > 0);
+    }
+  }
+  stream.beamTouching = beamTouching;
+
   // Damage every frame the beetle is in the stream (or on a launch ant's ground spot). Contact is only ever at
   // the beetle's own level, so it reaches a flying beetle too; the ground spot doesn't.
   const onLaunchSpot = stream.launch && stream.spraying &&
@@ -9337,6 +9397,7 @@ function updateStreamSpray(stream) {
 
   if (!(tigerBeetleActive && tigerBeetleMoving)) {
     if (stream.launch && stream.spraying) drawStreamLaunch(stream);
+    if (stream.beam && !beamSlice && stream.spraying) drawStreamBeamAimLine(stream);
     drawStreamSlices(stream, slices, beamSlice);
   }
   return true;
@@ -9568,6 +9629,28 @@ function fillStreamRibbon(slice, widthScale, lifted, color, alpha) {
   }
   ctx.closePath();
   ctx.fill();
+}
+
+// Laser hoses: the same red aiming line other beam ants show, along where the beam will fire from the end of the
+// stream, brightening as the stream flows out to its range
+function drawStreamBeamAimLine(stream) {
+  const alpha = stream.camo ? getStealthAlpha(stream, 2, stream.camoFlashRate) : 1;
+  if (alpha <= 0.01) return;
+  const front = stream.nodes[0];
+  const heading = front ? front.heading : stream.aimAngle;
+  const dirX = Math.cos(heading);
+  const dirY = Math.sin(heading);
+  // Where the beam will start: the end of the stream once it's out to its full range
+  const along = front ? front.s : 0;
+  const ox = front ? front.x + dirX * Math.max(0, stream.range - along) : stream.originX + dirX * stream.range;
+  const oy = front ? front.y + dirY * Math.max(0, stream.range - along) : stream.originY + dirY * stream.range;
+  const t = constrain(along / Math.max(1, stream.range), 0, 1);
+  const reach = getDistanceToPlayAreaEdge(ox, oy, dirX, dirY);
+  push();
+  stroke(255, 60, 60, (60 + 160 * t) * alpha);
+  strokeWeight(1 + 2 * t);
+  line(ox, oy, ox + dirX * reach, oy + dirY * reach);
+  pop();
 }
 
 function drawStreamSlices(stream, slices, beamSlice) {
@@ -9904,7 +9987,8 @@ function onAvengeAntFired(i) {
 function onAntDied(i) {
   const x = antX[i];
   const y = antY[i];
-  if (isQueenFight()) onQueenAntDied(i);
+  if (typeof mpActive === 'function' && mpActive()) mpOnAntDiedQueen(i);
+  else if (isQueenFight()) onQueenAntDied(i);
   for (const ring of playerMoundRings) ring.inside.delete(i); // Respawns elsewhere, not trapped any more
   clearAntAphidEffectsFor(i);
   antShield[i] = 0;
@@ -10382,6 +10466,9 @@ const QUEEN_EFFECT_FRAMES = 300;          // Alarm, avenge, refire, camouflage a
 const QUEEN_INTRO_FRAMES = 150;
 const QUEEN_WARNING_FRAMES = 300;         // "Queen incoming" warning before she arrives (5 seconds)
 const QUEEN_MAX_ANTS = 300;               // Safety cap on ant slots while she's cloning ants
+const ANTS_ON_SCREEN_MAX = 60;           // No ant spawns past this many alive: with several queens out, the first to fill it
+                                       // keeps it, and the others wait for her ants to die
+const QUEEN_KILL_EXP = 1000;           // EXP (and score) for killing a queen, before the usual EXP bonuses
 const QUEEN_MAX_ALIVE = 50;               // She stops spawning while this many of her ants are alive (same cap as the Queen of Queens)
 // Brain score. Rewards:
 const QUEEN_SCORE_PER_DAMAGE = 1;         // damage done to the beetle, from any source
@@ -10596,7 +10683,8 @@ function respawnAnt(i) {
 // where dead ants wait for her instead)
 function updateAntRespawnQueue() {
   if (antRespawnWait > 0) antRespawnWait--;
-  if (antRespawnWait > 0 || isQueenFight()) return;
+  if (antRespawnWait > 0 || (isQueenFight() && !(typeof mpActive === 'function' && mpActive()))) return;
+  if (countAllAliveAnts() >= ANTS_ON_SCREEN_MAX) return; // The field is full: respawns wait their turn too
   while (antRespawnQueue.length > 0) {
     const i = antRespawnQueue.shift();
     if (i > enemyCount || !antDormant[i]) continue; // Brought back some other way
@@ -10637,7 +10725,7 @@ function getCloneableAntArrays() {
     bulletArcDuration, bulletCurveStrength, explodeOnTermination, triggerExplodeViaProximity, explosionProximity,
     standingPointX, standingPointY, distanceFromAnchor, anchorOffsetX, anchorOffsetY, angleFromSpawn, bulletSize,
     antSize, antMaxHealth, bulletSplitCount, bulletSpread, radiusMultiplier, residueMultiplier, bulletExplodeAfter,
-    geneTokens, geneTokenLastRoundGained, antEvoParent];
+    geneTokens, geneTokenLastRoundGained, antEvoParent, antSizeGene, antAbilityLock];
 }
 
 function cloneAntGenes(src, dst) {
@@ -10698,7 +10786,8 @@ function placeSpawnedAnt(i, x, y) {
 // Spawn one of the round's ants (type = its index when the queen arrived). A dormant copy of it comes back first;
 // otherwise a new copy is made in a new ant slot. Returns the ant's index, or -1 if there's no room.
 function queenSpawnAnt(type, x, y, ignoreCap = false) {
-  if (!ignoreCap && queen && queen.maxAlive && countAliveAnts() >= queen.maxAlive) return -1;
+  if ((!ignoreCap || (queen && queen.strictMaxAlive)) && queen && queen.maxAlive && countAliveAnts() >= queen.maxAlive) return -1;
+  if (countAllAliveAnts() >= ANTS_ON_SCREEN_MAX && !(typeof mpInDuel === 'function' && mpInDuel())) return -1;
   let i = -1;
   for (let k = 1; k <= enemyCount; k++) {
     if (antDormant[k] && antQueenType[k] === type) {
@@ -10711,6 +10800,7 @@ function queenSpawnAnt(type, x, y, ignoreCap = false) {
     i = enemyCount + 1;
     cloneAntGenes(type, i);
     antQueenType[i] = type;
+    if (typeof mpAntOwner !== 'undefined') mpAntOwner[i] = mpAntOwner[type];
     antPoints[i] = 0;
     antLives[i] = 1;
     antHitSpots[i] = [];
@@ -10723,10 +10813,23 @@ function queenSpawnAnt(type, x, y, ignoreCap = false) {
   return i;
 }
 
-function countAliveAnts() {
+// Every ant on the field, whoever's they are
+function countAllAliveAnts() {
   let n = 0;
   for (let i = 1; i <= enemyCount; i++) if (!antDormant[i]) n++;
   return n;
+}
+
+function countAliveAnts() {
+  let n = 0;
+  for (let i = 1; i <= enemyCount; i++) if (!antDormant[i] && isQueensAnt(i)) n++;
+  if (queen && queen.mpHiddenAlive) n += queen.mpHiddenAlive; // Hers, out fighting another queen (multiplayer_duel.js)
+  return n;
+}
+
+// Whether ant i is one of the current queen's (in multiplayer a queen only has her owner's ants)
+function isQueensAnt(i) {
+  return !queen || queen.mpOwner === undefined || mpAntOwner[i] === queen.mpOwner;
 }
 
 // Every ant death comes through here (from onAntDied) while a queen is out
@@ -11293,6 +11396,15 @@ function startQueenFight() {
   if (!sLoseShield.isPlaying()) sLoseShield.play();
 }
 
+// Run fn with each live queen as the current one (just the one queen outside multiplayer)
+function forEachLiveQueen(fn) {
+  if (typeof mpHasQueens === 'function' && mpHasQueens()) {
+    mpForEachQueen(fn);
+    return;
+  }
+  if (queen) fn();
+}
+
 function isQueenImmune() {
   return !queen || !!queen.bunker || queen.airHeight > 0;
 }
@@ -11464,13 +11576,19 @@ function queenBlinkBlockers() {
   return movers.length;
 }
 
-// True if a point is within pad px of the queen's body (and she can be hit)
+// True if a point is within pad px of the queen's body (and she can be hit). With several queens out (multiplayer),
+// the one that's hit becomes the current queen, so the damageQueen() that follows lands on her.
 function isQueenHitAt(x, y, pad = 0) {
+  if (typeof mpQueenHitAt === 'function' && mpHasQueens()) return mpQueenHitAt(x, y, pad);
   if (isQueenImmune()) return false;
   return dist(x, y, queen.x, queen.y) < getQueenBodyRadius() + pad;
 }
 
 function killQueen() {
+  if (typeof mpActive === 'function' && mpActive()) {
+    mpKillQueen();
+    return;
+  }
   spawnSmokeImpact(queen.x, queen.y, 70, 8);
   for (const g of queen.guards) spawnSmokeImpact(g.x, g.y, 30, 4); // Her royal guards fall with her
   shakeScreen(QUEEN_DEATH_SHAKE_FRAMES, QUEEN_DEATH_SHAKE);
@@ -11480,6 +11598,9 @@ function killQueen() {
   // a queen killed before she ever re-strategized only has the one she started with)
   queenInheritedBrain = cloneQueenBrain(queen.bestBrain || queen.brain);
   queensDefeatedThisRun++;
+  // Killing her is worth 1000 EXP, raised by the usual EXP bonuses
+  const gained = addKillScore(QUEEN_KILL_EXP, 1, null);
+  addDeathEffect(queen.x, queen.y, gained);
   if (queen.final) onQueenOfQueensDefeated(); // The last queen pays out her own reward (finalboss.js)
   else awardQueen();
   queenDefeatedThisRound = true;
@@ -11995,7 +12116,10 @@ function updateGrabber(g, bodyRadius, blocked) {
       const tx = -Math.sin(angle) * grab.dir + Math.cos(angle) * 0.5;
       const ty = Math.cos(angle) * grab.dir + Math.sin(angle) * 0.5;
       const tl = Math.sqrt(tx * tx + ty * ty);
+      queenHitByGuard = g !== queen;
+      if (typeof mpOnBeetleThrown === 'function') mpOnBeetleThrown();
       queenHitPlayer(QUEEN_THROW_DAMAGE / (queen.strength || 1)); // A flat hit, however strong she is
+      queenHitByGuard = false;
       knockPlayerFrom(playerX - tx / tl, playerY - ty / tl, QUEEN_THROW_SPEED);
       queenEffects.push({ kind: 'ring', x: playerX, y: playerY, life: 0, frames: 18, maxR: 50, color: [220, 160, 255] });
       g.grab = null;
@@ -12065,6 +12189,7 @@ const ROYAL_GUARD_KNOCKBACK_FRAMES = 60;     // Same slide as an ant's (fast for
 
 // None on easy, 2 every 10 seconds on medium, 4 on hard and insane, 6 for the Queen of Queens (none in the tutorial)
 function getRoyalGuardsPerBatch() {
+  if (queen.mpGuardsPerBatch !== undefined) return queen.mpGuardsPerBatch;
   if (isTutorialRun()) return 0;
   if (queen.final) return 6;
   const tier = getDifficultyTier();
@@ -12094,7 +12219,7 @@ function summonRoyalGuards(count) {
     const p = clampToPlayArea(queen.x + Math.cos(a) * r, queen.y + Math.sin(a) * r);
     queen.guards.push({ x: p.x, y: p.y, health: ROYAL_GUARD_HEALTH, maxHealth: ROYAL_GUARD_HEALTH, hitFlash: 0,
       lastHitTime: 0, dashHit: false, order: null, group: -1, vx: 0, vy: 0, knockFrames: 0, closeFrames: 0,
-      grab: null, beetleClose: false });
+      grab: null, beetleClose: false, mpQueen: queen.mpOwner !== undefined ? queen : null });
     queenEffects.push({ kind: 'ring', x: p.x, y: p.y, life: 0, frames: 18, maxR: 30 + 10 * ROYAL_GUARD_SIZE, color: [255, 210, 90] });
   }
   separateRoyalGuards(); // In case the ring had to be squeezed against the edge of the map
@@ -12106,7 +12231,7 @@ function summonRoyalGuards(count) {
 function updateRoyalGuards(pace) {
   const perBatch = getRoyalGuardsPerBatch();
   if (perBatch > 0) {
-    if (++queen.guardTimer >= ROYAL_GUARD_FRAMES) {
+    if (++queen.guardTimer >= (queen.mpGuardFrames || ROYAL_GUARD_FRAMES)) {
       queen.guardTimer = 0;
       queen.guardCharges += perBatch;
     }
@@ -12313,6 +12438,7 @@ function updateRoyalGuardContact() {
 
 // The guard whose body a point is within pad px of, or null (skip: guards a piercing shot already went through)
 function getRoyalGuardHitAt(x, y, pad = 0, skip = null) {
+  if (typeof mpHasQueens === 'function' && mpHasQueens()) return mpRoyalGuardHitAt(x, y, pad, skip);
   if (!queen) return null;
   const reach = ROYAL_GUARD_BODY_RADIUS + pad;
   for (const g of queen.guards) {
@@ -12324,6 +12450,7 @@ function getRoyalGuardHitAt(x, y, pad = 0, skip = null) {
 
 // Every guard within pad px of a point, for blasts (a copy, so damaging them along the way is safe)
 function getRoyalGuardsWithin(x, y, pad) {
+  if (typeof mpHasQueens === 'function' && mpHasQueens()) return mpRoyalGuardsWithin(x, y, pad);
   if (!queen) return [];
   const reach = ROYAL_GUARD_BODY_RADIUS + pad;
   return queen.guards.filter(g => (x - g.x) ** 2 + (y - g.y) ** 2 < reach * reach);
@@ -12332,6 +12459,7 @@ function getRoyalGuardsWithin(x, y, pad) {
 // Damage from one of the beetle's attacks; a guard that runs out of health dies like an ant (score, EXP, healing).
 // Returns true if it landed.
 function damageRoyalGuard(g, amount, source = 'bullet') {
+  if (g.mpQueen && typeof mpSelectQueen === 'function') mpSelectQueen(g.mpQueen); // The guard's own queen (multiplayer)
   if (!queen || end || g.health <= 0 || !queen.guards.includes(g)) return false;
   g.health -= getRainbowAntDamage(amount);
   g.hitFlash = 10;
@@ -12381,6 +12509,8 @@ function drawRoyalGuards(alpha) {
 // --- Damage to the beetle ---
 
 // vel: the queen acid's { vx, vy } when it was a bullet (for Shell Shrapnel)
+let queenHitByGuard = false; // Set around a royal guard's hit, so the evolution tree can say a guard did it
+
 function queenHitPlayer(damage, silent = false, vel = null) {
   if (end) return;
   if (interceptPlayerDamage(damage, false)) return; // Flying over it, or the bunker takes it
@@ -12391,6 +12521,7 @@ function queenHitPlayer(damage, silent = false, vel = null) {
     spawnBeetleHitEffect(playerX - vel.vx, playerY - vel.vy, vel.vx, vel.vy, tier, shield > 0);
   }
   damage *= getPlayerDamageTakenMultiplier() * (queen && queen.strength ? queen.strength : 1);
+  if (typeof mpOnQueenDamagedBeetle === 'function') mpOnQueenDamagedBeetle(damage);
   if (shield > 0) {
     const shieldBefore = shield;
     shield -= damage;
@@ -12399,7 +12530,7 @@ function queenHitPlayer(damage, silent = false, vel = null) {
   } else {
     playerLastDamageFrame = frameCount;
     health -= damage;
-    lastBeetleDamager = -1; // The queen
+    lastBeetleDamager = queenHitByGuard ? -2 : -1; // The queen, or one of her royal guards
     if (!silent && !sHit1.isPlaying() && !sHit2.isPlaying()) (random() < 0.5 ? sHit1 : sHit2).play();
   }
   onPlayerDamaged(damage, true);
@@ -12443,6 +12574,7 @@ function getQueenAvailableAbilities() {
   let bestAnt = -1;
   for (let i = 1; i <= enemyCount; i++) {
     if (antDormant[i]) continue;
+    if (!isQueensAnt(i)) continue;
     const abilities = getAntQueenAbilities(i);
     for (const a of abilities) available.add(a);
     if (abilities.length > 0 && (bestAnt === -1 || getAntRatio(i) > getAntRatio(bestAnt))) bestAnt = i;
@@ -13243,7 +13375,8 @@ function updateQueenBeam(e, hidden) {
   const beamDist = distToSegment(playerX, playerY, e.sx, e.sy, e.ex, e.ey);
   seeQueenAttackPart(e.tracker, Math.max(0, beamDist - e.width / 2));
   // Hits once, like an ant's beam (same reach and FAST-tier damage, with her bullet size)
-  if (!e.hit && beamDist <= e.width / 2 + 25 && tryBeamDeflect()) {
+  const beamReaches = !isPlayerUntouchable() && beamDist <= e.width / 2 + 25; // Not a flying (or burrowed) beetle
+  if (!e.hit && beamReaches && tryBeamDeflect()) {
     // Beam Deflection: her beam glances off the beetle's shell for as long as the beetle stays in it
     e.hit = true;
     e.reflection = spawnPlayerBeam(e.width, e.frames - e.life);
@@ -13259,7 +13392,7 @@ function updateQueenBeam(e, hidden) {
       endY = hit.y;
     }
   }
-  if (!e.hit && beamDist <= e.width / 2 + 25) {
+  if (!e.hit && beamReaches) {
     e.hit = true;
     if (shield > 0) beamShieldFlashFrames = BEAM_HIT_FLASH_FRAMES;
     else beamHealthFlashFrames = BEAM_HIT_FLASH_FRAMES;
@@ -13353,6 +13486,7 @@ function updateQueenTimeBomb(e, hidden) {
 // --- Drawing ---
 
 function drawQueen() {
+  if (queen && queen.mpOwner !== undefined && typeof mpDrawQueenRing === 'function') mpDrawQueenRing();
   if (!queen) return;
   const faded = tigerBeetleActive && tigerBeetleMoving;
   const alpha = faded ? 70 : 255;
@@ -13560,8 +13694,11 @@ function drawQueenDeathBurst(burst, age) {
 
 // Queen health and status at the top of the screen. Progress toward the next queen is never shown, so taking hits on
 // purpose to bring one out early isn't something the player can aim for.
+let queenHudOffset = 0; // Multiplayer stacks one health bar per queen
+
 function drawQueenHud() {
   push();
+  translate(0, queenHudOffset);
   rectMode(CORNER);
   if (!queen && queenWarningFrames > 0) {
     // "Queen incoming": pulses faster as she gets closer, and fades in and out at the ends
@@ -13629,7 +13766,7 @@ const UPGRADE_NAMES = ['Walking Speed', 'Dash Speed', 'Dash Cooldown', 'Add Shie
   'Health Regeneration', 'Runt Hunter', 'Increased Metabolism', 'EXP Boost', 'Combo Surge', 'Dash Harvest',
   'Shockwave Harvest', 'Bullet Harvest', 'Spray Acid', 'Spray Length', 'Spray Width', 'Piercing Acid', 'Piercing Depth',
   'Impact Bomb', 'Timed Bomb', 'Proximity Bomb', 'Blast Radius', 'Lady Beetle (Coccinella septempunctata)', 'Aphid Health', 'Aphid Spawn Rate',
-  'Speedy Aphids', 'Armored Aphids', 'Wise Aphids', 'Healthy Aphids', 'Lucky Aphids', 'Mound Ring', 'Bunker', 'Vortex', 'Flight and Slam', 'Mound Health', 'Flight Duration', 'Starting Health', 'Dash Deflection', 'Shell Shrapnel', 'Shrapnel Count', 'Burrow', 'Beam Deflection', 'Rainbow Aphids', 'Dash Gust', 'Dash Blast', 'Rove Beetle (Sceptobius lativentris)', 'Rove Beetle 2 (Lomechusoides strumosus)', 'Homing Deprogramming', 'Homing Redirect'];
+  'Speedy Aphids', 'Armored Aphids', 'Wise Aphids', 'Healthy Aphids', 'Lucky Aphids', 'Mound Ring', 'Bunker', 'Vortex', 'Flight and Slam', 'Mound Health', 'Flight Duration', 'Starting Health', 'Dash Deflection', 'Shell Shrapnel', 'Shrapnel Count', 'Burrow', 'Beam Deflection', 'Rainbow Aphids', 'Dash Gust', 'Dash Blast', 'Rove Beetle (Sceptobius lativentris)', 'Rove Beetle 2 (Lomechusoides strumosus)', 'Homing Deprogramming', 'Homing Redirect', 'Enhanced Digestion'];
 const UPGRADE_PREREQUISITE_TEXT = {
   5: 'Add Shield', 6: 'Add Bullets', 7: 'Add Bullets', 8: 'Add Bullets, Bullet Reload, Bullet Speed',
   9: 'Dash Cooldown maxed', 10: 'Bullet Reload 3+', 12: 'Add Bullets', 14: 'Shockwave', 15: 'Shockwave',
@@ -13754,7 +13891,8 @@ const PERMANENT_UPGRADE_COSTS = [
   [12],                            // Sceptobius lativentris
   [12],                            // Lomechusoides strumosus
   [6],                             // Homing Deprogramming
-  [6]                              // Homing Redirect
+  [6],                             // Homing Redirect
+  [6, 8, 10, 12]                   // Enhanced Digestion
 ];
 
 function getPermanentUpgradeCost(id, level) {
@@ -13981,6 +14119,167 @@ function drawQueenShop() {
 
 // ========== GENE TOKEN SYSTEM ==========
 
+// --- Prices (the same in the main game and multiplayer) ---
+// An ability's first level (a 'trait' investment in its category) costs 2 tokens. Its second level (the first gene cap
+// of its threshold-gated stat) costs 2, 3 or 4 by how much stronger it is. Every other gene cap costs 1.
+const ABILITY_TOKEN_COST = 2;
+const ABILITY_LEVEL2_TOKEN_COSTS = {
+  fireAlternating: 3, fireRapid: 4, fireBurst: 2, fireAlarm: 3,
+  pathHighArc: 2, pathAccelerate: 4, pathCurve: 4, pathBlink: 3,
+  specialExplosion: 2, specialKnockback: 3, specialRecoil: 3, specialCamo: 3,
+  deathLandmine: 3, deathRefire: 4, deathTerritory: 3, deathMound: 3
+};
+// Shrinking is bought, not evolved: full size, half (2 fit in a slot) or a third (3 fit). Prices are totals.
+const ANT_SHRINK_SIZES = { half: 0.5, third: 1 / 3 };
+const ANT_SHRINK_TOKEN_COSTS = { half: 2, third: 3 };
+// Gene caps and abilities can't be undone until this many rounds after they were gained
+const GENE_LOCK_ROUNDS = 2;
+
+const ABILITY_CATEGORY_STATS = {
+  special: ['specialExplosion', 'specialKnockback', 'specialCamo', 'specialRecoil'],
+  fire: ['fireBurst', 'fireRapid', 'fireAlternating', 'fireAlarm'],
+  death: ['deathLandmine', 'deathRefire', 'deathTerritory', 'deathMound'],
+  path: ['pathHighArc', 'pathAccelerate', 'pathBlink', 'pathCurve']
+};
+
+function getGeneCapTokenCost(statName, tier) {
+  if (tier === 0 && ABILITY_LEVEL2_TOKEN_COSTS[statName]) return ABILITY_LEVEL2_TOKEN_COSTS[statName];
+  return 1;
+}
+
+// Tokens an investment holds (refunded in full when it's freed)
+function getInvestmentCost(inv) {
+  if (inv.cost !== undefined) return inv.cost;
+  if (inv.type === 'trait') return ABILITY_TOKEN_COST;
+  if (inv.type === 'cap') return getGeneCapTokenCost(inv.target, inv.tier || 0);
+  if (inv.type === 'size') return ANT_SHRINK_TOKEN_COSTS[inv.size] || 2;
+  return 1;
+}
+
+// The size an ant's shrink tokens give it, or null if it has none
+function getShrinkInvestment(investments) {
+  return (investments || []).find(inv => inv.type === 'size') || null;
+}
+
+// The ant's size as it plays: its size gene can't take it below full size without shrink tokens
+function getExpressedAntSize(i) {
+  const shrink = getShrinkInvestment(geneTokenInvestments[i]);
+  if (shrink) return ANT_SHRINK_SIZES[shrink.size];
+  const gene = antSizeGene[i] !== undefined ? antSizeGene[i] : antSize[i];
+  return Math.max(1, gene);
+}
+
+// Ant i's size gene (what it would like to be). Below 1, it's what pushes the ants to buy shrink tokens.
+function getAntSizeGene(i) {
+  return antSizeGene[i] !== undefined ? antSizeGene[i] : antSize[i];
+}
+
+// Which stat in a category is expressed (the same ties as getSpecialType / getFireType / getDeathType / getPathType),
+// or null when the category has no ability. Ignores aphid boosts.
+function getExpressedCategoryStat(i, category) {
+  const potential = { special: specialPotential, fire: firePotential, death: deathPotential, path: pathPotential }[category];
+  if (!(potential[i] > 0.5)) return null;
+  if (!(geneTokenInvestments[i] || []).some(inv => inv.type === 'trait' && inv.category === category)) return null;
+  const val = s => getAntStatByName(i, s) || 0;
+  if (category === 'path') {
+    // High arc, accelerate, then curve beats blink on a tie
+    const max = Math.max(...ABILITY_CATEGORY_STATS.path.map(val));
+    if (val('pathHighArc') === max) return 'pathHighArc';
+    if (val('pathAccelerate') === max) return 'pathAccelerate';
+    if (val('pathCurve') === max) return 'pathCurve';
+    return 'pathBlink';
+  }
+  const stats = ABILITY_CATEGORY_STATS[category];
+  const max = Math.max(...stats.map(val));
+  return stats.find(s => val(s) === max);
+}
+
+// Whether a cap investment's stat is past the cap (it's really been evolved through)
+function isInvestmentCapPassed(i, inv) {
+  const v = Math.abs(getAntStatByName(i, inv.target));
+  if (inv.inverse) return v < inv.cap;
+  if (THRESHOLD_GATED_STATS.includes(inv.target)) return v >= inv.cap;
+  return v > inv.cap;
+}
+
+function isGeneLocked(inv, round) {
+  if (round < inv.lockedUntilRound) return true;
+  return inv.passedRound !== undefined && round < inv.passedRound + GENE_LOCK_ROUNDS + 1;
+}
+
+// Runs on every newly bred ant, once its genes are mutated (main game). It keeps the two-round locks:
+// - a gene cap the ant has evolved through can't fall back under the cap until the lock is over, and
+// - an expressed ability can't be overtaken: the other stats in its category stay under it (and the category's
+//   potential stays on) until the lock is over.
+// It also turns the size gene into the ant's real size, and refreshes everything its size affects.
+function applyBredAntGeneRules(i, round) {
+  // Abilities: the lock is inherited along with the genes
+  const locks = Object.assign({}, antAbilityLock[i] || {});
+  for (const category in ABILITY_CATEGORY_STATS) {
+    const lock = locks[category];
+    if (lock && round < lock.since + GENE_LOCK_ROUNDS + 1 &&
+        (geneTokenInvestments[i] || []).some(inv => inv.type === 'trait' && inv.category === category)) {
+      const potential = category + 'Potential';
+      if (getAntStatByName(i, potential) <= 0.5) setAntStatByName(i, potential, 0.51);
+      const keep = getAntStatByName(i, lock.stat) || 0;
+      for (const other of ABILITY_CATEGORY_STATS[category]) {
+        if (other !== lock.stat && (getAntStatByName(i, other) || 0) >= keep) setAntStatByName(i, other, Math.max(0, keep - 0.01));
+      }
+      if (getExpressedCategoryStat(i, category) !== lock.stat) {
+        // Ties between equal values: nudge the locked one up a hair (staying under its gene cap)
+        setAntStatByName(i, lock.stat, Math.min(keep + 0.005, getMaxAllowedValue(lock.stat, i)));
+      }
+      continue;
+    }
+    const expressed = getExpressedCategoryStat(i, category);
+    if (!expressed) delete locks[category];
+    else if (!lock || lock.stat !== expressed) locks[category] = { stat: expressed, since: round };
+  }
+  antAbilityLock[i] = locks;
+
+  // Gene caps
+  for (const inv of geneTokenInvestments[i] || []) {
+    if (inv.type !== 'cap') continue;
+    // An ability's second level only holds while that ability is the one its category expresses
+    const category = Object.keys(ABILITY_CATEGORY_STATS).find(c => ABILITY_CATEGORY_STATS[c].includes(inv.target));
+    if (category && locks[category] && locks[category].stat !== inv.target) continue;
+    const passed = isInvestmentCapPassed(i, inv);
+    if (passed && inv.passedRound === undefined) {
+      inv.passedRound = round;
+    } else if (!passed && inv.passedRound !== undefined && isGeneLocked(inv, round)) {
+      // Held at the cap: it can't evolve back out of it yet
+      const v = getAntStatByName(i, inv.target);
+      const sign = v < 0 ? -1 : 1;
+      let held = inv.cap;
+      if (!THRESHOLD_GATED_STATS.includes(inv.target)) held = inv.inverse ? inv.cap - 0.01 : inv.cap + 0.01;
+      setAntStatByName(i, inv.target, sign * held);
+    }
+  }
+
+
+  // Size: the gene drifts freely, but only shrink tokens make the ant smaller than full size
+  antSizeGene[i] = getAntSizeGene(i);
+  antSize[i] = getExpressedAntSize(i);
+  antSpeed[i] = Math.min(antSpeed[i], 4.5 - antSize[i]);
+  bulletSize[i] = Math.min(bulletSize[i], Math.min(3, antSize[i] + 1.0));
+  antMaxHealth[i] = antSize[i];
+  antHealth[i] = antMaxHealth[i];
+}
+
+const antStatWriters = {};
+function setAntStatByName(i, statName, value) {
+  if (!antStatWriters[statName]) antStatWriters[statName] = new Function('i', 'v', `${statName}[i] = v;`);
+  antStatWriters[statName](i, value);
+}
+
+// Whether ant i has the tokens for a candidate, and what it costs
+function getCandidateCost(candidate) {
+  if (candidate.type === 'trait') return ABILITY_TOKEN_COST;
+  if (candidate.type === 'cap') return getGeneCapTokenCost(candidate.name, candidate.tier);
+  if (candidate.type === 'size') return candidate.cost;
+  return 1;
+}
+
 function grantTokensForRound(roundNumber) {
   // Grant tokens every 5 rounds using the current difficulty.
   if (roundNumber > 0 && roundNumber % 5 === 0) {
@@ -14066,6 +14365,13 @@ const THRESHOLD_GATED_STATS = ['specialExplosion', 'pathCurve', 'deathLandmine',
 // These are granted free, like the dev tools trait token.
 function ensureCustomAntTierCaps(customAnt) {
   if (!customAnt.geneTokenInvestments) customAnt.geneTokenInvestments = [];
+  // Small custom ants get the shrink tokens their size needs (shrinking is bought, not evolved)
+  const size = customAnt.antSize || 1;
+  if (size < 0.75 && !customAnt.geneTokenInvestments.some(inv => inv.type === 'size')) {
+    const shrink = size < 0.42 ? 'third' : 'half';
+    customAnt.geneTokenInvestments.push({ target: 'antSize', type: 'size', size: shrink, cost: ANT_SHRINK_TOKEN_COSTS[shrink],
+      lockedUntilRound: 0, percentage: 1 });
+  }
   for (let statName of THRESHOLD_GATED_STATS) {
     const caps = moduleStatCapTiers[statName].caps;
     const value = customAnt[statName] || 0;
@@ -14480,9 +14786,11 @@ bulletKnockbackMultiplier: { caps: [2, 3, 4, 5], inverse: false },
   
   // Check each stat that has cap tiers
   for (let statName in statCapTiers) {
+    if (statName === 'antSize' && getShrinkInvestment(geneTokenInvestments[antIndex])) continue; // Shrunk ants don't grow
     const currentValue = eval(statName + '[' + antIndex + ']');
     const capInfo = getCurrentCapTier(statName, currentValue);
-    
+    if (capInfo && getGeneCapTokenCost(statName, capInfo.tier) > geneTokens[antIndex]) continue; // Can't afford it
+
     if (capInfo) {
       if (isInitialSetup) {
         // During initial setup, only consider always-useful stats
@@ -14525,7 +14833,7 @@ bulletKnockbackMultiplier: { caps: [2, 3, 4, 5], inverse: false },
     // Only consider if potential is above 0.5 (category is active)
     // Note: Initial ants start with 0.3 potential, so traits won't be available
     // during initial setup - only stat caps will be invested in
-    if (pot.value > 0.5) {
+    if (pot.value > 0.5 && geneTokens[antIndex] >= ABILITY_TOKEN_COST) {
       const category = pot.category;
       
       // Check if this category already has an investment
@@ -14615,25 +14923,60 @@ bulletKnockbackMultiplier: { caps: [2, 3, 4, 5], inverse: false },
     }
   }
   
-  // Allocate token
-  if (bestCandidate && geneTokens[antIndex] > 0) {
-    geneTokens[antIndex]--;
+  // Shrinking: a size gene well under full size buys half size, and further under, a third
+  if (!isInitialSetup) {
+    const gene = getAntSizeGene(antIndex);
+    const shrink = getShrinkInvestment(geneTokenInvestments[antIndex]);
+    let want = null;
+    if (!shrink && gene < 0.75) want = gene < 0.42 && geneTokens[antIndex] >= ANT_SHRINK_TOKEN_COSTS.third ? 'third' : 'half';
+    else if (shrink && shrink.size === 'half' && gene < 0.42) want = 'third';
+    if (want) {
+      const cost = ANT_SHRINK_TOKEN_COSTS[want] - (shrink ? getInvestmentCost(shrink) : 0);
+      const pct = constrain((1 - gene) / 0.5, 0, 1.5);
+      if (cost <= geneTokens[antIndex] && pct > bestPercentage) {
+        bestPercentage = pct;
+        bestCandidate = { type: 'size', name: 'antSize', size: want, cost: cost, replaces: shrink };
+      }
+    }
+  }
+
+  // Allocate token(s)
+  const bestCost = bestCandidate ? getCandidateCost(bestCandidate) : 0;
+  if (bestCandidate && geneTokens[antIndex] >= bestCost) {
+    geneTokens[antIndex] -= bestCost;
     const investment = {
       target: bestCandidate.name,
       type: bestCandidate.type,
-      lockedUntilRound: currentRound + 3,  // Lock for 2 full rounds (can free at round+3)
-      percentage: bestPercentage
+      lockedUntilRound: currentRound + GENE_LOCK_ROUNDS + 1,  // Lock for 2 full rounds (can free at round+3)
+      percentage: bestPercentage,
+      cost: bestCost
     };
+    if (bestCandidate.type === 'size') {
+      // Going from half to a third replaces the half-size investment (the total is what's held)
+      if (bestCandidate.replaces) {
+        const list = geneTokenInvestments[antIndex];
+        list.splice(list.indexOf(bestCandidate.replaces), 1);
+        investment.cost += getInvestmentCost(bestCandidate.replaces);
+      }
+      investment.size = bestCandidate.size;
+      geneTokenInvestments[antIndex].push(investment);
+      antSize[antIndex] = getExpressedAntSize(antIndex);
+      antMaxHealth[antIndex] = antSize[antIndex];
+      debugLog(`Ant ${antIndex} bought ${bestCandidate.size} size`);
+      return;
+    }
     
     if (bestCandidate.type === 'cap') {
       investment.tier = bestCandidate.tier;
       investment.cap = bestCandidate.cap;
       investment.inverse = bestCandidate.inverse;
+      if (isInvestmentCapPassed(antIndex, investment)) investment.passedRound = currentRound;
       debugLog(`Ant ${antIndex} invested token in ${bestCandidate.name} tier ${bestCandidate.tier + 1} (cap: ${bestCandidate.cap.toFixed(2)})`);
       
       // If initial setup, bump stat to the cap value
       if (isInitialSetup) {
         eval(bestCandidate.name + '[' + antIndex + '] = ' + bestCandidate.cap);
+        investment.passedRound = currentRound;
         debugLog(`  -> Bumped ${bestCandidate.name} to ${bestCandidate.cap.toFixed(2)}`);
       }
     } else {
@@ -14651,10 +14994,15 @@ function updateTokenInvestments(antIndex, currentRound) {
     const investment = geneTokenInvestments[antIndex][i];
     
     // Skip if still locked
-    if (currentRound < investment.lockedUntilRound) continue;
-    
+    if (isGeneLocked(investment, currentRound)) continue;
+
     let shouldFree = false;
-    
+
+    if (investment.type === 'size') {
+      // The size gene drifted back up toward full size
+      if (getAntSizeGene(antIndex) > 0.85) shouldFree = true;
+    }
+        
     if (investment.type === 'trait') {
       // Check if potential dropped below 0.5
       const potentialName = investment.category + 'Potential';
@@ -14714,8 +15062,14 @@ function updateTokenInvestments(antIndex, currentRound) {
           debugLog(`Freeing token from ${investment.target} tier ${investment.tier + 1} - value increased above cap`);
         }
       } else {
-        // For normal stats (higher is better), free if value falls below the previous tier
-        const previousCap = investment.tier > 0 ? investment.cap : 0;
+        // For normal stats (higher is better), free if value falls below the previous tier. An ability's second
+        // level is freed (and refunded) once its stat falls back under it, or the ability isn't the one expressed.
+        let previousCap = investment.tier > 0 ? investment.cap : 0;
+        if (THRESHOLD_GATED_STATS.includes(investment.target) && (investment.tier || 0) === 0) {
+          const category = Object.keys(ABILITY_CATEGORY_STATS).find(c => ABILITY_CATEGORY_STATS[c].includes(investment.target));
+          if (getExpressedCategoryStat(antIndex, category) !== investment.target) previousCap = Infinity;
+          else previousCap = investment.cap;
+        }
         if (currentValue < previousCap) {
           shouldFree = true;
           debugLog(`Freeing token from ${investment.target} tier ${investment.tier + 1} - value fell below previous tier`);
@@ -14723,10 +15077,11 @@ function updateTokenInvestments(antIndex, currentRound) {
       }
     }
     
-    // Free the token
+    // Free the token(s)
     if (shouldFree) {
-      geneTokens[antIndex]++;
+      geneTokens[antIndex] += getInvestmentCost(investment);
       geneTokenInvestments[antIndex].splice(i, 1);
+      if (investment.type === 'size') antSize[antIndex] = getExpressedAntSize(antIndex);
     }
   }
 }
@@ -15299,6 +15654,7 @@ const APHID_ANT_ABILITIES = {
 
 let aphids = [];
 let aphidSpawnTimer = 0;
+let aphidSpawnRateMultiplier = 1; // Multiplayer's lone survivor reward doubles it
 let playerAphidEffects = {};  // speed / armor / exp / regen -> frames left
 let antAphidEffects = [];     // Per ant: { speed, armor, regen: frames left, exp: {stat, frames}, reroll: {category, type, frames} }
 let antAphidBaseStats = [];   // Per ant: { statName: real value } for stats an aphid effect has changed
@@ -15338,7 +15694,7 @@ function updateAphids() {
     for (const key in playerAphidEffects) {
       if (--playerAphidEffects[key] <= 0) delete playerAphidEffects[key];
     }
-    if (isLadyBeetleActive() && ++aphidSpawnTimer >= APHID_SPAWN_SECONDS[upgrade39Level] * 60) {
+    if (isLadyBeetleActive() && ++aphidSpawnTimer >= APHID_SPAWN_SECONDS[upgrade39Level] * 60 / aphidSpawnRateMultiplier) {
       aphidSpawnTimer = 0;
       spawnAphid();
     }
@@ -15366,7 +15722,7 @@ function addAphidHealText(x, y, amount) {
 // --- Player ---
 
 function eatAphid(aphid) {
-  const heal = APHID_PLAYER_HEAL[upgrade38Level];
+  const heal = Math.round(APHID_PLAYER_HEAL[upgrade38Level] * getDigestionMultiplier() * 10) / 10;
   health += heal;
   addAphidHealText(aphid.x, aphid.y, heal);
   if (aphid.type === 'reroll') upgradeRerolls++;
@@ -16053,6 +16409,10 @@ function drawSpeedRings() {
 
 function endGame(){
   if (health < 0 && tutorialHandlesDeath()) return; // The tutorial's hard round is meant to be lost
+  if (health < 0 && mpInCombat()) {
+    mpOnCombatEnd(true); // Multiplayer: this player's beetle is out (multiplayer.js)
+    return;
+  }
   if (health < 0){
     // Multiplayer mode: mark player as dead and advance
     if (multiplayerMode && players.length > 0) {
@@ -16209,6 +16569,10 @@ if (timeCount < 0) {
         roundOutroSnapshot = true;
         startRoundRetreat();
       }
+      return;
+    }
+    if (mpInCombat()) {
+      mpOnCombatEnd(false); // Multiplayer: the turn's over (multiplayer.js)
       return;
     }
     if (isFinalEndingDue()) {
@@ -16594,10 +16958,9 @@ if (timeCount < 0) {
   }
 }
 
-function drawUpgradeScreen() {
-  // Define all 20 upgrade options with their max levels
-  let upgradeMaxLevels = UPGRADE_MAX_LEVELS;
-  let allUpgrades = [
+// Every upgrade's card (title, description, the beetle's current level and its max), by upgrade id
+function getAllUpgradeCards() {
+  return [
     {
       title: 'Walking Speed',
       description: 'Increase your movement speed.',
@@ -16975,9 +17338,21 @@ function drawUpgradeScreen() {
       description: 'Deflected homing bullets home in on the nearest ant, bullet, landmine, turret, mound or bunker, picking a new target if theirs dies. Requires Homing Deprogramming.',
       level: upgrade63Level,
       maxLevel: 1
+    },
+    {
+      title: 'Enhanced Digestion',
+      description: 'More health from every ant and aphid you eat. x1.25 per level (x1→x2).',
+      level: upgrade64Level,
+      maxLevel: 4
     }
   ];
-  
+}
+
+function drawUpgradeScreen() {
+  // Define all 20 upgrade options with their max levels
+  let upgradeMaxLevels = UPGRADE_MAX_LEVELS;
+  let allUpgrades = getAllUpgradeCards();
+
   // Get the randomly selected upgrades
   let upgrades = displayedUpgrades.map(index => allUpgrades[index]);
   let numOptions = displayedUpgrades.length;
@@ -17260,6 +17635,7 @@ function drawUpgradeScreen() {
       case 60:
       case 61:
       case 62:{ cur = level > 0 ? 'ON' : 'OFF'; nxt = 'ON'; break; }
+      case 63:{ cur = 'x' + getDigestionMultiplier(level); nxt = 'x' + getDigestionMultiplier(nextLevel); break; }
       case 27:
       case 30:
       case 32:
@@ -17476,7 +17852,7 @@ function getUpgradeRarity(upgradeId) {
 
 // Upgrade levels by id (0-55)
 function getCurrentUpgradeLevels() {
-  return [upgrade1Level, upgrade2Level, upgrade3Level, upgrade4Level, upgrade5Level, upgrade6Level, upgrade7Level, upgrade8Level, upgrade9Level, upgrade10Level, upgrade11Level, upgrade12Level, upgrade13Level, upgrade14Level, upgrade15Level, upgrade16Level, upgrade17Level, upgrade18Level, upgrade19Level, upgrade20Level, upgrade21Level, upgrade22Level, upgrade23Level, upgrade24Level, upgrade25Level, upgrade26Level, upgrade27Level, upgrade28Level, upgrade29Level, upgrade30Level, upgrade31Level, upgrade32Level, upgrade33Level, upgrade34Level, upgrade35Level, upgrade36Level, upgrade37Level, upgrade38Level, upgrade39Level, upgrade40Level, upgrade41Level, upgrade42Level, upgrade43Level, upgrade44Level, upgrade45Level, upgrade46Level, upgrade47Level, upgrade48Level, upgrade49Level, upgrade50Level, upgrade51Level, upgrade52Level, upgrade53Level, upgrade54Level, upgrade55Level, upgrade56Level, upgrade57Level, upgrade58Level, upgrade59Level, upgrade60Level, upgrade61Level, upgrade62Level, upgrade63Level];
+  return [upgrade1Level, upgrade2Level, upgrade3Level, upgrade4Level, upgrade5Level, upgrade6Level, upgrade7Level, upgrade8Level, upgrade9Level, upgrade10Level, upgrade11Level, upgrade12Level, upgrade13Level, upgrade14Level, upgrade15Level, upgrade16Level, upgrade17Level, upgrade18Level, upgrade19Level, upgrade20Level, upgrade21Level, upgrade22Level, upgrade23Level, upgrade24Level, upgrade25Level, upgrade26Level, upgrade27Level, upgrade28Level, upgrade29Level, upgrade30Level, upgrade31Level, upgrade32Level, upgrade33Level, upgrade34Level, upgrade35Level, upgrade36Level, upgrade37Level, upgrade38Level, upgrade39Level, upgrade40Level, upgrade41Level, upgrade42Level, upgrade43Level, upgrade44Level, upgrade45Level, upgrade46Level, upgrade47Level, upgrade48Level, upgrade49Level, upgrade50Level, upgrade51Level, upgrade52Level, upgrade53Level, upgrade54Level, upgrade55Level, upgrade56Level, upgrade57Level, upgrade58Level, upgrade59Level, upgrade60Level, upgrade61Level, upgrade62Level, upgrade63Level, upgrade64Level];
 }
 
 // Whether an upgrade's prerequisites are met (lv = upgrade levels by id). Also used by the Queen Upgrades shop.
@@ -17533,7 +17909,7 @@ function pickUpgradeOptions(exclude = []) {
     displayedUpgrades = forced;
     return;
   }
-  let upgradeLevels = [upgrade1Level, upgrade2Level, upgrade3Level, upgrade4Level, upgrade5Level, upgrade6Level, upgrade7Level, upgrade8Level, upgrade9Level, upgrade10Level, upgrade11Level, upgrade12Level, upgrade13Level, upgrade14Level, upgrade15Level, upgrade16Level, upgrade17Level, upgrade18Level, upgrade19Level, upgrade20Level, upgrade21Level, upgrade22Level, upgrade23Level, upgrade24Level, upgrade25Level, upgrade26Level, upgrade27Level, upgrade28Level, upgrade29Level, upgrade30Level, upgrade31Level, upgrade32Level, upgrade33Level, upgrade34Level, upgrade35Level, upgrade36Level, upgrade37Level, upgrade38Level, upgrade39Level, upgrade40Level, upgrade41Level, upgrade42Level, upgrade43Level, upgrade44Level, upgrade45Level, upgrade46Level, upgrade47Level, upgrade48Level, upgrade49Level, upgrade50Level, upgrade51Level, upgrade52Level, upgrade53Level, upgrade54Level, upgrade55Level, upgrade56Level, upgrade57Level, upgrade58Level, upgrade59Level, upgrade60Level, upgrade61Level, upgrade62Level, upgrade63Level];
+  let upgradeLevels = [upgrade1Level, upgrade2Level, upgrade3Level, upgrade4Level, upgrade5Level, upgrade6Level, upgrade7Level, upgrade8Level, upgrade9Level, upgrade10Level, upgrade11Level, upgrade12Level, upgrade13Level, upgrade14Level, upgrade15Level, upgrade16Level, upgrade17Level, upgrade18Level, upgrade19Level, upgrade20Level, upgrade21Level, upgrade22Level, upgrade23Level, upgrade24Level, upgrade25Level, upgrade26Level, upgrade27Level, upgrade28Level, upgrade29Level, upgrade30Level, upgrade31Level, upgrade32Level, upgrade33Level, upgrade34Level, upgrade35Level, upgrade36Level, upgrade37Level, upgrade38Level, upgrade39Level, upgrade40Level, upgrade41Level, upgrade42Level, upgrade43Level, upgrade44Level, upgrade45Level, upgrade46Level, upgrade47Level, upgrade48Level, upgrade49Level, upgrade50Level, upgrade51Level, upgrade52Level, upgrade53Level, upgrade54Level, upgrade55Level, upgrade56Level, upgrade57Level, upgrade58Level, upgrade59Level, upgrade60Level, upgrade61Level, upgrade62Level, upgrade63Level, upgrade64Level];
   let availableUpgrades = [];
   for (let i = 0; i < UPGRADE_COUNT; i++) {
     if (upgradeLevels[i] < UPGRADE_MAX_LEVELS[i] && isUpgradeUnlocked(i)) {
@@ -17567,7 +17943,7 @@ function moveRandomUpgrades(pool, out) {
 function canRerollUpgrades() {
   if (upgradeRerolls <= 0) return false;
   if (isTutorialRun() && !tutorialAllowsReroll()) return false;
-  let upgradeLevels = [upgrade1Level, upgrade2Level, upgrade3Level, upgrade4Level, upgrade5Level, upgrade6Level, upgrade7Level, upgrade8Level, upgrade9Level, upgrade10Level, upgrade11Level, upgrade12Level, upgrade13Level, upgrade14Level, upgrade15Level, upgrade16Level, upgrade17Level, upgrade18Level, upgrade19Level, upgrade20Level, upgrade21Level, upgrade22Level, upgrade23Level, upgrade24Level, upgrade25Level, upgrade26Level, upgrade27Level, upgrade28Level, upgrade29Level, upgrade30Level, upgrade31Level, upgrade32Level, upgrade33Level, upgrade34Level, upgrade35Level, upgrade36Level, upgrade37Level, upgrade38Level, upgrade39Level, upgrade40Level, upgrade41Level, upgrade42Level, upgrade43Level, upgrade44Level, upgrade45Level, upgrade46Level, upgrade47Level, upgrade48Level, upgrade49Level, upgrade50Level, upgrade51Level, upgrade52Level, upgrade53Level, upgrade54Level, upgrade55Level, upgrade56Level, upgrade57Level, upgrade58Level, upgrade59Level, upgrade60Level, upgrade61Level, upgrade62Level, upgrade63Level];
+  let upgradeLevels = [upgrade1Level, upgrade2Level, upgrade3Level, upgrade4Level, upgrade5Level, upgrade6Level, upgrade7Level, upgrade8Level, upgrade9Level, upgrade10Level, upgrade11Level, upgrade12Level, upgrade13Level, upgrade14Level, upgrade15Level, upgrade16Level, upgrade17Level, upgrade18Level, upgrade19Level, upgrade20Level, upgrade21Level, upgrade22Level, upgrade23Level, upgrade24Level, upgrade25Level, upgrade26Level, upgrade27Level, upgrade28Level, upgrade29Level, upgrade30Level, upgrade31Level, upgrade32Level, upgrade33Level, upgrade34Level, upgrade35Level, upgrade36Level, upgrade37Level, upgrade38Level, upgrade39Level, upgrade40Level, upgrade41Level, upgrade42Level, upgrade43Level, upgrade44Level, upgrade45Level, upgrade46Level, upgrade47Level, upgrade48Level, upgrade49Level, upgrade50Level, upgrade51Level, upgrade52Level, upgrade53Level, upgrade54Level, upgrade55Level, upgrade56Level, upgrade57Level, upgrade58Level, upgrade59Level, upgrade60Level, upgrade61Level, upgrade62Level, upgrade63Level, upgrade64Level];
   for (let i = 0; i < UPGRADE_COUNT; i++) {
     if (upgradeLevels[i] < UPGRADE_MAX_LEVELS[i] && isUpgradeUnlocked(i) && !displayedUpgrades.includes(i)) return true;
   }
@@ -17715,6 +18091,8 @@ function applyUpgrade(upgradeIndex) {
     upgrade62Level++;
   } else if (actualUpgradeId === 62 && upgrade63Level < upgradeMaxLevels[62]) {
     upgrade63Level++;
+  } else if (actualUpgradeId === 63 && upgrade64Level < upgradeMaxLevels[63]) {
+    upgrade64Level++;
   }
   
   // Level up the EXP system
@@ -17740,8 +18118,8 @@ function applyUpgrade(upgradeIndex) {
   }
   
   //TODO: Add actual upgrade effects based on actualUpgradeId (0-19)
-  let levels = [upgrade1Level, upgrade2Level, upgrade3Level, upgrade4Level, upgrade5Level, upgrade6Level, upgrade7Level, upgrade8Level, upgrade9Level, upgrade10Level, upgrade11Level, upgrade12Level, upgrade13Level, upgrade14Level, upgrade15Level, upgrade16Level, upgrade17Level, upgrade18Level, upgrade19Level, upgrade20Level, upgrade21Level, upgrade22Level, upgrade23Level, upgrade24Level, upgrade25Level, upgrade26Level, upgrade27Level, upgrade28Level, upgrade29Level, upgrade30Level, upgrade31Level, upgrade32Level, upgrade33Level, upgrade34Level, upgrade35Level, upgrade36Level, upgrade37Level, upgrade38Level, upgrade39Level, upgrade40Level, upgrade41Level, upgrade42Level, upgrade43Level, upgrade44Level, upgrade45Level, upgrade46Level, upgrade47Level, upgrade48Level, upgrade49Level, upgrade50Level, upgrade51Level, upgrade52Level, upgrade53Level, upgrade54Level, upgrade55Level, upgrade56Level, upgrade57Level, upgrade58Level, upgrade59Level, upgrade60Level, upgrade61Level, upgrade62Level, upgrade63Level];
-  let upgradeNames = ['Walking Speed', 'Dash Speed', 'Dash Cooldown', 'Add Shield', 'Add Bullets', 'Shield Regeneration', 'Bullet Reload', 'Bullet Speed', 'Free-Angle Aiming', 'Tiger Beetle (Rivacindela hudsoni)', 'Oogpister Beetle (Anthia sexmaculata)', 'Horns', 'Potent Acid', 'Shockwave', 'Shockwave Radius', 'Shockwave Damage', 'Shockwave Cooldown', 'Shockwave Knockback', 'Bullet Deflection', 'Health Regeneration', 'Runt Hunter', 'Increased Metabolism', 'EXP Boost', 'Combo Surge', 'Dash Harvest', 'Shockwave Harvest', 'Bullet Harvest', 'Spray Acid', 'Spray Length', 'Spray Width', 'Piercing Acid', 'Piercing Depth', 'Impact Bomb', 'Timed Bomb', 'Proximity Bomb', 'Blast Radius', 'Lady Beetle (Coccinella septempunctata)', 'Aphid Health', 'Aphid Spawn Rate', 'Speedy Aphids', 'Armored Aphids', 'Wise Aphids', 'Healthy Aphids', 'Lucky Aphids', 'Mound Ring', 'Bunker', 'Vortex', 'Flight and Slam', 'Mound Health', 'Flight Duration', 'Starting Health', 'Dash Deflection', 'Shell Shrapnel', 'Shrapnel Count', 'Burrow', 'Beam Deflection', 'Rainbow Aphids', 'Dash Gust', 'Dash Blast', 'Rove Beetle (Sceptobius lativentris)', 'Rove Beetle 2 (Lomechusoides strumosus)', 'Homing Deprogramming', 'Homing Redirect'];
+  let levels = [upgrade1Level, upgrade2Level, upgrade3Level, upgrade4Level, upgrade5Level, upgrade6Level, upgrade7Level, upgrade8Level, upgrade9Level, upgrade10Level, upgrade11Level, upgrade12Level, upgrade13Level, upgrade14Level, upgrade15Level, upgrade16Level, upgrade17Level, upgrade18Level, upgrade19Level, upgrade20Level, upgrade21Level, upgrade22Level, upgrade23Level, upgrade24Level, upgrade25Level, upgrade26Level, upgrade27Level, upgrade28Level, upgrade29Level, upgrade30Level, upgrade31Level, upgrade32Level, upgrade33Level, upgrade34Level, upgrade35Level, upgrade36Level, upgrade37Level, upgrade38Level, upgrade39Level, upgrade40Level, upgrade41Level, upgrade42Level, upgrade43Level, upgrade44Level, upgrade45Level, upgrade46Level, upgrade47Level, upgrade48Level, upgrade49Level, upgrade50Level, upgrade51Level, upgrade52Level, upgrade53Level, upgrade54Level, upgrade55Level, upgrade56Level, upgrade57Level, upgrade58Level, upgrade59Level, upgrade60Level, upgrade61Level, upgrade62Level, upgrade63Level, upgrade64Level];
+  let upgradeNames = ['Walking Speed', 'Dash Speed', 'Dash Cooldown', 'Add Shield', 'Add Bullets', 'Shield Regeneration', 'Bullet Reload', 'Bullet Speed', 'Free-Angle Aiming', 'Tiger Beetle (Rivacindela hudsoni)', 'Oogpister Beetle (Anthia sexmaculata)', 'Horns', 'Potent Acid', 'Shockwave', 'Shockwave Radius', 'Shockwave Damage', 'Shockwave Cooldown', 'Shockwave Knockback', 'Bullet Deflection', 'Health Regeneration', 'Runt Hunter', 'Increased Metabolism', 'EXP Boost', 'Combo Surge', 'Dash Harvest', 'Shockwave Harvest', 'Bullet Harvest', 'Spray Acid', 'Spray Length', 'Spray Width', 'Piercing Acid', 'Piercing Depth', 'Impact Bomb', 'Timed Bomb', 'Proximity Bomb', 'Blast Radius', 'Lady Beetle (Coccinella septempunctata)', 'Aphid Health', 'Aphid Spawn Rate', 'Speedy Aphids', 'Armored Aphids', 'Wise Aphids', 'Healthy Aphids', 'Lucky Aphids', 'Mound Ring', 'Bunker', 'Vortex', 'Flight and Slam', 'Mound Health', 'Flight Duration', 'Starting Health', 'Dash Deflection', 'Shell Shrapnel', 'Shrapnel Count', 'Burrow', 'Beam Deflection', 'Rainbow Aphids', 'Dash Gust', 'Dash Blast', 'Rove Beetle (Sceptobius lativentris)', 'Rove Beetle 2 (Lomechusoides strumosus)', 'Homing Deprogramming', 'Homing Redirect', 'Enhanced Digestion'];
   debugLog(`${upgradeNames[actualUpgradeId]} selected! Level: ${levels[actualUpgradeId]}`);
   
   // Update upgrade booleans
@@ -18014,7 +18392,27 @@ Next generation distribution:`);
 const BREEDING_PARENT_SLOT = 501;  // Past MAX_ANTS in nextRound()
 
 // Drop lingering effects so nothing carries over between rounds and the arrays start fresh
+// Every round starts with the dash, the shockwave (and its variants) and the shot ready to go
+function resetBeetleCooldowns() {
+  dash = false;
+  dashReady = true;
+  dashCoolDown = 0;
+  speedTime = 0.25;
+  dashReadyFlash = 0;
+  dashPrevPressed = false;
+  windAttackReady = true;
+  windAttackCooldown = 0;
+  windAttackCooldownMax = windCooldownStat;
+  windAttackActive = false;
+  windAttackAnimRadius = 0;
+  windAttackAlpha = 0;
+  windAttackPrevPressed = false;
+  windAttackReadyFlash = 0;
+  shotBreak = 0;
+}
+
 function clearRoundEffects() {
+  resetBeetleCooldowns();
   playerBullets = [];
   resetShotMode(); // Every round starts on the default shot (also clears sprays and bomb blasts)
   resetShockwaveVariant(); // ...and the original shockwave
@@ -18375,7 +18773,8 @@ function nextRound(){
         bulletSize[i]    = constrain(s.bulletSize    + random(-(movementMutationRate / 2), (movementMutationRate / 2)), 1, 3);
         radiusMultiplier[i] = constrain(s.radiusMultiplier + random(-0.2, 0.2), 0.5, 3);
         residueMultiplier[i] = constrain(s.residueMultiplier + random(-0.2, 0.2), 0.5, 3);
-        antSize[i] = constrain(s.antSize + random(-antSizeMutationRate, antSizeMutationRate), 0.3, 3);
+        antSize[i] = constrain((s.antSizeGene !== undefined ? s.antSizeGene : s.antSize) + random(-antSizeMutationRate, antSizeMutationRate), 0.3, 3);
+        antSizeGene[i] = antSize[i];
         // Cap ant speed based on ant size (small ants can be faster, large ants slower)
         let maxAntSpeed1 = 4.5 - antSize[i];
         antSpeed[i] = min(antSpeed[i], maxAntSpeed1);
@@ -18552,7 +18951,8 @@ function nextRound(){
         // Remove duplicate mutations (these were already handled above)
         angleFromSpawn[i]    = constrain(angleFromSpawn[parent.id] + random((-PI / 3), (PI / 3)), 0, TWO_PI);
         bulletSize[i]    = constrain(bulletSize[parent.id]    + random(-(movementMutationRate / 2), (movementMutationRate / 2)), 1, 3);
-        antSize[i] = constrain(antSize[parent.id] + random(-antSizeMutationRate, antSizeMutationRate), 0.3, 3);
+        antSize[i] = constrain(getAntSizeGene(parent.id) + random(-antSizeMutationRate, antSizeMutationRate), 0.3, 3);
+        antSizeGene[i] = antSize[i];
         // Cap ant speed based on ant size (small ants can be faster, large ants slower)
         let maxAntSpeed2 = 4.5 - antSize[i];
         antSpeed[i] = min(antSpeed[i], maxAntSpeed2);
@@ -18924,9 +19324,10 @@ function nextRound(){
         residueMultiplier[i] = random(0.5, 3);
       }
       
-      antSize[i] = winner 
-        ? constrain(antSize[winner.id] + random(-antSizeMutationRate, antSizeMutationRate), 0.3, 3)
+      antSize[i] = winner
+        ? constrain(getAntSizeGene(winner.id) + random(-antSizeMutationRate, antSizeMutationRate), 0.3, 3)
         : 1;  // Start at 1 if no winner
+      antSizeGene[i] = antSize[i];
       
       // Cap ant speed based on ant size (small ants can be faster, large ants slower)
       let maxAntSpeed = 4.5 - antSize[i];
@@ -19012,6 +19413,12 @@ function nextRound(){
       }
     }
     
+    // Inherited ability locks, then the gene rules (locks, and the size gene becoming the real size)
+    if (parent && parent.custom && parent.stats) antAbilityLock[i] = parent.stats.antAbilityLock || {};
+    else if (parent) antAbilityLock[i] = antAbilityLock[parent.id] || {};
+    else antAbilityLock[i] = {};
+    applyBredAntGeneRules(i, level);
+
     // Check if this ant will fit in remaining slots (allow small floating point tolerance)
     const SLOT_EPSILON = 0.001;
     if (usedSlots + antSize[i] > group.slots + SLOT_EPSILON) {
@@ -19836,9 +20243,7 @@ function getMainMenuOptions() {
       startMenu = false;
     } },
     { label: 'Multiplayer', color: [100, 255, 100], action: () => {
-      pendingGameMode = 'multiplayer';
-      openDifficultyMenu();
-      startMenu = false;
+      mpOpenSetup(); // multiplayer.js
     } },
     { label: 'Tutorial', note: getTutorialMenuNote(), color: [120, 200, 255], action: () => openTutorialMenu() },
     { label: 'Antdex', color: [160, 120, 255], action: () => {
@@ -20700,6 +21105,22 @@ function mousePressed() {
 const ANTDEX_STORAGE_KEY = 'antDexDiscoveries';
 const DEX_ROMAN = ['I', 'II', 'III', 'IV', 'V'];
 
+// Ant i's current value of a stat, by the stat array's name (cached accessors, so it's cheap enough to call a lot)
+const antStatReaders = {};
+function getAntStatByName(i, statName) {
+  if (!antStatReaders[statName]) antStatReaders[statName] = new Function('i', `return ${statName}[i];`);
+  return antStatReaders[statName](i);
+}
+
+// Whether ant i's stat is past the limit that gene cap tier t lifts (caps[t]): it's really using that cap
+function isStatPastCap(i, statName, t) {
+  const tierInfo = moduleStatCapTiers[statName];
+  let v = getAntStatByName(i, statName);
+  if (typeof v !== 'number') return false;
+  if (statName === 'bulletCurveStrength') v = Math.abs(v); // Curves go either way
+  return tierInfo.inverse ? v < tierInfo.caps[t] : v > tierInfo.caps[t];
+}
+
 // Highest gene cap tier ant i has unlocked for a stat (-1 = none)
 function getUnlockedCapTier(i, statName) {
   let tier = -1;
@@ -20764,7 +21185,8 @@ function buildDexCapStatEntries() {
         scene: info.scene,
         level: (t + 1) / tiers,
         value: limit,
-                check: i => getUnlockedCapTier(i, info.stat) >= t
+        // Only counts once the ant has the cap AND its stat has actually gone past the limit the cap lifts
+        check: i => getUnlockedCapTier(i, info.stat) >= t && isStatPastCap(i, info.stat, t)
       });
     }
   }
@@ -20935,6 +21357,7 @@ function discoverAntDexEntry(entry) {
 // Checks every ant on the field for new discoveries, and notes which entries are in this round
 function updateAntDexEntries() {
   if (antDexEntries.length === 0) buildAntDexEntries();
+  if (mp) return; // Multiplayer ants are designed, not discovered
   if (start !== true || frameCount % 10 !== 0) return; // A few checks a second is plenty
   for (let i = 1; i <= enemyCount; i++) {
     if (hasAntAphidEffects(i)) continue; // Aphid boosts aren't the ant's own genes
@@ -22412,6 +22835,7 @@ function savePlayerState(playerIndex) {
   p.upgrade61 = upgrade61Level;
   p.upgrade62 = upgrade62Level;
   p.upgrade63 = upgrade63Level;
+  p.upgrade64 = upgrade64Level;
   p.upgradeRerolls = upgradeRerolls;
   
   // Save experience
@@ -22500,6 +22924,7 @@ function loadPlayerState(playerIndex) {
   upgrade61Level = p.upgrade61 || 0;
   upgrade62Level = p.upgrade62 || 0;
   upgrade63Level = p.upgrade63 || 0;
+  upgrade64Level = p.upgrade64 || 0;
   upgradeRerolls = p.upgradeRerolls !== undefined ? p.upgradeRerolls : UPGRADE_REROLLS_PER_RUN;
   resetShotMode(); // Each player's turn starts on the default shot
   resetShockwaveVariant(); // ...and the original shockwave, with nothing left over from the last player
@@ -23665,7 +24090,8 @@ function drawDevTools() {
         upgrade60: upgrade60Level,
         upgrade61: upgrade61Level,
         upgrade62: upgrade62Level,
-        upgrade63: upgrade63Level
+        upgrade63: upgrade63Level,
+        upgrade64: upgrade64Level
       };
     } else if (devToolsTab === 'multi') {
       // Multiplayer mode - get upgrades from selected player
@@ -23733,7 +24159,8 @@ function drawDevTools() {
           upgrade60: players[devToolsPlayerTab].upgrade60 || 0,
           upgrade61: players[devToolsPlayerTab].upgrade61 || 0,
           upgrade62: players[devToolsPlayerTab].upgrade62 || 0,
-          upgrade63: players[devToolsPlayerTab].upgrade63 || 0
+          upgrade63: players[devToolsPlayerTab].upgrade63 || 0,
+          upgrade64: players[devToolsPlayerTab].upgrade64 || 0
         };
       } else {
         // Player doesn't exist, show zeros
@@ -23814,7 +24241,8 @@ function drawDevTools() {
         { name: 'Rove Beetle (Sceptobius lativentris)', level: currentUpgrades.upgrade60, maxLevel: 1, id: 59 },
         { name: 'Rove Beetle 2 (Lomechusoides strumosus)', level: currentUpgrades.upgrade61, maxLevel: 1, id: 60 },
         { name: 'Homing Deprogramming', level: currentUpgrades.upgrade62, maxLevel: 1, id: 61 },
-        { name: 'Homing Redirect', level: currentUpgrades.upgrade63, maxLevel: 1, id: 62 }
+        { name: 'Homing Redirect', level: currentUpgrades.upgrade63, maxLevel: 1, id: 62 },
+        { name: 'Enhanced Digestion', level: currentUpgrades.upgrade64, maxLevel: 4, id: 63 }
       ];
     
     // Handle player sub-tab switching in multiplayer mode
@@ -24046,7 +24474,7 @@ function toggleDevUpgrade(upgradeId) {
   
   if (devToolsTab === 'single') {
     let upgradeLevels = [upgrade1Level, upgrade2Level, upgrade3Level, upgrade4Level, upgrade5Level, 
-                         upgrade6Level, upgrade7Level, upgrade8Level, upgrade9Level, upgrade10Level, upgrade11Level, upgrade12Level, upgrade13Level, upgrade14Level, upgrade15Level, upgrade16Level, upgrade17Level, upgrade18Level, upgrade19Level, upgrade20Level, upgrade21Level, upgrade22Level, upgrade23Level, upgrade24Level, upgrade25Level, upgrade26Level, upgrade27Level, upgrade28Level, upgrade29Level, upgrade30Level, upgrade31Level, upgrade32Level, upgrade33Level, upgrade34Level, upgrade35Level, upgrade36Level, upgrade37Level, upgrade38Level, upgrade39Level, upgrade40Level, upgrade41Level, upgrade42Level, upgrade43Level, upgrade44Level, upgrade45Level, upgrade46Level, upgrade47Level, upgrade48Level, upgrade49Level, upgrade50Level, upgrade51Level, upgrade52Level, upgrade53Level, upgrade54Level, upgrade55Level, upgrade56Level, upgrade57Level, upgrade58Level, upgrade59Level, upgrade60Level, upgrade61Level, upgrade62Level, upgrade63Level];
+                         upgrade6Level, upgrade7Level, upgrade8Level, upgrade9Level, upgrade10Level, upgrade11Level, upgrade12Level, upgrade13Level, upgrade14Level, upgrade15Level, upgrade16Level, upgrade17Level, upgrade18Level, upgrade19Level, upgrade20Level, upgrade21Level, upgrade22Level, upgrade23Level, upgrade24Level, upgrade25Level, upgrade26Level, upgrade27Level, upgrade28Level, upgrade29Level, upgrade30Level, upgrade31Level, upgrade32Level, upgrade33Level, upgrade34Level, upgrade35Level, upgrade36Level, upgrade37Level, upgrade38Level, upgrade39Level, upgrade40Level, upgrade41Level, upgrade42Level, upgrade43Level, upgrade44Level, upgrade45Level, upgrade46Level, upgrade47Level, upgrade48Level, upgrade49Level, upgrade50Level, upgrade51Level, upgrade52Level, upgrade53Level, upgrade54Level, upgrade55Level, upgrade56Level, upgrade57Level, upgrade58Level, upgrade59Level, upgrade60Level, upgrade61Level, upgrade62Level, upgrade63Level, upgrade64Level];
     currentLevel = upgradeLevels[upgradeId];
   } else {
     // Multiplayer - get from selected player
@@ -24114,7 +24542,8 @@ function toggleDevUpgrade(upgradeId) {
         players[devToolsPlayerTab].upgrade60 || 0,
         players[devToolsPlayerTab].upgrade61 || 0,
         players[devToolsPlayerTab].upgrade62 || 0,
-        players[devToolsPlayerTab].upgrade63 || 0
+        players[devToolsPlayerTab].upgrade63 || 0,
+        players[devToolsPlayerTab].upgrade64 || 0
       ];
       currentLevel = playerUpgrades[upgradeId];
     }
@@ -24189,7 +24618,7 @@ function activateDevPrerequisites(upgradeId, targetLevel) {
   let getCurrentLevel = (id) => {
     if (devToolsTab === 'single') {
       let levels = [upgrade1Level, upgrade2Level, upgrade3Level, upgrade4Level, upgrade5Level, 
-                    upgrade6Level, upgrade7Level, upgrade8Level, upgrade9Level, upgrade10Level, upgrade11Level, upgrade12Level, upgrade13Level, upgrade14Level, upgrade15Level, upgrade16Level, upgrade17Level, upgrade18Level, upgrade19Level, upgrade20Level, upgrade21Level, upgrade22Level, upgrade23Level, upgrade24Level, upgrade25Level, upgrade26Level, upgrade27Level, upgrade28Level, upgrade29Level, upgrade30Level, upgrade31Level, upgrade32Level, upgrade33Level, upgrade34Level, upgrade35Level, upgrade36Level, upgrade37Level, upgrade38Level, upgrade39Level, upgrade40Level, upgrade41Level, upgrade42Level, upgrade43Level, upgrade44Level, upgrade45Level, upgrade46Level, upgrade47Level, upgrade48Level, upgrade49Level, upgrade50Level, upgrade51Level, upgrade52Level, upgrade53Level, upgrade54Level, upgrade55Level, upgrade56Level, upgrade57Level, upgrade58Level, upgrade59Level, upgrade60Level, upgrade61Level, upgrade62Level, upgrade63Level];
+                    upgrade6Level, upgrade7Level, upgrade8Level, upgrade9Level, upgrade10Level, upgrade11Level, upgrade12Level, upgrade13Level, upgrade14Level, upgrade15Level, upgrade16Level, upgrade17Level, upgrade18Level, upgrade19Level, upgrade20Level, upgrade21Level, upgrade22Level, upgrade23Level, upgrade24Level, upgrade25Level, upgrade26Level, upgrade27Level, upgrade28Level, upgrade29Level, upgrade30Level, upgrade31Level, upgrade32Level, upgrade33Level, upgrade34Level, upgrade35Level, upgrade36Level, upgrade37Level, upgrade38Level, upgrade39Level, upgrade40Level, upgrade41Level, upgrade42Level, upgrade43Level, upgrade44Level, upgrade45Level, upgrade46Level, upgrade47Level, upgrade48Level, upgrade49Level, upgrade50Level, upgrade51Level, upgrade52Level, upgrade53Level, upgrade54Level, upgrade55Level, upgrade56Level, upgrade57Level, upgrade58Level, upgrade59Level, upgrade60Level, upgrade61Level, upgrade62Level, upgrade63Level, upgrade64Level];
       return levels[id];
     } else if (players[devToolsPlayerTab]) {
       let playerLevels = [
@@ -24255,7 +24684,8 @@ function activateDevPrerequisites(upgradeId, targetLevel) {
         players[devToolsPlayerTab].upgrade60 || 0,
         players[devToolsPlayerTab].upgrade61 || 0,
         players[devToolsPlayerTab].upgrade62 || 0,
-        players[devToolsPlayerTab].upgrade63 || 0
+        players[devToolsPlayerTab].upgrade63 || 0,
+        players[devToolsPlayerTab].upgrade64 || 0
       ];
       return playerLevels[id];
     }
@@ -24590,6 +25020,7 @@ function setUpgradeLevel(upgradeId, level) {
   else if (upgradeId === 60) upgrade61Level = level;
   else if (upgradeId === 61) upgrade62Level = level;
   else if (upgradeId === 62) upgrade63Level = level;
+  else if (upgradeId === 63) upgrade64Level = level;
   
   // Apply the changes to game stats
   updateUpgradeBooleans();
@@ -24662,6 +25093,7 @@ function setDevUpgradeLevel(upgradeId, level) {
     else if (upgradeId === 60) upgrade61Level = level;
     else if (upgradeId === 61) upgrade62Level = level;
     else if (upgradeId === 62) upgrade63Level = level;
+    else if (upgradeId === 63) upgrade64Level = level;
     
     // Apply the changes to game stats
     updateUpgradeBooleans();
@@ -24731,6 +25163,7 @@ function setDevUpgradeLevel(upgradeId, level) {
       else if (upgradeId === 60) players[devToolsPlayerTab].upgrade61 = level;
       else if (upgradeId === 61) players[devToolsPlayerTab].upgrade62 = level;
       else if (upgradeId === 62) players[devToolsPlayerTab].upgrade63 = level;
+      else if (upgradeId === 63) players[devToolsPlayerTab].upgrade64 = level;
       
       // Update player's stats based on their new upgrade levels
       updatePlayerStats(devToolsPlayerTab);

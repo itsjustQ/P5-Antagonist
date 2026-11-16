@@ -590,7 +590,7 @@ function startTutorialMenus(stage) {
     difficultySelection = 1;
     tutorialMenuCard = { title: 'Into Ant Territory', lines: [
       'This map is where runs start. Each stop is a difficulty, deeper and deeper into ant territory.',
-      'Gene tokens: ants start with tokens and earn more every 5 rounds (more the deeper you go). They spend them to raise their stats and unlock abilities: new ways to fire, bullet paths, special bullets and death effects.',
+      'Gene tokens: ants start with tokens and earn more every 5 rounds (more the deeper you go). They spend them to raise their stats, unlock abilities (new ways to fire, bullet paths, special bullets and death effects: 2 tokens each, more for the stronger second level) and shrink to half or a third of their size.',
       'Evolution: after each round, the 3 ants with the best score (damage to you for each life they lost) breed the next round, with small mutations. Learn what they do, and change it up.',
       'Defeat queens on a stop to unlock the next one. You\'re on your own now. Good luck.'] };
   }

@@ -74,6 +74,7 @@ class SceneActor {
     this.fuse = null;            // { t0, dur, r }
     this.trail = false;          // Speed-line streaks behind fast moves
     this.shade = 0;              // 0-1: how much of it is still lost in shadow (a dark silhouette at 1)
+    this.visLog = [];            // { t, on }: when it's scripted to appear and disappear (the camera path reads it)
   }
 
   imageSize() {
@@ -107,6 +108,7 @@ class SceneActor {
 
   face(t, target) { return this.at(t, () => { this.look = target; }); }
   show(t, on = true) {
+    this.visLog.push({ t: t, on: on });
     return this.at(t, () => {
       this.visible = on;
       // Popping back up after a burrow shows the whole ant
@@ -140,6 +142,7 @@ class SceneActor {
   }
   digUp(t0, dur = 34) {
     this.visible = false;
+    this.visLog.push({ t: t0, on: true });
     this.at(t0, () => {
       this.visible = true;
       this.burrow = null;
@@ -160,6 +163,7 @@ class SceneActor {
   }
   // Eaten / squashed: a pop and it's gone
   die(t, kind = 'eat') {
+    this.visLog.push({ t: t, on: false });
     return this.at(t, () => {
       this.visible = false;
       this.scene.poof(this.x, this.y, kind === 'squash' ? 26 : 18, kind === 'explode');

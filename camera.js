@@ -92,22 +92,17 @@ const CAMERA_CONFIG = {
     incomingColor: [255, 95, 70]
   },
 
-  // --- Opening scenes: down on the ground with the beetle, widening only as far as the action needs ---
+  // --- Opening scenes: each one follows a camera path worked out from its script before it starts (see Opening shots) ---
   intro: {
-    closeView: 320,              // View height with nothing else to frame: the beetle fills about 40% of the screen
-    pushIn: 1.12,                // Starts this much wider than closeView and slowly pushes in
+    closeView: 320,              // The tightest a shot gets
+    pathCloseness: 0.72,         // Shots start from the round's usual view (the whole arena), this much closer
     widestView: 640,             // Never pulls out further than this, whatever's going on
     arenaOverscan: 60,           // World units past the arena's edge the view can show
-    followSmoothing: 8,          // Per second. Stays with the beetle...
-    maxFollowSpeed: 0.045,       // ...but no faster than this, x the view's height per frame: a dash can briefly outrun the shot
-    offsetSmoothing: 1.5,        // ...and drifts slowly to frame whatever else is happening
-    zoomSmoothing: 1.1,          // Per second, in log space
-    pointSmoothing: 2.5,         // Per second: how gently a point of interest joins or leaves the shot
-    beetleWait: 90,              // Frames the shot holds on the beetle's entrance before framing anything else
-    maxPoints: 3,                // Points of interest framed along with the beetle
-    padding: 85,                 // World units kept around them
-    emoteLead: 30,               // Frames before an ant reacts that the shot starts turning toward it
-    beetleReach: 0.6,            // The beetle stays within this fraction of the way from the center to the edge
+    pathStep: 15,                // Frames between the camera path's keys
+    pathLead: 20,                // Frames ahead each key looks, so the shot is there before the action
+    pathSmoothPasses: 4,         // How much the keys are smoothed into one slow sweep
+    pathCenterPull: 0.15,        // How far the shot leans back toward the arena's center
+    padding: 85,                 // World units kept around what's framed
     returnFrames: 70,            // Frames at the end spent easing into the round's own view
     letterbox: 0.085,            // Bars, x the window's height
     vignette: 0.55               // Darkness at the corners of the screen
@@ -688,95 +683,123 @@ function cameraSmoothstep(t) {
 }
 
 // ---------- Opening shots ----------
-// The player's down on the ground with the beetle. The shot stays close on it and only widens as far as it takes to
-// bring in what the scene is about: its star ants, whatever's reacting nearby, big explosions. The scene's own actors
-// say what that is, so scenes don't need to script the camera. Moves are slow and eased, with no sway (see the comfort
-// note at the top of this file). Runs on the scene's clock (60 a second), so it stays in step with what it's filming.
+// Every opening scene is filmed along a camera path worked out before it starts, from the scene's own script: no
+// live following. The shot starts from the round's usual view (the whole arena, centered) moved in closer, and the path
+// drifts to keep what the scene is about in frame: the beetle (or the spot where it walks in, while it's still off
+// stage) plus its star ants, its throwaway ants and any queen. Because the whole path is known up front, a beetle that
+// starts off screen (or an ant waiting across the arena) is already framed when the scene starts, and busy scenes get
+// slow, eased camera moves. At the end it eases into the round's own camera (the adaptive one in world 3).
 
-// What's worth framing right now, most important first: { key, x, y, r }. r is how much room it takes up itself.
-function getSceneCameraPoints(S) {
-  const c = CAMERA_CONFIG.intro;
-  const b = S.beetle;
-  // The shot waits for the beetle to walk in before looking anywhere else, unless it's going to be gone for a while
-  const offStage = b.x < c.arenaOverscan || b.x > S.W - c.arenaOverscan || b.y < c.arenaOverscan || b.y > S.H - c.arenaOverscan;
-  if (offStage && S.t < c.beetleWait) return [];
-  const found = [];
-  const add = (key, x, y, rank, r) => {
-    const dx = x - b.x;
-    const dy = y - b.y;
-    found.push({ key: key, x: x, y: y, r: r, rank: rank, d: dx * dx + dy * dy });
-  };
+// Where every actor is on each frame of the scene, from its scripted moves (the same math SceneActor.update uses)
+function simulateSceneTracks(S) {
+  const n = Math.max(1, Math.ceil(S.duration)) + 1;
+  const tracks = new Map();
   for (const a of S.actors) {
-    if (a === b || !a.visible || a.alpha < 0.05) continue;
-    if (a.x < -40 || a.x > S.W + 40 || a.y < -40 || a.y > S.H + 40) continue;
-    let rank = a.kind === 'queen' ? 4 : a.featured ? 3 : a.extra ? 2 : 0;
-    for (const e of a.emotes) {
-      if (S.t >= e.t - c.emoteLead && S.t <= e.t + e.dur) rank = Math.max(rank, 1);
+    let x = a.x, y = a.y;
+    const moves = a.moves.map(m => ({ t0: m.t0, dur: m.dur, x: m.x, y: m.y, ease: m.ease, started: false, done: false }));
+    const vis = (a.visLog || []).slice().sort((p, q) => p.t - q.t);
+    let visible = a.visible;
+    let vk = 0;
+    const xs = new Float32Array(n), ys = new Float32Array(n), vs = new Uint8Array(n);
+    for (let t = 0; t < n; t++) {
+      while (vk < vis.length && vis[vk].t <= t) visible = vis[vk++].on;
+      for (const m of moves) {
+        if (m.done || t < m.t0) continue;
+        if (!m.started) {
+          m.started = true;
+          m.sx = x;
+          m.sy = y;
+        }
+        const f = constrain((t - m.t0) / m.dur, 0, 1);
+        const e = sceneEase(m.ease, f);
+        x = lerp(m.sx, m.x, e);
+        y = lerp(m.sy, m.y, e);
+        if (f >= 1) m.done = true;
+      }
+      xs[t] = x;
+      ys[t] = y;
+      vs[t] = visible ? 1 : 0;
     }
-    if (rank > 0) add(a, a.x, a.y, rank, a.imageSize() * a.scale / 2);
+    tracks.set(a, { xs: xs, ys: ys, vs: vs });
   }
-  for (const f of S.fx) {
-    if (f.kind === 'boom') add(f, f.x, f.y, 3, 0);
-  }
-  for (const g of S.ground) {
-    if (S.t - g.t0 < 90) add(g, g.x, g.y, 2, 0); // Something just landed or got built
-  }
-  found.sort((p, q) => q.rank - p.rank || p.d - q.d);
-  return found.slice(0, c.maxPoints);
+  return tracks;
 }
 
-// Fades points in and out of the shot, so nothing tugs on it the moment it starts or stops mattering
-function updateSceneCameraPoints(S, dt) {
-  const points = gameCam.scene.points;
-  const ease = cameraEase(CAMERA_CONFIG.intro.pointSmoothing, dt);
-  for (const p of points.values()) p.wanted = false;
-  for (const f of getSceneCameraPoints(S)) {
-    let p = points.get(f.key);
-    if (!p) {
-      p = { w: 0 };
-      points.set(f.key, p);
-    }
-    p.x = f.x;
-    p.y = f.y;
-    p.r = f.r;
-    p.wanted = true;
-  }
-  for (const [key, p] of points) {
-    p.w += ((p.wanted ? 1 : 0) - p.w) * ease;
-    if (!p.wanted && p.w < 0.02) points.delete(key);
-  }
-}
-
-// How tall the view wants to be, and how far off the beetle it wants to sit
-function getSceneCameraTarget(S, widest) {
+// The scene's camera path: a key every few frames ({ t, x, y, logView }), smoothed so it only ever drifts
+function buildSceneCameraPath(S) {
   const c = CAMERA_CONFIG.intro;
-  const b = S.beetle;
+  const tracks = simulateSceneTracks(S);
   const aspect = getCameraAspect();
-  let minX = b.x, maxX = b.x, minY = b.y, maxY = b.y;
-  let framing = false;
-  for (const p of gameCam.scene.points.values()) {
-    const x = b.x + (p.x - b.x) * p.w;
-    const y = b.y + (p.y - b.y) * p.w;
-    const r = Math.max(0, p.r * p.w - c.padding * 0.5); // The padding already covers something ant-sized
-    minX = Math.min(minX, x - r);
-    maxX = Math.max(maxX, x + r);
-    minY = Math.min(minY, y - r);
-    maxY = Math.max(maxY, y + r);
-    framing = true;
+  const W = S.W, H = S.H;
+  // Where the shot always was (the whole arena), moved closer
+  const widest = Math.min(c.widestView, H + c.arenaOverscan * 2);
+  const baseView = Math.min(widest, Math.max(c.closeView, H * c.pathCloseness));
+  const keys = [];
+  const last = Math.max(1, Math.ceil(S.duration));
+  for (let t = 0; ; t += c.pathStep) {
+    const k = Math.min(t, last);
+    let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+    const add = (x, y) => {
+      minX = Math.min(minX, x); maxX = Math.max(maxX, x);
+      minY = Math.min(minY, y); maxY = Math.max(maxY, y);
+    };
+    // Looks a little ahead too, so the shot is already there when something happens
+    const k2 = Math.min(last, k + c.pathLead);
+    for (const [a, tr] of tracks) {
+      const isBeetle = a === S.beetle;
+      if (!isBeetle && !(a.kind === 'queen' || a.featured || a.extra)) continue;
+      for (const kk of [k, k2]) {
+        const x = tr.xs[kk], y = tr.ys[kk];
+        if (isBeetle) {
+          // Still off stage: frame the spot it's about to walk in at
+          add(constrain(x, 40, W - 40), constrain(y, 40, H - 40));
+        } else if (tr.vs[kk] && x > -40 && x < W + 40 && y > -40 && y < H + 40) {
+          add(x, y);
+        }
+      }
+    }
+    if (minX === Infinity) { minX = maxX = W / 2; minY = maxY = H / 2; }
+    let view = Math.max(baseView, ((maxY - minY) + c.padding * 2) / (1 - c.letterbox * 2), ((maxX - minX) + c.padding * 2) / aspect);
+    view = Math.min(view, widest);
+    // Centered on the action, leaning a little toward the arena's center (where the shot always was)
+    keys.push({
+      t: k,
+      x: lerp((minX + maxX) / 2, W / 2, c.pathCenterPull),
+      y: lerp((minY + maxY) / 2, H / 2, c.pathCenterPull),
+      logView: Math.log(view)
+    });
+    if (k >= last) break;
   }
-  const pushed = c.closeView * lerp(c.pushIn, 1, constrain(S.t / Math.max(1, S.duration), 0, 1));
-  let view = pushed;
-  // The letterbox bars cover part of the height
-  if (framing) view = Math.max(view, ((maxY - minY) + c.padding * 2) / (1 - c.letterbox * 2), ((maxX - minX) + c.padding * 2) / aspect);
-  view = Math.min(view, widest);
-  // Centered on what's framed, but it never leaves the beetle behind
-  const reachY = c.beetleReach * view / 2;
-  const reachX = reachY * aspect;
-  return {
-    view: view,
-    offsetX: constrain((minX + maxX) / 2 - b.x, -reachX, reachX),
-    offsetY: constrain((minY + maxY) / 2 - b.y, -reachY, reachY)
-  };
+  // Smoothed a few times, so the path is one slow sweep rather than a jerk at every key
+  let smooth = keys;
+  for (let pass = 0; pass < c.pathSmoothPasses; pass++) {
+    smooth = smooth.map((p, j) => {
+      const a = smooth[Math.max(0, j - 1)], b = smooth[Math.min(smooth.length - 1, j + 1)];
+      return { t: p.t, x: (a.x + p.x * 2 + b.x) / 4, y: (a.y + p.y * 2 + b.y) / 4, logView: (a.logView + p.logView * 2 + b.logView) / 4 };
+    });
+  }
+  // Zooming out starts ahead of time: each key is nearly as wide as the next couple
+  for (let j = smooth.length - 2; j >= 0; j--) {
+    smooth[j].logView = Math.max(smooth[j].logView, smooth[j + 1].logView - 0.04);
+  }
+  for (const p of smooth) {
+    const v = Math.exp(p.logView);
+    p.x = clampSceneCameraX(p.x, v);
+    p.y = clampSceneCameraY(p.y, v);
+  }
+  return smooth;
+}
+
+// The path at frame t, eased between keys
+function sampleSceneCameraPath(path, t) {
+  if (t <= path[0].t) return path[0];
+  const lastKey = path[path.length - 1];
+  if (t >= lastKey.t) return lastKey;
+  let j = 0;
+  while (j < path.length - 2 && path[j + 1].t <= t) j++;
+  const a = path[j], b = path[j + 1];
+  const f = cameraSmoothstep((t - a.t) / Math.max(1, b.t - a.t));
+  return { x: lerp(a.x, b.x, f), y: lerp(a.y, b.y, f), logView: lerp(a.logView, b.logView, f) };
 }
 
 // The closest the center of a view this tall can get to the arena's edges
@@ -800,40 +823,12 @@ function updateAdaptiveCameraScene(S) {
   gameCam.lookX = 0;
   gameCam.lookY = 0;
   const c = CAMERA_CONFIG.intro;
-  const dt = 1 / 60;
-  const b = S.beetle;
-  const widest = Math.min(c.widestView, getGameplayHeight() + c.arenaOverscan * 2);
 
   let shot = gameCam.scene;
-  if (!shot || shot.owner !== S) {
-    // First frame: on the spot the beetle's about to walk into, with nothing else framed yet. Everything else fades in.
-    shot = gameCam.scene = { owner: S, points: new Map() };
-    const start = getSceneCameraTarget(S, widest);
-    shot.logView = Math.log(start.view);
-    shot.offsetX = start.offsetX;
-    shot.offsetY = start.offsetY;
-    shot.followX = clampSceneCameraX(b.x, start.view);
-    shot.followY = clampSceneCameraY(b.y, start.view);
-  }
-  updateSceneCameraPoints(S, dt);
+  if (!shot || shot.owner !== S) shot = gameCam.scene = { owner: S, path: buildSceneCameraPath(S) };
+  const p = sampleSceneCameraPath(shot.path, S.t);
 
-  const target = getSceneCameraTarget(S, widest);
-  shot.logView += (Math.log(target.view) - shot.logView) * cameraEase(c.zoomSmoothing, dt);
-  const view = Math.exp(shot.logView);
-  // The beetle often starts past the arena's edge: the follow waits at the edge for it, so the move starts smoothly
-  const follow = cameraEase(c.followSmoothing, dt);
-  const stepX = (clampSceneCameraX(b.x, view) - shot.followX) * follow;
-  const stepY = (clampSceneCameraY(b.y, view) - shot.followY) * follow;
-  const slow = Math.min(1, c.maxFollowSpeed * view / Math.max(1e-6, Math.sqrt(stepX * stepX + stepY * stepY)));
-  shot.followX += stepX * slow;
-  shot.followY += stepY * slow;
-  const drift = cameraEase(c.offsetSmoothing, dt);
-  shot.offsetX += (target.offsetX - shot.offsetX) * drift;
-  shot.offsetY += (target.offsetY - shot.offsetY) * drift;
-  const x = clampSceneCameraX(shot.followX + shot.offsetX, view);
-  const y = clampSceneCameraY(shot.followY + shot.offsetY, view);
-
-  // Eases into exactly what the round's first frame will show
+  // Eases into exactly what the round's first frame will show (the adaptive camera takes over from there in world 3)
   const returnFrames = Math.min(c.returnFrames, S.duration * 0.4);
   const back = cameraSmoothstep((S.t - (S.duration - returnFrames)) / returnFrames);
   let endX, endY, endView;
@@ -849,10 +844,10 @@ function updateAdaptiveCameraScene(S) {
     endView = getGameplayHeight();
     gameCam.stretch = back;
   }
-  gameCam.logView = lerp(shot.logView, Math.log(endView), back);
+  gameCam.logView = lerp(p.logView, Math.log(endView), back);
   gameCam.logTarget = gameCam.logView;
-  gameCam.x = lerp(x, endX, back);
-  gameCam.y = lerp(y, endY, back);
+  gameCam.x = lerp(p.x, endX, back);
+  gameCam.y = lerp(p.y, endY, back);
   updateCameraShake();
 }
 
