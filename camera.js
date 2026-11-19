@@ -103,6 +103,7 @@ const CAMERA_CONFIG = {
     pathSmoothPasses: 4,         // How much the keys are smoothed into one slow sweep
     pathCenterPull: 0.15,        // How far the shot leans back toward the arena's center
     padding: 85,                 // World units kept around what's framed
+    keepInShot: 45,              // However the path is smoothed, what's framed stays at least this far inside the view
     returnFrames: 70,            // Frames at the end spent easing into the round's own view
     letterbox: 0.085,            // Bars, x the window's height
     vignette: 0.55               // Darkness at the corners of the screen
@@ -736,34 +737,58 @@ function buildSceneCameraPath(S) {
   const baseView = Math.min(widest, Math.max(c.closeView, H * c.pathCloseness));
   const keys = [];
   const last = Math.max(1, Math.ceil(S.duration));
-  for (let t = 0; ; t += c.pathStep) {
-    const k = Math.min(t, last);
+  // Everything the shot is about, on frames from..to: { minX, maxX, minY, maxY }, or null if nothing is
+  const framed = (from, to, every) => {
     let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+    let bMinX = Infinity, bMaxX = -Infinity, bMinY = Infinity, bMaxY = -Infinity; // The beetle on its own
+    let beetleNow = false;
     const add = (x, y) => {
       minX = Math.min(minX, x); maxX = Math.max(maxX, x);
       minY = Math.min(minY, y); maxY = Math.max(maxY, y);
+      if (beetleNow) {
+        bMinX = Math.min(bMinX, x); bMaxX = Math.max(bMaxX, x);
+        bMinY = Math.min(bMinY, y); bMaxY = Math.max(bMaxY, y);
+      }
     };
-    // Looks a little ahead too, so the shot is already there when something happens
-    const k2 = Math.min(last, k + c.pathLead);
     for (const [a, tr] of tracks) {
       const isBeetle = a === S.beetle;
       // A scene can also frame some of its crowd for a while (S.cameraActors until S.cameraActorsUntil)
       const extraFocus = S.cameraActors && S.cameraActors.has(a);
-      if (!isBeetle && !(a.kind === 'queen' || a.featured || a.extra || extraFocus)) continue;
-      for (const kk of [k, k2]) {
+      const star = a.kind === 'queen' || a.featured || a.extra;
+      if (!isBeetle && !star && !extraFocus) continue;
+      beetleNow = isBeetle;
+      for (let kk = Math.max(0, from); kk <= Math.min(last, to); kk += every) {
         const x = tr.xs[kk], y = tr.ys[kk];
         if (isBeetle && S.cameraBeetleFrom !== undefined && kk < S.cameraBeetleFrom) continue; // Kept out of shot on purpose
-        if (!isBeetle && extraFocus && !(a.kind === 'queen' || a.featured || a.extra) &&
-            S.cameraActorsUntil !== undefined && kk >= S.cameraActorsUntil) continue;
+        if (!isBeetle && !star && S.cameraActorsUntil !== undefined && kk >= S.cameraActorsUntil) continue;
         if (isBeetle) {
-          // Still off stage: frame the spot it's about to walk in at
-          add(constrain(x, 40, W - 40), constrain(y, 40, H - 40));
+          const off = x < 0 || x > W || y < 0 || y > H;
+          if (off) {
+            // Still off stage: frame the spot it walks in at, but only once its entrance is close (an empty edge of
+            // the arena isn't worth looking at while it waits)
+            const soon = Math.min(last, kk + 45);
+            if (Math.abs(tr.xs[soon] - x) + Math.abs(tr.ys[soon] - y) < 1) continue;
+            add(constrain(x, 40, W - 40), constrain(y, 40, H - 40));
+          } else {
+            add(x, y);
+          }
         } else if (tr.vs[kk] && x > -40 && x < W + 40 && y > -40 && y < H + 40) {
           add(x, y);
         }
       }
     }
-    if (minX === Infinity) { minX = maxX = W / 2; minY = maxY = H / 2; }
+    if (minX === Infinity) return null;
+    return { minX, maxX, minY, maxY, beetle: bMinX === Infinity ? null : { minX: bMinX, maxX: bMaxX, minY: bMinY, maxY: bMaxY } };
+  };
+  for (let t = 0; ; t += c.pathStep) {
+    const k = Math.min(t, last);
+    // Looks a little ahead too, so the shot is already there when something happens
+    const k2 = Math.min(last, k + c.pathLead);
+    let box = framed(k, k, 1);
+    const ahead = framed(k2, k2, 1);
+    if (box && ahead) box = { minX: Math.min(box.minX, ahead.minX), maxX: Math.max(box.maxX, ahead.maxX), minY: Math.min(box.minY, ahead.minY), maxY: Math.max(box.maxY, ahead.maxY) };
+    else box = box || ahead;
+    const { minX, maxX, minY, maxY } = box || { minX: W / 2, maxX: W / 2, minY: H / 2, maxY: H / 2 };
     let view = Math.max(baseView, ((maxY - minY) + c.padding * 2) / (1 - c.letterbox * 2), ((maxX - minX) + c.padding * 2) / aspect);
     view = Math.min(view, widest);
     // Centered on the action, leaning a little toward the arena's center (where the shot always was)
@@ -782,6 +807,35 @@ function buildSceneCameraPath(S) {
       const a = smooth[Math.max(0, j - 1)], b = smooth[Math.min(smooth.length - 1, j + 1)];
       return { t: p.t, x: (a.x + p.x * 2 + b.x) / 4, y: (a.y + p.y * 2 + b.y) / 4, logView: (a.logView + p.logView * 2 + b.logView) / 4 };
     });
+  }
+  // Smoothing cuts corners: a beetle running a wide, quick circle would slip out of the shot. Every key (and the frames
+  // around it) has to keep what the scene is about inside the view, so slide or widen the shot where it doesn't.
+  const keep = c.keepInShot;
+  for (let pass = 0; pass < 2; pass++) {
+    for (const p of smooth) {
+      const box = framed(p.t - c.pathStep, p.t + c.pathStep, 3);
+      if (!box) continue;
+      let v = Math.exp(p.logView);
+      const needW = (box.maxX - box.minX + keep * 2) / aspect;
+      const needH = (box.maxY - box.minY + keep * 2) / (1 - c.letterbox * 2);
+      v = Math.min(widest, Math.max(v, needW, needH));
+      const hw = v * aspect / 2 - keep, hh = v * (1 - c.letterbox * 2) / 2 - keep;
+      if (hw > 0) p.x = constrain(p.x, box.maxX - hw, box.minX + hw);
+      if (hh > 0) p.y = constrain(p.y, box.maxY - hh, box.minY + hh);
+      // When not everything fits, the beetle is the one that stays in the shot
+      if (box.beetle) {
+        if (hw > 0) p.x = constrain(p.x, box.beetle.maxX - hw, box.beetle.minX + hw);
+        if (hh > 0) p.y = constrain(p.y, box.beetle.maxY - hh, box.beetle.minY + hh);
+      }
+      p.logView = Math.log(v);
+    }
+    // A light pass keeps the corrections from jerking
+    if (pass === 0) {
+      smooth = smooth.map((p, j) => {
+        const a = smooth[Math.max(0, j - 1)], b = smooth[Math.min(smooth.length - 1, j + 1)];
+        return { t: p.t, x: (a.x + p.x * 6 + b.x) / 8, y: (a.y + p.y * 6 + b.y) / 8, logView: (a.logView + p.logView * 6 + b.logView) / 8 };
+      });
+    }
   }
   // Zooming out starts ahead of time: each key is nearly as wide as the next couple
   for (let j = smooth.length - 2; j >= 0; j--) {

@@ -222,8 +222,17 @@ class SceneActor {
     if (this.spin) this.angle += this.spin;
   }
 
+  // Waiting in the wings: standing still outside the arena, where the shot can sometimes reach. Nobody should see the
+  // cast lined up for their entrance, so they only show once they're on their way in (or out).
+  backstage() {
+    const S = this.scene;
+    const r = this.imageSize() * this.scale * 0.5;
+    const out = this.x < -r * 0.3 || this.x > S.W + r * 0.3 || this.y < -r * 0.3 || this.y > S.H + r * 0.3;
+    return out && !(this.speed > 0.05);
+  }
+
   drawShadow() {
-    if (!this.visible || this.alpha <= 0.01) return;
+    if (!this.visible || this.alpha <= 0.01 || this.backstage()) return;
     const s = this.imageSize() * this.scale;
     let rise = 1;
     if (this.dig) rise = constrain((this.scene.t - this.dig.t0) / this.dig.dur, 0, 1);
@@ -233,7 +242,7 @@ class SceneActor {
   }
 
   draw() {
-    if (!this.visible || this.alpha <= 0.01) return;
+    if (!this.visible || this.alpha <= 0.01 || this.backstage()) return;
     const t = this.scene.t;
     let s = this.imageSize() * this.scale;
     let sx = 0;
@@ -316,7 +325,7 @@ class SceneActor {
   }
 
   drawEmotes() {
-    if (!this.visible && this.kind !== 'ant') return;
+    if ((!this.visible && this.kind !== 'ant') || this.backstage()) return;
     const t = this.scene.t;
     for (const e of this.emotes) {
       const age = t - e.t;
@@ -1436,8 +1445,12 @@ const ROUND_SCENES = [
       S.cameraActors = new Set(huddle);
       S.cameraActorsUntil = 150;
       S.cameraBeetleFrom = 130;
-      // Just past the left edge of the shot, wherever that ends up
-      S.at(40, () => S.boom(Math.min(20, cameraScreenToWorldX(0) - 140), S.cy, 110, { orange: true }));
+      // Right on the left edge of the shot, so half the blast is in view
+      S.at(40, () => {
+        const edge = cameraScreenToWorldX(0);
+        S.boom(edge + 15, S.cy, 110, { orange: true });
+        b.x = edge - 50; // Waiting just out of shot, behind the smoke
+      });
       S.shake(40, 18, 8);
       S.flash(40, 8);
       S.crowd().forEach((a, k) => { a.face(44, { x: 0, y: S.cy }); a.emote(46 + (k % 5) * 3, '!', 45); });

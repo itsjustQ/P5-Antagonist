@@ -14161,12 +14161,12 @@ function getShrinkInvestment(investments) {
   return (investments || []).find(inv => inv.type === 'size') || null;
 }
 
-// The ant's size as it plays: its size gene can't take it below full size without shrink tokens
+// The ant's size as it plays: its size gene decides it, but it can't go below full size without shrink tokens, and
+// shrink tokens only let it get as small as they're for (half, or a third)
 function getExpressedAntSize(i) {
   const shrink = getShrinkInvestment(geneTokenInvestments[i]);
-  if (shrink) return ANT_SHRINK_SIZES[shrink.size];
   const gene = antSizeGene[i] !== undefined ? antSizeGene[i] : antSize[i];
-  return Math.max(1, gene);
+  return Math.max(shrink ? ANT_SHRINK_SIZES[shrink.size] : 1, gene);
 }
 
 // Hard and insane start their ants small, and the ants pay for it: a shrink bought out of their starting tokens
