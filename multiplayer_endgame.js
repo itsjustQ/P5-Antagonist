@@ -65,10 +65,19 @@ function mpInstallTracking() {
       let diff = Math.abs(from - facing) % (Math.PI * 2);
       if (diff > Math.PI) diff = Math.PI * 2 - diff;
       if (!isMine && diff > Math.PI * 2 / 3) o.stats.backShots++;
-      if (hitInfo && hitInfo.highArc && !isMine) o.stats.highArcDamage += dealt;
+      if ((hitInfo && hitInfo.highArc && !isMine) || explosionFromHighArc) o.stats.highArcDamage += dealt;
       const path = getPathType(i);
       if (!isMine && (path === 2 || path === 3 || path === -1 || path === -2)) o.stats.calculatedHits++;
       if (getFireType(i) === -2) o.stats.ignoredCooldowns++; // Hit reload fires again right away
+    } });
+  // Air strike residue
+  mpWrap('handleExplosionDamage', {
+    before: () => ({ health: health, shield: shield }),
+    after: (ctx, r, size, i) => {
+      const o = explosionFromHighArc && mpOwnerOf(i);
+      if (!o) return;
+      const dealt = (ctx.health - health) + (ctx.shield - shield);
+      if (dealt > 0) o.stats.highArcDamage += dealt;
     } });
   mpWrap('queueAvengeShot', { after: (ctx, r, i) => { const o = mpOwnerOf(i); if (o) o.stats.ignoredCooldowns++; } });
   mpWrap('addKillScore', { after: (ctx, r, base, size, source) => {
@@ -195,7 +204,8 @@ function mpOnPlayerKilled(killer, victim) {
 }
 
 // Upstairs Neighbor Activities: the longest run of a player's kills where each victim sat next to the last one in
-// turn order (wrapping around, and skipping players who were already out)
+// turn order (wrapping around, and skipping players who were already out). Kills made after the killer's own
+// beetle was out don't count.
 function mpNeighborChains() {
   const log = (mp.killLog || []).slice().sort((a, b) => a.order - b.order);
   const n = mp.players.length;
@@ -203,6 +213,8 @@ function mpNeighborChains() {
   const chain = {};
   const deadBefore = order => new Set(mp.players.filter(p => p.deathOrder !== null && p.deathOrder < order).map(p => p.index));
   for (const k of log) {
+    const killer = mp.players[k.killer];
+    if (killer && killer.deathOrder !== null && killer.deathOrder < k.order) continue; // Their beetle was already out
     const prev = chain[k.killer];
     let len = 1;
     if (prev) {
@@ -227,60 +239,67 @@ const MP_SPECIAL_UPGRADES = [27, 30, 32, 33, 34, 44, 45, 46, 47, 54, 59, 60, 9, 
 const MP_DEFENSE_UPGRADES = [3, 5, 18, 19, 48, 50, 51, 52, 53, 55, 63];
 const MP_BEETLE_NAMED = [9, 10, 36, 59, 60];
 
-// Each: name, what it's for, and the value per player (the top value has to be unique and above 0 to be awarded)
 function mpTitleDefs() {
   const chains = mpNeighborChains();
   const owned = (p, ids) => ids.reduce((a, id) => a + (p.upgrades[id] > 0 ? 1 : 0), 0);
   const levels = (p, ids) => ids.reduce((a, id) => a + p.upgrades[id], 0);
+  const n = (v, one, many) => `${Math.round(v).toLocaleString()} ${Math.round(v) === 1 ? one : many}`;
+  const secs = v => `${Math.round(v / 60).toLocaleString()} s`;
+  // Each: id, name, value per player, what it's for, how the amount reads, and 'max' or 'min'
   return [
-    ['queensSpawned', 'Most queens spawned', p => p.stats.queensSpawned],
-    ['queensTargeted', 'Most targeted by queens', p => p.stats.queensTargeted],
-    ['kills', 'Most player kills', p => p.stats.kills],
-    ['antsShot', 'Most ants shot', p => p.stats.antsShot],
-    ['bestCombo', 'Largest combo', p => p.stats.bestCombo],
-    ['throws', 'Bully', p => p.stats.throws, 'their queens and guards threw beetles the most'],
-    ['dashes', 'Most dashes used', p => p.stats.dashes],
-    ['circles', 'Most circles done', p => p.stats.circles],
-    ['distance', 'Most distance traveled', p => Math.round(p.stats.distance)],
-    ['shockwaves', 'Most shockwaves used', p => p.stats.shockwaves],
-    ['bulletsFired', 'Most bullets fired', p => p.stats.bulletsFired],
-    ['versatile', 'Versatile', p => owned(p, MP_SPECIAL_UPGRADES), 'the most special shot, shockwave and dash upgrades'],
-    ['defensive', 'Most defensive', p => levels(p, MP_DEFENSE_UPGRADES), 'the most defense upgrades'],
-    ['shieldsBurned', 'Most shields burned', p => p.stats.shieldsBurned],
-    ['beetleAir', 'Most airtime (beetle)', p => p.stats.beetleAirFrames],
-    ['antAir', 'Most airtime (ants)', p => p.stats.antAirFrames],
-    ['fastestBullet', 'Fastest bullet', p => Math.round(p.stats.fastestBullet * 100) / 100],
-    ['antDeaths', 'Most Negative Feedback', p => p.stats.antDeaths, 'their ants died the most'],
-    ['slotsHeld', 'Multitudes', p => p.stats.slotsHeld, 'held the most ant slots'],
-    ['biggestBullet', 'Biggest Bullet', p => Math.round(p.stats.biggestBullet * 100) / 100],
-    ['smallestBullet', 'Smallest Bullet', p => Math.round(p.stats.smallestBullet * 100) / 100],
-    ['obedient', 'Obedient', p => p.stats.suggestionsFollowed, 'followed the most slider suggestions'],
-    ['nonLethal', 'Why Won\'t You Die', p => p.stats.nonLethalHits, 'took the most hits without dying'],
-    ['abduction', 'Abduction', p => Math.round(p.stats.movedOthers), 'pushed and threw other beetles around the most'],
-    ['rememberMe', 'Remember Me', p => p.deathOrder === 1 ? 1 : 0, 'the first one out'],
-    ['cheater', 'Cheater!', p => p.stats.standingRunIns, 'the most ants ran into them while they stood still'],
-    ['camper', 'Camper', p => p.stats.campEats, 'ate the most ants right as they landed or came out of a bunker'],
-    ['temptingFate', 'Tempting Fate', p => p.stats.temptingFate, 'their ants lingered next to beetles the longest and lived'],
-    ['makeUpYourMind', 'Make Up Your Mind', p => p.stats.abilitySwitches, 'switched abilities the most'],
-    ['taken', 'Taken', p => Math.round(p.stats.movedByOthers), 'got pushed and thrown around the most'],
-    ['backShots', 'Back Shots', p => p.stats.backShots, 'their ants shot the most beetles in the back'],
-    ['thief', 'Thief', p => p.stats.aphidsDrunk, 'their ants drank from the most aphids'],
-    ['beetleiest', 'Beetleiest Beetle', p => owned(p, MP_BEETLE_NAMED), 'the most upgrades with "beetle" in the name'],
-    ['easyMeals', 'Easy Meals', p => p.stats.aphidsEaten, 'ate the most aphids'],
-    ['comingDown', 'Y\'all Coming Down With Me', p => p.stats.killsAfterDeath, 'the most kills after their own beetle was out'],
-    ['termsAndConditions', 'I Have Read the Terms and Conditions', p => p.stats.upgradeFrames, 'the longest on the upgrade screen'],
-    ['aintGotTime', 'Ain\'t Got Time', p => p.stats.upgradeFrames, 'the least time on the upgrade screen', 'min'],
-    ['legalGuardian', 'Waiting for My Legal Guardian', p => p.stats.centerStillFrames, 'stood still in the middle the longest'],
-    ['architect', 'Architect', p => p.stats.structures, 'their ants built the most landmines, bunkers and the like'],
-    ['neighbors', 'Upstairs Neighbor Activities', p => (chains[p.index] || 0) >= 2 ? chains[p.index] : 0, 'the longest chain of neighbors taken out'],
-    ['special', 'I\'m Special!', p => p.stats.specialBullets, 'their ants fired the most special bullets'],
-    ['splitter', 'Splitter', p => p.stats.smallBullets, 'their ants fired the most small bullets'],
-    ['noCooldowns', 'Who Needs Cooldowns?', p => p.stats.ignoredCooldowns, 'their ants skipped the most cooldowns'],
-    ['rainingPain', 'Raining Pain', p => Math.round(p.stats.highArcDamage * 10) / 10, 'the most damage from high arcs'],
-    ['calculated', 'Calculated', p => p.stats.calculatedHits, 'the most hits with tricky bullet paths'],
-    ['inescapable', 'Inescapable', p => p.stats.homingBullets, 'their ants fired the most heat-seeking bullets'],
-    ['loyalty', 'Loyalty', p => p.stats.loyalDeaths, 'the most ants that died right after landing a hit']
-  ].map(([id, name, value, desc, mode]) => ({ id, name, value, desc: desc || '', mode: mode || 'max' }));
+    ['queensSpawned', 'Most queens spawned', p => p.stats.queensSpawned, 'sent their queen at other beetles the most', v => n(v, 'queen sent', 'queens sent')],
+    ['queensTargeted', 'Most targeted by queens', p => p.stats.queensTargeted, 'had the most queens sent at them', v => n(v, 'queen', 'queens') + ' sent at them'],
+    ['kills', 'Most player kills', p => p.stats.kills, 'their ants or queen defeated the most beetles', v => n(v, 'beetle defeated', 'beetles defeated')],
+    ['antsShot', 'Most ants shot', p => p.stats.antsShot, 'shot the most ants with their beetle', v => n(v, 'ant shot', 'ants shot')],
+    ['bestCombo', 'Largest combo', p => p.stats.bestCombo, 'ate the most ants in one combo', v => `a ${v}-ant combo`],
+    ['throws', 'Bully', p => p.stats.throws, 'their queens and guards threw beetles the most', v => n(v, 'throw', 'throws')],
+    ['dashes', 'Most dashes used', p => p.stats.dashes, 'dashed the most', v => n(v, 'dash', 'dashes')],
+    ['circles', 'Most circles done', p => p.stats.circles, 'ran their beetle in the most circles', v => n(v, 'circle', 'circles')],
+    ['distance', 'Most distance traveled', p => Math.round(p.stats.distance), 'their beetle walked the furthest', v => `${Math.round(v).toLocaleString()} px walked`],
+    ['shockwaves', 'Most shockwaves used', p => p.stats.shockwaves, 'set off the most shockwaves', v => n(v, 'shockwave', 'shockwaves')],
+    ['bulletsFired', 'Most bullets fired', p => p.stats.bulletsFired, 'their beetle fired the most bullets', v => n(v, 'bullet', 'bullets')],
+    ['versatile', 'Versatile', p => owned(p, MP_SPECIAL_UPGRADES), 'the most special shot, shockwave and dash upgrades', v => n(v, 'special upgrade', 'special upgrades')],
+    ['defensive', 'Most defensive', p => levels(p, MP_DEFENSE_UPGRADES), 'the most defense upgrades', v => n(v, 'defense level', 'defense levels')],
+    ['shieldsBurned', 'Most shields burned', p => p.stats.shieldsBurned, 'lost the most shields to hits', v => n(v, 'shield', 'shields')],
+    ['beetleAir', 'Most airtime (beetle)', p => p.stats.beetleAirFrames, 'their beetle spent the longest in the air', v => secs(v) + ' in the air'],
+    ['antAir', 'Most airtime (ants)', p => p.stats.antAirFrames, 'their ants spent the longest in the air', v => secs(v) + ' of ant airtime'],
+    ['fastestBullet', 'Fastest bullet', p => Math.round(p.stats.fastestBullet * 100) / 100, 'their ants fired the fastest bullet', v => `speed ${v}`],
+    ['antDeaths', 'Most Negative Feedback', p => p.stats.antDeaths, 'their ants died the most', v => n(v, 'ant lost', 'ants lost')],
+    ['slotsHeld', 'Multitudes', p => p.stats.slotsHeld, 'held the most ant slots', v => n(v, 'slot', 'slots') + ' held'],
+    ['biggestBullet', 'Biggest Bullet', p => Math.round(p.stats.biggestBullet * 100) / 100, 'their ants fired the biggest bullet', v => `${v}x size`],
+    ['smallestBullet', 'Smallest Bullet', p => Math.round(p.stats.smallestBullet * 100) / 100, 'their ants fired the smallest bullet', v => `${(1 / v).toFixed(2)}x size`],
+    ['obedient', 'Obedient', p => p.stats.suggestionsFollowed, 'followed the most slider suggestions', v => n(v, 'suggestion followed', 'suggestions followed')],
+    ['nonLethal', 'Why Won\'t You Die', p => p.stats.nonLethalHits, 'took the most hits without dying', v => n(v, 'hit', 'hits') + ' survived'],
+    ['abduction', 'Abduction', p => Math.round(p.stats.movedOthers), 'pushed and threw other beetles around the most', v => `${Math.round(v).toLocaleString()} px of pushing`],
+    ['rememberMe', 'Remember Me', p => p.deathOrder === 1 ? 1 : 0, 'the first one out', v => 'first out'],
+    ['cheater', 'Cheater!', p => p.stats.standingRunIns, 'the most ants ran into them while they stood still', v => n(v, 'ant', 'ants') + ' ran into them'],
+    ['camper', 'Camper', p => p.stats.campEats, 'ate the most ants right as they landed or came out of a bunker', v => n(v, 'ant', 'ants') + ' eaten on landing'],
+    ['temptingFate', 'Tempting Fate', p => p.stats.temptingFate, 'their ants lingered next to beetles the longest and lived', v => n(v, 'close call', 'close calls')],
+    ['makeUpYourMind', 'Make Up Your Mind', p => p.stats.abilitySwitches, 'switched abilities the most', v => n(v, 'switch', 'switches')],
+    ['taken', 'Taken', p => Math.round(p.stats.movedByOthers), 'got pushed and thrown around the most', v => `${Math.round(v).toLocaleString()} px pushed`],
+    ['backShots', 'Back Shots', p => p.stats.backShots, 'their ants shot the most beetles in the back', v => n(v, 'back shot', 'back shots')],
+    ['thief', 'Thief', p => p.stats.aphidsDrunk, 'their ants drank from the most aphids', v => n(v, 'aphid', 'aphids') + ' drunk from'],
+    ['beetleiest', 'Beetleiest Beetle', p => owned(p, MP_BEETLE_NAMED), 'the most upgrades with "beetle" in the name', v => n(v, '"beetle" upgrade', '"beetle" upgrades')],
+    ['easyMeals', 'Easy Meals', p => p.stats.aphidsEaten, 'ate the most aphids', v => n(v, 'aphid', 'aphids') + ' eaten'],
+    ['comingDown', 'Y\'all Coming Down With Me', p => p.stats.killsAfterDeath, 'the most kills after their own beetle was out', v => n(v, 'kill', 'kills') + ' after going out'],
+    ['termsAndConditions', 'I Have Read the Terms and Conditions', p => p.stats.upgradeFrames, 'the longest on the upgrade screen', v => secs(v) + ' upgrading'],
+    ['aintGotTime', 'Ain\'t Got Time', p => p.stats.upgradeFrames, 'the least time on the upgrade screen', v => secs(v) + ' upgrading', 'min'],
+    ['legalGuardian', 'Waiting for My Legal Guardian', p => p.stats.centerStillFrames, 'stood still in the middle the longest', v => secs(v) + ' standing still'],
+    ['architect', 'Architect', p => p.stats.structures, 'their ants built the most landmines, bunkers and the like', v => n(v, 'structure', 'structures')],
+    ['neighbors', 'Upstairs Neighbor Activities', p => (chains[p.index] || 0) >= 2 ? chains[p.index] : 0, 'the longest chain of neighbors taken out', v => `${v} neighbors in a row`],
+    ['special', 'I\'m Special!', p => p.stats.specialBullets, 'their ants fired the most special bullets', v => n(v, 'special bullet', 'special bullets')],
+    ['splitter', 'Splitter', p => p.stats.smallBullets, 'their ants fired the most small bullets', v => n(v, 'small bullet', 'small bullets')],
+    ['noCooldowns', 'Who Needs Cooldowns?', p => p.stats.ignoredCooldowns, 'their ants skipped the most cooldowns', v => n(v, 'cooldown', 'cooldowns') + ' skipped'],
+    ['rainingPain', 'Raining Pain', p => Math.round(p.stats.highArcDamage * 10) / 10, 'the most damage from high arcs and air strikes', v => `${v} damage from above`],
+    ['calculated', 'Calculated', p => p.stats.calculatedHits, 'the most hits with tricky bullet paths', v => n(v, 'tricky hit', 'tricky hits')],
+    ['inescapable', 'Inescapable', p => p.stats.homingBullets, 'their ants fired the most heat-seeking bullets', v => n(v, 'heat-seeker', 'heat-seekers')],
+    ['loyalty', 'Loyalty', p => p.stats.loyalDeaths, 'the most ants that died right after landing a hit', v => n(v, 'loyal ant', 'loyal ants')]
+  ].map(([id, name, value, desc, amount, mode]) => ({ id, name, value, desc, amount, mode: mode || 'max' }));
+}
+
+// How much of a title's measure its holder has, as words ("12 dashes")
+function mpTitleAmount(t) {
+  try { return t.def.amount(t.value); } catch (e) { return String(t.value); }
 }
 
 // Who holds each title: { def, holder (player index), value }, or null if it's tied or never happened
@@ -415,97 +434,216 @@ function mpDrawFakeout(inp) {
   }
 }
 
-// ----- The bonus achievements, one at a time -----
+// ----- The bonus achievements, one at a time: a face-down card shakes harder and harder, then bursts open -----
+
+const MP_REVEAL_BUILD = 95;  // Frames of build-up before a card flips
+const MP_REVEAL_HOLD = 75;   // Frames it sits face up before the next one starts
+const MP_REVEAL_CYCLE = MP_REVEAL_BUILD + MP_REVEAL_HOLD;
 
 function mpDrawBonusReveal(inp) {
   const sd = mp.showdown;
   const W = getMenuWidth(), H = getMenuHeight();
   const lone = sd.kind === 'loneSurvivor';
-  mpBackground(lone ? [60, 8, 95] : [24, 16, 36]);
+  const f = sd.frames;
+  // Which card is up, and where it is in its build-up
+  const cur = Math.min(2, Math.floor(f / MP_REVEAL_CYCLE));
+  const into = f - cur * MP_REVEAL_CYCLE;
+  const allDone = f >= 2 * MP_REVEAL_CYCLE + MP_REVEAL_BUILD + 40;
+  // A press during a build-up skips straight to the flip
+  if (!allDone && into < MP_REVEAL_BUILD && f > 10 && (inp.confirm || inp.click)) {
+    sd.frames = cur * MP_REVEAL_CYCLE + MP_REVEAL_BUILD - 1;
+    inp.confirm = inp.click = false;
+  }
+
+  // Background: dark, pulsing toward the holder's color as each card flips
+  mpBackground(lone ? [40, 6, 64] : [20, 14, 32]);
+  // A soft glow behind the card that's up, brightest right as it flips
+  const pulse = allDone ? 0 : into < MP_REVEAL_BUILD ? (into / MP_REVEAL_BUILD) : Math.max(0, 1 - (into - MP_REVEAL_BUILD) / 40);
+  if (pulse > 0) {
+    const gx = W / 2 + (cur - 1) * 380, gy = 300, gr = 260 + 120 * pulse;
+    const ctx = drawingContext;
+    const g = ctx.createRadialGradient(gx, gy, 0, gx, gy, gr);
+    g.addColorStop(0, `rgba(255,215,110,${0.35 * pulse})`);
+    g.addColorStop(1, 'rgba(255,215,110,0)');
+    ctx.save();
+    ctx.fillStyle = g;
+    ctx.fillRect(gx - gr, gy - gr, gr * 2, gr * 2);
+    ctx.restore();
+  }
   mpTitle(lone ? 'Bonus achievements' : sd.kind === 'roundLimit' ? `Round ${mp.round}: the round limit` : 'Every beetle has fallen', 50, 40);
   push();
   textAlign(CENTER, CENTER);
-  textSize(17);
   fill(220);
-  text(lone ? 'Every achievement another player earned brings their queen back to challenge the survivor.' :
+  const sub = lone ? 'Every achievement another player earned brings their queen back to challenge the survivor.' :
     sd.kind === 'roundLimit' ? `Each bonus achievement is worth ${MP_BONUS_ACHIEVEMENT_POINTS.toLocaleString()} points. Then the best score wins.` :
-    `Each bonus achievement is worth ${MP_BONUS_ACHIEVEMENT_POINTS.toLocaleString()} points before the queens are seeded.`, W / 2, 92);
+    `Each bonus achievement is worth ${MP_BONUS_ACHIEVEMENT_POINTS.toLocaleString()} points before the queens are seeded.`;
+  fitTextSize(sub, 17, W - 80);
+  text(sub, W / 2, 92);
   pop();
-  const each = 70;
-  const shown = Math.min(3, Math.floor(sd.frames / each));
+
+  sd.burst = sd.burst || [];
   for (let k = 0; k < 3; k++) {
-    const x = W / 2 + (k - 1) * 380;
-    const y = 270;
-    const age = sd.frames - k * each;
+    const start = k * MP_REVEAL_CYCLE;
+    const age = f - start;
     if (age < 0) continue;
-    const s = Math.min(1, age / 14);
+    const x = W / 2 + (k - 1) * 380;
+    const y = 300;
     const t = sd.bonus[k];
+    const flipped = age >= MP_REVEAL_BUILD;
+    if (!flipped) {
+      // Build-up: the card slides in face down, then shakes harder and harder, with the screen rumbling along
+      const u = age / MP_REVEAL_BUILD;
+      const enter = Math.min(1, age / 16);
+      const jit = 1 + 9 * u * u;
+      mp.shake = Math.max(mp.shake, 0.5 + 3.5 * u * u);
+      push();
+      translate(x + random(-jit, jit), y + (1 - enter) * 120 + random(-jit, jit));
+      mpRotate(random(-0.05, 0.05) * u);
+      scale(0.85 + 0.15 * enter + 0.06 * u);
+      mpDrawFaceDownCard(u);
+      pop();
+      // Sparks pulled in toward it
+      if (u > 0.3 && Math.random() < u) {
+        const a = Math.random() * Math.PI * 2;
+        sd.burst.push({ x: x + Math.cos(a) * 260, y: y + Math.sin(a) * 200, vx: -Math.cos(a) * 6, vy: -Math.sin(a) * 5, life: 40, rgb: [255, 215, 110], s: 4 });
+      }
+      continue;
+    }
+    // The flip: a flash, a hard shake and a burst in the holder's color
+    const since = age - MP_REVEAL_BUILD;
+    if (since === 0 && !sd['flipped' + k]) {
+      sd['flipped' + k] = true;
+      mp.shake = t ? 14 : 4;
+      const rgb = t ? mp.players[t.holder].color : [140, 140, 140];
+      for (let b = 0; b < (t ? 70 : 12); b++) {
+        const a = Math.random() * Math.PI * 2, v = 3 + Math.random() * 9;
+        sd.burst.push({ x: x, y: y, vx: Math.cos(a) * v, vy: Math.sin(a) * v - 2, life: 50 + Math.random() * 30, rgb: b % 3 ? rgb : [255, 230, 140], s: 5 + Math.random() * 5 });
+      }
+      if (t && typeof sHit2 !== 'undefined' && !sHit2.isPlaying()) sHit2.play();
+    }
     push();
     translate(x, y);
-    scale(0.6 + 0.4 * s);
-    rectMode(CENTER);
-    if (!t) {
-      // A disappointing empty space where a title would have been
-      noFill();
-      stroke(120, 120, 120, 200);
-      strokeWeight(2);
-      drawingContext.setLineDash([8, 8]);
-      rect(0, 0, 330, 230, 16);
-      drawingContext.setLineDash([]);
-      noStroke();
-      fill(140);
-      textAlign(CENTER, CENTER);
-      textSize(20);
-      text('...nothing.', 0, -10);
-      textSize(14);
-      text('Nobody earned this one outright.', 0, 22);
-    } else {
-      const p = mp.players[t.holder];
-      fill(20, 10, 30, 230);
-      stroke(p.color[0], p.color[1], p.color[2]);
-      strokeWeight(4);
-      rect(0, 0, 330, 230, 16);
-      noStroke();
-      textAlign(CENTER, CENTER);
-      rectMode(CORNER);
-      fill(255, 215, 110);
-      mpFitBox(t.def.name, 24, 300, 50);
-      text(t.def.name, -150, -95, 300, 50);
-      fill(200);
-      mpFitBox(t.def.desc, 14, 300, 40);
-      text(t.def.desc, -150, -45, 300, 40);
-      fill(p.color[0], p.color[1], p.color[2]);
-      fitTextSize(p.name, 28, 300);
-      stroke(0);
-      strokeWeight(3);
-      text(p.name, 0, 14);
-      noStroke();
-      fill(240);
-      const effect = lone ? (t.holder === sd.survivor ? 'The survivor\'s reward: every ladybug upgrade, and twice the aphids' : `${p.name}'s queen returns!`) : `+${MP_BONUS_ACHIEVEMENT_POINTS.toLocaleString()} points`;
-      mpFitBox(effect, 15, 300, 50);
-      text(effect, -150, 55, 300, 50);
-    }
+    scale(since < 12 ? 1.25 - 0.25 * (since / 12) : 1);
+    mpDrawTitleCard(t, lone, sd);
     pop();
+    if (since < 10) {
+      push();
+      noStroke();
+      fill(255, 255, 255, 200 * (1 - since / 10));
+      rectMode(CENTER);
+      rect(x, y, 360, 280, 18);
+      pop();
+    }
     // Each queen that comes back appears under her card
-    if (lone && t && t.holder !== sd.survivor && age > 20) {
+    if (lone && t && t.holder !== sd.survivor && since > 20) {
       const p = mp.players[t.holder];
       push();
-      translate(x, y + 175);
+      translate(x, y + 185);
       imageMode(CENTER);
-      tint(220, 160, 255, 255 * Math.min(1, (age - 20) / 20));
-      image(mpAntImage(), 0, 0, 90, 90);
+      tint(220, 160, 255, 255 * Math.min(1, (since - 20) / 20));
+      image(mpAntImage(), 0, 0, 80, 80);
       noTint();
       noFill();
       stroke(p.color[0], p.color[1], p.color[2]);
       strokeWeight(3);
-      ellipse(0, 6, 100, 64);
+      ellipse(0, 6, 92, 58);
       pop();
     }
   }
-  if (shown >= 3 && sd.frames > 3 * each + 40) {
+  // Sparks and bursts
+  push();
+  noStroke();
+  for (let k = sd.burst.length - 1; k >= 0; k--) {
+    const b = sd.burst[k];
+    b.x += b.vx; b.y += b.vy; b.vx *= 0.96; b.vy = b.vy * 0.96 + 0.08; b.life--;
+    if (b.life <= 0) { sd.burst.splice(k, 1); continue; }
+    fill(b.rgb[0], b.rgb[1], b.rgb[2], 255 * Math.min(1, b.life / 20));
+    ellipse(b.x, b.y, b.s);
+  }
+  pop();
+  if (allDone) {
     mpContinueHint(lone ? 'Face them' : sd.kind === 'roundLimit' ? 'See who won' : 'To the tournament');
     if (inp.confirm || inp.click) mpAfterBonus();
+  } else if (f > 10) {
+    push();
+    textAlign(CENTER, CENTER);
+    textSize(15);
+    fill(200, 200, 200, 150);
+    text('A, Enter or click to skip ahead', W / 2, H - 24);
+    pop();
   }
+}
+
+function mpDrawFaceDownCard(u) {
+  push();
+  rectMode(CENTER);
+  stroke(255, 215, 110, 120 + 135 * u);
+  strokeWeight(3 + 3 * u);
+  fill(40 + 30 * u, 20, 60 + 30 * u);
+  rect(0, 0, 330, 250, 16);
+  noStroke();
+  fill(255, 215, 110, 40 + 60 * u);
+  for (let k = 0; k < 6; k++) ellipse(-125 + k * 50, -100, 10);
+  for (let k = 0; k < 6; k++) ellipse(-125 + k * 50, 100, 10);
+  textAlign(CENTER, CENTER);
+  textSize(110);
+  fill(255, 215, 110, 160 + 95 * u);
+  text('?', 0, 4);
+  pop();
+}
+
+// A face-up bonus card: the title, what it's for, who got it, how much, and what it does for them
+function mpDrawTitleCard(t, lone, sd) {
+  push();
+  rectMode(CENTER);
+  if (!t) {
+    noFill();
+    stroke(120, 120, 120, 200);
+    strokeWeight(2);
+    drawingContext.setLineDash([8, 8]);
+    rect(0, 0, 330, 250, 16);
+    drawingContext.setLineDash([]);
+    noStroke();
+    fill(140);
+    textAlign(CENTER, CENTER);
+    textSize(22);
+    text('...nothing.', 0, -10);
+    textSize(14);
+    text('Nobody earned this one outright.', 0, 22);
+    pop();
+    return;
+  }
+  const p = mp.players[t.holder];
+  fill(24, 12, 36, 240);
+  stroke(p.color[0], p.color[1], p.color[2]);
+  strokeWeight(5);
+  rect(0, 0, 330, 250, 16);
+  noStroke();
+  rectMode(CORNER);
+  textAlign(CENTER, TOP);
+  fill(255, 215, 110);
+  mpFitBox(t.def.name, 26, 300, 56);
+  text(t.def.name, -150, -112, 300, 60);
+  fill(200);
+  mpFitBox(t.def.desc, 14, 300, 38);
+  text(t.def.desc, -150, -52, 300, 40);
+  textAlign(CENTER, CENTER);
+  fill(p.color[0], p.color[1], p.color[2]);
+  fitTextSize(p.name, 30, 300);
+  stroke(0);
+  strokeWeight(4);
+  text(p.name, 0, 8);
+  noStroke();
+  fill(255);
+  const amt = mpTitleAmount(t);
+  fitTextSize(amt, 17, 300);
+  text(amt, 0, 42);
+  textAlign(CENTER, TOP);
+  fill(255, 230, 150);
+  const effect = lone ? (t.holder === sd.survivor ? 'The survivor\'s reward: every ladybug upgrade, and twice the aphids' : `${p.name}'s queen returns!`) : `+${MP_BONUS_ACHIEVEMENT_POINTS.toLocaleString()} points`;
+  mpFitBox(effect, 15, 300, 40);
+  text(effect, -150, 70, 300, 44);
+  pop();
 }
 
 function mpAfterBonus() {
@@ -595,53 +733,238 @@ function mpStartTournament(entrants) {
   if (mp.phase !== 'showdown') mpSetPhase('showdown');
 }
 
+// Every round of the bracket, the ones still to come filled in with "?" cards (one winner per fight)
+function mpBracketPlan(sd) {
+  const plan = sd.rounds.map(r => r.fights.map(fi => ({ players: fi.players, winner: fi.winner })));
+  let m = plan[plan.length - 1].length;
+  while (m > 1) {
+    const next = mpBracketFights(new Array(m).fill(-1)).map(ps => ({ players: ps, winner: undefined }));
+    plan.push(next);
+    m = next.length;
+  }
+  return plan;
+}
+
+// The queen tournament bracket: each queen on her own card, the first rounds split down the left and right
+// sides, and every round closer to the final in the middle
 function mpDrawBracket(inp) {
   const sd = mp.showdown;
-  const W = getMenuWidth();
-  mpBackground([26, 14, 40]);
-  mpTitle('Queen tournament', 46, 44);
-  push();
-  textAlign(CENTER, CENTER);
-  textSize(16);
-  fill(210);
-  text('Seeded by score. Every queen has her upgrades and her player\'s ant design. Ant bullets hit enemy ants too.', W / 2, 88);
-  pop();
-  // Rounds so far, left to right
-  const colW = Math.min(360, (W - 80) / Math.max(1, sd.rounds.length + 1));
-  sd.rounds.forEach((round, r) => {
-    const x = 60 + r * colW;
-    round.fights.forEach((fight, k) => {
-      const y = 140 + k * (fight.players.length * 30 + 34);
-      push();
-      rectMode(CORNER);
-      fill(0, 0, 0, 120);
-      noStroke();
-      rect(x - 10, y - 8, colW - 30, fight.players.length * 30 + 16, 8);
-      fight.players.forEach((pi, m) => {
-        const p = mp.players[pi];
-        const won = fight.winner !== undefined && fight.winner === pi;
-        const lost = fight.winner !== undefined && fight.winner !== pi;
-        mpColorChip(x + 10, y + 12 + m * 30, 16, p.color);
-        textAlign(LEFT, CENTER);
-        textSize(17);
-        fill(lost ? 110 : won ? color(255, 215, 110) : 235);
-        text(p.name + (won ? '  ♛' : ''), x + 28, y + 12 + m * 30);
-      });
-      if (fight.winner === null) {
-        fill(255, 120, 120);
-        textSize(13);
-        textAlign(RIGHT, CENTER);
-        text('draw: nobody advances', x + colW - 46, y + fight.players.length * 15 + 4);
-      }
-      pop();
-    });
-  });
+  const W = getMenuWidth(), H = getMenuHeight();
+  const f = sd.frames;
   const cur = sd.rounds[sd.rounds.length - 1];
   const next = cur.fights[sd.fightIndex];
-  if (next) {
-    mpContinueHint(`Watch: ${next.players.map(i => mp.players[i].name).join(' vs ')}`);
-    if (sd.frames > 20 && (inp.confirm || inp.click)) mpStartDuel(next.players);
+  const curR = sd.rounds.length - 1;
+
+  // The arena: deep purple with slow light rays from the middle
+  push();
+  noStroke();
+  fill(22, 8, 36);
+  rect(0, 0, W, H);
+  for (let k = 0; k < 12; k++) {
+    const a = k / 12 * Math.PI * 2 + f * 0.003;
+    fill(150, 80, 220, 12);
+    triangle(W / 2, 360, W / 2 + Math.cos(a) * 1400, 360 + Math.sin(a) * 1400, W / 2 + Math.cos(a + 0.16) * 1400, 360 + Math.sin(a + 0.16) * 1400);
   }
+  const glow = drawingContext.createRadialGradient(W / 2, 360, 10, W / 2, 360, 420);
+  glow.addColorStop(0, 'rgba(255,220,140,0.16)');
+  glow.addColorStop(1, 'rgba(255,220,140,0)');
+  drawingContext.fillStyle = glow;
+  drawingContext.fillRect(0, 0, W, H);
+  pop();
+
+  const roundsLeft = mpBracketPlan(sd).length - curR;
+  const roundName = cur.fights.length === 1 ? 'The Final' : roundsLeft === 2 ? 'Semifinals' : `Round ${curR + 1}`;
+  mpTitle('QUEEN TOURNAMENT', 40, 40);
+  push();
+  textAlign(CENTER, CENTER);
+  textSize(20);
+  fill(255, 215, 110);
+  text(roundName + (cur.fights.length > 1 ? `  ·  fight ${Math.min(sd.fightIndex + 1, cur.fights.length)} of ${cur.fights.length}` : ''), W / 2, 76);
+  pop();
+
+  // Columns: the outer rounds on both sides, the final in the middle
+  const plan = mpBracketPlan(sd);
+  const sideCols = plan.length - 1;
+  const top = 104, bottom = H - 56;
+  const centerW = 250;
+  const sideW = sideCols ? (W - 60 - centerW - 40) / (sideCols * 2) : 0;
+  const colX = (r, side) => {
+    if (r === plan.length - 1) return W / 2;
+    return side < 0 ? 30 + sideW * (r + 0.5) : W - 30 - sideW * (r + 0.5);
+  };
+  // Where every card goes: { r, side, fight, pi, x, y, w, h }
+  const groups = [];
+  plan.forEach((fights, r) => {
+    const final = r === plan.length - 1;
+    const sides = final ? [[0, fights]] : [[-1, fights.slice(0, Math.ceil(fights.length / 2))], [1, fights.slice(Math.ceil(fights.length / 2))]];
+    for (const [side, list] of sides) {
+      if (!list.length) continue;
+      const cards = list.reduce((a, fi) => a + fi.players.length, 0);
+      const gapIn = 6, gapOut = final ? 40 : 26;
+      const w = final ? centerW : Math.min(210, sideW - 18);
+      const h = Math.min(final ? 104 : 80, (bottom - top - gapIn * (cards - list.length) - gapOut * (list.length - 1)) / cards);
+      const total = cards * h + gapIn * (cards - list.length) + gapOut * (list.length - 1);
+      let y = (top + bottom) / 2 - total / 2 + (final ? 20 : 0);
+      list.forEach(fi => {
+        const g = { r, side, fight: fi, cards: [], index: fights.indexOf(fi) };
+        fi.players.forEach(pi => {
+          g.cards.push({ pi, x: colX(r, side), y: y + h / 2, w, h });
+          y += h + gapIn;
+        });
+        y += gapOut - gapIn;
+        g.midY = (g.cards[0].y + g.cards[g.cards.length - 1].y) / 2;
+        groups.push(g);
+      });
+    }
+  });
+
+  // Bracket lines: each fight joins toward the next column in
+  push();
+  stroke(255, 215, 110, 90);
+  strokeWeight(2);
+  noFill();
+  for (const g of groups) {
+    const c0 = g.cards[0];
+    if (g.r === plan.length - 1) continue;
+    const edge = c0.x - g.side * c0.w / 2;
+    const innerR = g.r + 1;
+    const innerX = innerR === plan.length - 1 ? W / 2 + g.side * centerW / 2 : colX(innerR, g.side) + g.side * Math.min(210, sideW - 18) / 2;
+    const midX = (edge + innerX) / 2;
+    // A bracket down the fight's cards, then across
+    line(edge, g.cards[0].y, edge + (midX - edge) * 0.5, g.cards[0].y);
+    line(edge, g.cards[g.cards.length - 1].y, edge + (midX - edge) * 0.5, g.cards[g.cards.length - 1].y);
+    line(edge + (midX - edge) * 0.5, g.cards[0].y, edge + (midX - edge) * 0.5, g.cards[g.cards.length - 1].y);
+    const inner = groups.filter(o => o.r === innerR && (o.side === g.side || o.side === 0));
+    const toY = inner.length ? inner.reduce((a, o) => a + o.midY, 0) / inner.length : g.midY;
+    line(edge + (midX - edge) * 0.5, g.midY, midX, g.midY);
+    line(midX, g.midY, midX, toY);
+    line(midX, toY, innerX, toY);
+  }
+  pop();
+
+  // The cards slide in from their side of the screen (the final's drop in from above), outer rounds first
+  for (const g of groups) {
+    const isNext = g.r === curR && g.index === sd.fightIndex && !!next;
+    g.cards.forEach((c, m) => {
+      const delay = (g.side === 0 ? sideCols * 8 + 10 : g.r * 8) + m * 3;
+      const u = constrain((f - delay) / 26, 0, 1);
+      const e = 1 - Math.pow(1 - u, 3);
+      const x = g.side === 0 ? c.x : lerp(g.side < 0 ? -c.w : W + c.w, c.x, e);
+      const y = g.side === 0 ? lerp(-c.h, c.y, e) : c.y;
+      mpDrawBracketCard(c.pi, x, y, c.w, c.h, g.fight, isNext, f, sd);
+    });
+    // VS between the cards of the next fight, slamming down once they're in
+    if (isNext && g.cards.length >= 2) {
+      const vsAt = (g.side === 0 ? sideCols * 8 + 10 : g.r * 8) + 34;
+      if (f >= vsAt) {
+        const v = f - vsAt;
+        if (v === 0) mp.shake = Math.max(mp.shake, 7);
+        const s = v < 10 ? 3 - 2 * (v / 10) : 1 + 0.05 * Math.sin(f * 0.15);
+        for (let m = 0; m < g.cards.length - 1; m++) {
+          push();
+          translate(g.cards[m].x, (g.cards[m].y + g.cards[m + 1].y) / 2);
+          scale(s);
+          textAlign(CENTER, CENTER);
+          textSize(g.side === 0 ? 34 : 22);
+          stroke(0);
+          strokeWeight(6);
+          fill(255, 215, 110);
+          text('VS', 0, 0);
+          pop();
+        }
+      }
+    }
+    if (g.fight.winner === null) {
+      push();
+      textAlign(CENTER, CENTER);
+      textSize(13);
+      fill(255, 130, 130);
+      text('draw: both go on', g.cards[0].x, g.cards[g.cards.length - 1].y + g.cards[0].h / 2 + 9);
+      pop();
+    }
+  }
+  // The crown over the final
+  push();
+  textAlign(CENTER, CENTER);
+  textSize(40);
+  fill(255, 215, 110, 200 + 55 * Math.sin(f * 0.08));
+  const finalGroup = groups.find(g => g.side === 0);
+  if (finalGroup) text('♛', W / 2, finalGroup.cards[0].y - finalGroup.cards[0].h / 2 - 28);
+  pop();
+
+  if (next && f > 50) {
+    mpContinueHint('Fight');
+    if (inp.confirm || inp.click) mpStartDuel(next.players);
+  }
+}
+
+// One queen's card: her color, her queen, name, seed and strength. Winners shine gold, losers fade, unknowns are "?"
+function mpDrawBracketCard(pi, x, y, w, h, fight, isNext, f, sd) {
+  push();
+  rectMode(CENTER);
+  if (pi < 0) {
+    noFill();
+    stroke(255, 215, 110, 80);
+    strokeWeight(2);
+    drawingContext.setLineDash([7, 6]);
+    rect(x, y, w, h, 10);
+    drawingContext.setLineDash([]);
+    noStroke();
+    fill(255, 215, 110, 110);
+    textAlign(CENTER, CENTER);
+    textSize(Math.min(30, h * 0.5));
+    text('?', x, y + 1);
+    pop();
+    return;
+  }
+  const p = mp.players[pi];
+  const won = fight.winner !== undefined && fight.winner === pi;
+  const lost = fight.winner !== undefined && fight.winner !== pi;
+  const a = lost ? 0.45 : 1;
+  fill(lost ? 30 : 46, lost ? 22 : 26, lost ? 40 : 70, 235);
+  stroke(won ? color(255, 215, 110) : color(p.color[0], p.color[1], p.color[2], 255 * a));
+  strokeWeight(won ? 4 : 3);
+  if (isNext) {
+    drawingContext.shadowBlur = 18 + 8 * Math.sin(f * 0.15);
+    drawingContext.shadowColor = 'rgba(255,215,110,0.9)';
+    stroke(255, 215, 110);
+  }
+  rect(x, y, w, h, 10);
+  drawingContext.shadowBlur = 0;
+  noStroke();
+  // A strip of her color down the left, then her queen
+  fill(p.color[0], p.color[1], p.color[2], 255 * a);
+  rect(x - w / 2 + 5, y, 6, h - 14, 3);
+  const img = Math.min(h - 8, 80);
+  push();
+  translate(x - w / 2 + 14 + img / 2, y + Math.sin((f + pi * 20) * 0.06) * (isNext ? 2 : 0));
+  mpRotate(-Math.PI / 2); // Head up
+  imageMode(CENTER);
+  tint(220, 160, 255, 255 * a);
+  image(mpAntImage(), 0, 0, img * 1.25, img * 1.25);
+  noTint();
+  pop();
+  const tx = x - w / 2 + 18 + img;
+  const tw = w - (tx - (x - w / 2)) - 10;
+  textAlign(LEFT, CENTER);
+  const dark = p.color[0] + p.color[1] + p.color[2] < 200;
+  if (dark) { stroke(230, 230, 230, 255 * a); strokeWeight(3); }
+  fill(p.color[0], p.color[1], p.color[2], 255 * a);
+  const label = p.name + (won ? '  ♛' : '');
+  fitTextSize(label, Math.min(24, h * 0.32), tw);
+  text(label, tx, y - h * 0.16);
+  noStroke();
+  fill(220, 220, 220, 230 * a);
+  const seed = sd.seeds.indexOf(pi) + 1;
+  const info = `Seed ${seed}  ·  ${MP_QUEEN_HEALTH[p.queen.health]} hp  ·  ${MP_QUEEN_GUARD_COUNT[p.queen.guardCount]} guards`;
+  fitTextSize(info, Math.min(14, h * 0.2), tw);
+  text(info, tx, y + h * 0.2);
+  if (lost) {
+    stroke(255, 90, 90, 160);
+    strokeWeight(3);
+    line(x - w / 2 + 10, y, x + w / 2 - 10, y);
+  }
+  pop();
 }
 
 // After a fight: next fight, next bracket round, or the champion
@@ -699,9 +1022,8 @@ function mpFinishGame(winner, how) {
     boards.push({ key: 'tournament', title: 'Queen tournament', rows: order.map((pi, k) => ({ p: mp.players[pi], v: k === 0 ? 'champion' : `place ${k + 1}` })) });
   }
   mp.result.boards = boards;
-  mp.result.shoutouts = mpDrawThreeTitles();
   mp.result.allTitles = mpEligibleTitles();
-  mp.result.popups = mp.result.allTitles.filter(t => !mp.result.shoutouts.includes(t));
+  mp.result.popups = mp.result.allTitles.slice().sort(() => Math.random() - 0.5);
   mp.result.step = 'winner';
   mp.result.frames = 0;
   mp.result.showAll = false;
@@ -746,47 +1068,8 @@ function mpDrawGameOver(inp) {
     text(how, W / 2, 150);
     pop();
     if (t > 60) {
-      mpContinueHint('Shout-outs');
-      if (inp.confirm || inp.click) { R.step = 'shout'; R.frames = 0; R.shoutIndex = 0; }
-    }
-    return;
-  }
-  if (R.step === 'shout') {
-    // Three quick shout-outs, one at a time
-    mpBackground([20, 16, 30]);
-    const k = R.shoutIndex;
-    const t = R.shoutouts[k];
-    const age = R.frames;
-    mpTitle(`Shout-out ${k + 1} of 3`, 60, 30);
-    push();
-    translate(W / 2, H / 2);
-    scale(Math.min(1, 0.5 + age / 20));
-    textAlign(CENTER, CENTER);
-    if (t) {
-      const p = mp.players[t.holder];
-      fill(255, 215, 110);
-      textSize(46);
-      text(t.def.name, 0, -60);
-      fill(200);
-      textSize(18);
-      text(t.def.desc, 0, -14);
-      fill(p.color[0], p.color[1], p.color[2]);
-      stroke(0);
-      strokeWeight(5);
-      textSize(56);
-      text(p.name, 0, 50);
-    } else {
-      fill(120);
-      textSize(30);
-      text('...', 0, -20);
-      textSize(18);
-      text('(nobody earned this one outright)', 0, 20);
-    }
-    pop();
-    if (age > 45 && (inp.confirm || inp.click || age > 240)) {
-      R.shoutIndex++;
-      R.frames = 0;
-      if (R.shoutIndex >= 3) { R.step = 'boards'; R.frames = 0; }
+      mpContinueHint('Leaderboards');
+      if (inp.confirm || inp.click) { R.step = 'boards'; R.frames = 0; }
     }
     return;
   }
@@ -816,31 +1099,45 @@ function mpDrawGameOver(inp) {
     text(row.v, 930, y + rowH / 2);
     pop();
   });
-  // Other titles pop up one by one around the screen
-  R.popupSpots = R.popupSpots || R.popups.map((t, k) => ({ x: k % 2 ? random(980, 1180) : random(100, 300), y: random(120, 560) }));
-  const showing = Math.min(R.popups.length, Math.floor(R.frames / 150));
-  for (let k = 0; k < showing; k++) {
-    const t = R.popups[k];
-    const p = mp.players[t.holder];
-    const s = R.popupSpots[k];
-    const age = R.frames - k * 150;
-    push();
-    translate(s.x, s.y);
-    scale(Math.min(1, age / 12));
-    rectMode(CENTER);
-    fill(20, 20, 30, 220);
-    stroke(p.color[0], p.color[1], p.color[2]);
-    strokeWeight(2);
-    rect(0, 0, 200, 58, 8);
-    noStroke();
-    textAlign(CENTER, CENTER);
-    fill(255, 215, 110);
-    textSize(13);
-    text(t.def.name, 0, -12);
-    fill(p.color[0], p.color[1], p.color[2]);
-    textSize(16);
-    text(p.name, 0, 12);
-    pop();
+  // The titles pop up one at a time on either side, stay a few seconds, then fade away (they cycle round)
+  const POP_EVERY = 110, POP_LIFE = 300;
+  if (R.popups.length) {
+    R.popupSpots = R.popupSpots || [];
+    const newest = Math.floor(R.frames / POP_EVERY);
+    for (let n = Math.max(0, newest - Math.ceil(POP_LIFE / POP_EVERY)); n <= newest; n++) {
+      const age = R.frames - n * POP_EVERY;
+      if (age < 0 || age >= POP_LIFE) continue;
+      const t = R.popups[n % R.popups.length];
+      const p = mp.players[t.holder];
+      // Alternate sides, three rows per side, so live ones never overlap
+      if (!R.popupSpots[n]) R.popupSpots[n] = { x: n % 2 ? 1115 : 165, y: 150 + (Math.floor(n / 2) % 3) * 140 };
+      const sp = R.popupSpots[n];
+      const fade = Math.min(1, age / 12, (POP_LIFE - age) / 30);
+      push();
+      translate(sp.x, sp.y);
+      scale(0.85 + 0.15 * Math.min(1, age / 12));
+      rectMode(CENTER);
+      fill(20, 20, 30, 230 * fade);
+      stroke(p.color[0], p.color[1], p.color[2], 255 * fade);
+      strokeWeight(2);
+      rect(0, 0, 250, 110, 10);
+      noStroke();
+      textAlign(CENTER, CENTER);
+      fill(255, 215, 110, 255 * fade);
+      fitTextSize(t.def.name, 16, 230);
+      text(t.def.name, 0, -34);
+      fill(190, 190, 190, 255 * fade);
+      fitTextSize(t.def.desc, 11, 234);
+      text(t.def.desc, 0, -13);
+      fill(p.color[0], p.color[1], p.color[2], 255 * fade);
+      fitTextSize(p.name, 18, 230);
+      text(p.name, 0, 12);
+      fill(255, 255, 255, 230 * fade);
+      const amt = mpTitleAmount(t);
+      fitTextSize(amt, 13, 230);
+      text(amt, 0, 36);
+      pop();
+    }
   }
   const allBtn = { x: W / 2 - 330, y: H - 64, w: 300, h: 46 };
   const menuBtn = { x: W / 2 + 30, y: H - 64, w: 300, h: 46 };
@@ -848,7 +1145,7 @@ function mpDrawGameOver(inp) {
   if (inp.left || inp.right) R.sel = 1 - R.sel;
   if (mpMouseIn(allBtn) && mpMouseMoved()) R.sel = 0;
   if (mpMouseIn(menuBtn) && mpMouseMoved()) R.sel = 1;
-  mpButton(allBtn, 'Who did what (all titles)', R.sel === 0, { color: [255, 215, 110], size: 18 });
+  mpButton(allBtn, 'Titles', R.sel === 0, { color: [255, 215, 110], size: 18 });
   mpButton(menuBtn, 'Main menu', R.sel === 1, { color: [200, 200, 200], size: 18 });
   const pick = inp.click ? (mpMouseIn(allBtn) ? 0 : mpMouseIn(menuBtn) ? 1 : -1) : inp.confirm ? R.sel : -1;
   if (pick === 0) { R.showAll = true; R.allScroll = 0; }
@@ -861,32 +1158,69 @@ function mpDrawGameOver(inp) {
 
 function mpDrawAllTitles(inp) {
   const R = mp.result;
-  const W = getMenuWidth();
+  const W = getMenuWidth(), H = getMenuHeight();
   mpBackground();
-  mpTitle('Who did what', 40, 40);
+  mpTitle('Titles', 40, 40);
   const defs = mpTitleDefs();
-  const rowH = 24;
-  if (inp.down) R.allScroll = Math.min(R.allScroll + 1, Math.max(0, defs.length - 22));
-  if (inp.up) R.allScroll = Math.max(0, R.allScroll - 1);
-  defs.slice(R.allScroll, R.allScroll + 22).forEach((def, k) => {
+  const rowH = 44, perPage = 11;
+  const maxScroll = Math.max(0, defs.length - perPage);
+  // Scrolling: up / down (W / S, arrows, stick), the mouse wheel, or the arrow buttons
+  const upBtn = { x: W - 66, y: 80, w: 44, h: 44 };
+  const downBtn = { x: W - 66, y: 80 + perPage * rowH - 48, w: 44, h: 44 };
+  const backBtn = { x: W / 2 - 120, y: H - 60, w: 240, h: 44 };
+  let step = (inp.down ? 1 : 0) - (inp.up ? 1 : 0) + (inp.wheel || 0);
+  if (inp.click && mpMouseIn(upBtn)) step--;
+  if (inp.click && mpMouseIn(downBtn)) step++;
+  R.allScroll = constrain(R.allScroll + step, 0, maxScroll);
+  defs.slice(R.allScroll, R.allScroll + perPage).forEach((def, k) => {
     const t = mpEvaluateTitle(def);
-    const y = 82 + k * rowH;
+    const y = 80 + k * rowH;
     push();
+    noStroke();
+    fill(255, 255, 255, k % 2 ? 8 : 16);
+    rect(60, y, W - 140, rowH - 4, 6);
     textAlign(LEFT, CENTER);
-    textSize(15);
     fill(255, 215, 110);
-    text(def.name, 120, y);
+    fitTextSize(def.name, 17, 470);
+    text(def.name, 76, y + 13);
+    fill(170);
+    fitTextSize(def.desc, 13, 520);
+    text(def.desc, 76, y + 31);
     textAlign(RIGHT, CENTER);
     if (t) {
       const p = mp.players[t.holder];
       fill(p.color[0], p.color[1], p.color[2]);
-      text(p.name, W - 120, y);
+      fitTextSize(p.name, 17, 380);
+      text(p.name, W - 96, y + 13);
+      fill(220);
+      const amt = mpTitleAmount(t);
+      fitTextSize(amt, 13, 380);
+      text(amt, W - 96, y + 31);
     } else {
       fill(110);
-      text('nobody (tied, or it never happened)', W - 120, y);
+      textSize(14);
+      text('nobody (tied, or it never happened)', W - 96, y + 20);
     }
     pop();
   });
-  mpContinueHint('Back');
-  if (inp.confirm || inp.click || inp.back) R.showAll = false;
+  // Scroll arrows and a bar showing where in the list this is
+  push();
+  noStroke();
+  fill(255, 255, 255, 25);
+  rect(W - 50, upBtn.y + upBtn.h + 6, 12, downBtn.y - upBtn.y - upBtn.h - 12, 6);
+  const trackY = upBtn.y + upBtn.h + 6, trackH = downBtn.y - upBtn.y - upBtn.h - 12;
+  const thumbH = trackH * Math.min(1, perPage / defs.length);
+  fill(255, 215, 110, 180);
+  rect(W - 50, trackY + (trackH - thumbH) * (maxScroll ? R.allScroll / maxScroll : 0), 12, thumbH, 6);
+  pop();
+  mpButton(upBtn, '▲', mpMouseIn(upBtn), { color: [255, 215, 110], size: 18, disabled: R.allScroll === 0 });
+  mpButton(downBtn, '▼', mpMouseIn(downBtn), { color: [255, 215, 110], size: 18, disabled: R.allScroll >= maxScroll });
+  push();
+  textAlign(LEFT, CENTER);
+  textSize(14);
+  fill(160);
+  text(`${R.allScroll + 1}-${Math.min(defs.length, R.allScroll + perPage)} of ${defs.length}  ·  scroll: up / down, W / S or the mouse wheel`, 60, H - 38);
+  pop();
+  mpButton(backBtn, 'Back  (Enter / Esc / B)', true, { color: [255, 215, 110], size: 17 });
+  if (inp.confirm || inp.back || (inp.click && mpMouseIn(backBtn))) R.showAll = false;
 }

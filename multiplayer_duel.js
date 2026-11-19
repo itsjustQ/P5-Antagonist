@@ -14,6 +14,8 @@ const MP_DUEL_SLOTS = 8;              // Ant slots for each queen's design (a bi
 const MP_DUEL_HEALTH_SCALE = 2;       // Her health in a fight, times her usual health
 const MP_DUEL_MAX_ALIVE = 10;         // Her living ants at once (a normal queen goes up to 50, against one beetle)
 const MP_DUEL_MAX_FRAMES = 60 * 150;  // After this long, the healthiest queen takes it
+const MP_DUEL_SHAKE_MAX = 3;     // Screen shake in a queen fight stays gentle
+const MP_DUEL_SHAKE_AFTER = 150;  // And stops this many frames after the fight is decided
 const MP_DUEL_SENTINEL_HEALTH = 1000; // The stand-in beetle's health during a pass (what it loses is the damage)
 
 function mpInDuel() {
@@ -143,6 +145,20 @@ function mpEndDuelField() {
   if (!titlemusic.isPlaying()) titlemusic.play();
 }
 
+// Where a queen looks to be, to the side fighting her: exactly where she is, unless she's under her camouflage or
+// ghost cover. Then her foes only know she's somewhere in it: their guess jumps between spots in the circle.
+function mpDuelSeenPos(D, T, viewer) {
+  if (!(T.camoFrames > 0 || T.ghostFrames > 0)) return T;
+  T._mpSeen = T._mpSeen || {};
+  let g = T._mpSeen[viewer];
+  if (!g || D.t >= g.until) {
+    const a = Math.random() * Math.PI * 2;
+    const r = Math.sqrt(Math.random()) * QUEEN_AREA_RADIUS * 0.85;
+    g = T._mpSeen[viewer] = { dx: Math.cos(a) * r, dy: Math.sin(a) * r, until: D.t + 25 + Math.floor(Math.random() * 30) };
+  }
+  return { x: T.x + g.dx, y: T.y + g.dy };
+}
+
 function mpDuelNearestQueen(x, y, ownerIndex) {
   let best = null, bd = Infinity;
   for (const q of mpQueens) {
@@ -173,6 +189,25 @@ function mpDuelGroups() {
   return groups.sort((a, b) => a.withQueen - b.withQueen);
 }
 
+// The queen the current pass is fighting (null outside a pass): grabs remember who they caught
+let mpDuelGrabTarget = null;
+
+// Whether the queen whose pass this is (or one of her guards) can't start a grab: her foe is already caught by
+// someone, she is being swung herself, or her foe (or one of the foe's guards) is busy swinging somebody.
+// Without this both queens grab each other on the same frame and fight over who's holding whom.
+function mpDuelGrabBlocked() {
+  const T = mpDuelGrabTarget;
+  if (!T || !queen) return false;
+  const grabbers = q => [q].concat(q.guards || []).filter(x => x.grab);
+  for (const q of mpQueens) {
+    for (const x of grabbers(q)) {
+      if (x.grab.mpTarget === T || x.grab.mpTarget === queen) return true;
+      if (q === T) return true;
+    }
+  }
+  return false;
+}
+
 function mpDuelPass(D, g, phase) {
   const owner = g.q.mpOwner;
   const T = g.T;
@@ -201,11 +236,24 @@ function mpDuelPass(D, g, phase) {
       return rest;
     });
   }
-  // The stand-in beetle: the queen this pass is fighting
-  playerX = T.x;
-  playerY = T.y;
-  playerPrevX = T.x;
-  playerPrevY = T.y;
+  // The stand-in beetle: the queen this pass is fighting. If she's hiding, her foes only have a guess: they move
+  // toward it and aim their shots at it, but what actually hits her is still checked against where she really is.
+  const seen = mpDuelSeenPos(D, T, owner);
+  const guessX = seen.x - T.x, guessY = seen.y - T.y;
+  const stand = phase === 'move' ? seen : T;
+  playerX = stand.x;
+  playerY = stand.y;
+  playerPrevX = stand.x;
+  playerPrevY = stand.y;
+  const aimShifted = [];
+  if (phase === 'act' && (guessX || guessY)) {
+    for (let j = 1; j <= enemyCount; j++) {
+      if (mpAntOwner[j] !== owner) continue;
+      aimShifted.push([j, shotOffsetX[j], shotOffsetY[j]]);
+      shotOffsetX[j] += guessX;
+      shotOffsetY[j] += guessY;
+    }
+  }
   health = MP_DUEL_SENTINEL_HEALTH;
   shield = 0;
   playerKnockedBack = false;
@@ -219,6 +267,7 @@ function mpDuelPass(D, g, phase) {
   lastBeetleDashFrame = -9999;
   mpSelectQueen(g.q);
   g.q.mpHiddenAlive = hiddenAlive;
+  mpDuelGrabTarget = T;
   try {
     if (phase === 'move') {
       autonomousAntMovement();
@@ -258,6 +307,10 @@ function mpDuelPass(D, g, phase) {
         set(rests[k].concat(mine));
       });
     }
+    for (const [j, ox, oy] of aimShifted) {
+      shotOffsetX[j] = ox;
+      shotOffsetY[j] = oy;
+    }
     for (const [j, dormant, bullets, rapidNext, order, type] of masked) {
       antDormant[j] = dormant;
       enemyBullets[j] = bullets;
@@ -266,6 +319,7 @@ function mpDuelPass(D, g, phase) {
       antQueenType[j] = type;
     }
     g.q.mpHiddenAlive = 0;
+    mpDuelGrabTarget = null;
     health = MP_DUEL_SENTINEL_HEALTH;
     playerKnockedBack = false;
   }
@@ -278,6 +332,11 @@ function mpDuelFrame() {
   sd.frames++;
   D.t++;
   const inp = mpReadInput(false);
+  // Shakes count down here (the normal game does it in updateFinalStage, which a duel doesn't run), stay gentle,
+  // and settle a couple of seconds after the fight is decided
+  if (screenShake.frames > 0) screenShake.frames--;
+  screenShake.amp = Math.min(screenShake.amp, MP_DUEL_SHAKE_MAX);
+  if (D.over !== null && D.t - D.over.t > MP_DUEL_SHAKE_AFTER) screenShake.frames = 0;
 
   updateSpatialGrid();
   for (let i = 1; i <= enemyCount; i++) {
@@ -397,8 +456,9 @@ function mpDuelApplyDamage(D) {
     if (!mpQueens.includes(T)) continue;
     const foe = mpDuelNearestQueen(T.x, T.y, T.mpOwner);
     if (foe) {
-      playerX = foe.x; // She re-strategizes when hit, around whoever she's fighting
-      playerY = foe.y;
+      const seen = mpDuelSeenPos(D, foe, T.mpOwner);
+      playerX = seen.x; // She re-strategizes when hit, around whoever she's fighting
+      playerY = seen.y;
     }
     mpSelectQueen(T);
     damageQueen(dmg, true);

@@ -910,7 +910,7 @@ function mpDrawDesignRow(p, it, selected, chips, chipRects) {
     strokeWeight(lit ? 2 : 1);
     rect(r.x, r.y, r.w, r.h, 6);
     noStroke();
-    const label = ready ? `Send your queen at someone  ·  ${mpLevelsText(MP_QUEEN_COST_LEVELS)}` : 'Send your queen  ·  not ready yet';
+    const label = ready ? `Send your queen at someone  ·  ${mpQueenCost(p) ? mpLevelsText(mpQueenCost(p)) : 'free'}` : 'Send your queen  ·  not ready yet';
     const ink = ready ? mpTextColorOn(hue) : [130, 130, 136];
     fill(ink[0], ink[1], ink[2]);
     textAlign(CENTER, CENTER);
@@ -942,7 +942,7 @@ function mpDesignRowHelp(p, row) {
     return t;
   }
   if (row.type === 'queen') return `${row.q.label}: the Upgrade button (or A) buys the next level for 1 upgrade level. Your queen counts in every fight she's in, and in the tournament.`;
-  if (row.type === 'send') return `Sending her costs ${MP_QUEEN_COST_LEVELS} upgrade levels and empties her meter. She drops in on that player's next turn, with your ants.`;
+  if (row.type === 'send') return (mpQueenCost(p) ? `Sending her costs ${mpQueenCost(p)} upgrade levels and empties her meter.` : 'Your beetle is out, so sending her is free. It empties her meter.') + ' She drops in on that player\'s next turn, with your ants.';
   return '';
 }
 
@@ -1081,10 +1081,15 @@ function mpBuyQueenUpgrade(p, row) {
   return `${row.label}: ${row.value(q[row.key])}.`;
 }
 
+// What sending the queen costs this player: free once their beetle is out
+function mpQueenCost(p) {
+  return p.alive ? MP_QUEEN_COST_LEVELS : 0;
+}
+
 function mpStartSendQueen(p) {
   if (p.queen.meter < MP_QUEEN_METER_FULL) return 'Your queen isn\'t ready yet.';
   if (mpQueenTargets(p).length === 0) return 'There\'s no living beetle to send her at.';
-  if (mpLevelsAvailable(p) < MP_QUEEN_COST_LEVELS) return `Sending her costs ${MP_QUEEN_COST_LEVELS} upgrade levels.`;
+  if (mpLevelsAvailable(p) < mpQueenCost(p)) return `Sending her costs ${mpQueenCost(p)} upgrade levels.`;
   mp.up.targetPick = 0;
   return null;
 }
@@ -1097,7 +1102,7 @@ function mpQueenTargets(p) {
 function mpDrawQueenTargetPick(p, inp) {
   const up = mp.up;
   const targets = mpQueenTargets(p);
-  const opts = targets.map(t => ({ label: t.name, player: t })).concat([{ label: 'Random (they won\'t know who)', player: null }]);
+  const opts = targets.map(t => ({ label: t.name, player: t })).concat([{ label: 'Random', player: null }]);
   if (inp.up) up.targetPick = (up.targetPick + opts.length - 1) % opts.length;
   if (inp.down) up.targetPick = (up.targetPick + 1) % opts.length;
   push();
@@ -1127,14 +1132,14 @@ function mpDrawQueenTargetPick(p, inp) {
   if (picked < 0) return;
   const o = opts[picked];
   const target = o.player || targets[Math.floor(Math.random() * targets.length)];
-  if (!mpSpendLevels(p, MP_QUEEN_COST_LEVELS)) {
+  if (!mpSpendLevels(p, mpQueenCost(p))) {
     up.targetPick = null;
-    mpSay(`Sending her costs ${MP_QUEEN_COST_LEVELS} upgrade levels.`);
+    mpSay(`Sending her costs ${mpQueenCost(p)} upgrade levels.`);
     return;
   }
   p.queen.meter = 0;
   p.stats.queensSpawned++;
-  mp.pendingQueens.push({ owner: p.index, target: target.index, secret: !o.player });
+  mp.pendingQueens.push({ owner: p.index, target: target.index, secret: !o.player, cost: mpQueenCost(p) });
   up.targetPick = null;
   mpSay(o.player ? `Your queen will drop in on ${target.name}'s next turn.` : 'Your queen is on her way to someone. Nobody knows who.');
 }

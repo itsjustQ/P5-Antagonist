@@ -25,7 +25,8 @@ const MP_MAX_SLOTS = 16;
 const MP_START_SLOTS = 5;     // Ant slots in round 1, whatever the player count
 const MP_LEVELS_PER_TOKEN = 1;
 const MP_LEVEL_COST_SCALE = 1 / 3; // Each upgrade level costs a third of the points it does in the normal game
-const MP_QUEEN_COST_LEVELS = 3;
+const MP_QUEEN_COST_LEVELS = 3;     // Sending the queen (free once the player's beetle is out)
+const MP_KILL_POINTS = 1000;        // For the player whose ants or queen defeat a beetle
 const MP_QUEEN_METER_FULL = 10;
 const MP_NAME_MAX = 20;
 const MP_ROUND_LIMITS = [10, 15, 20];  // There's always a limit: the best score wins if more than one beetle lasts that long
@@ -185,18 +186,27 @@ function mpRelevantStats(d) {
   const death = ab.death ? ab.death.stat : null;
   const stream = has('fire', 'fireRapid', 2);
   const beam = has('path', 'pathAccelerate', 2);
-  const out = new Set(['bulletSpeed', 'bulletCooldown', 'antSpeed', 'bulletSize', 'shotOffsetX', 'shotOffsetY', 'angleFromSpawn']);
+  // Streams spray at a fixed speed and high arcs fly at whatever speed lands them on time, so neither uses bullet speed
+  const out = new Set(['bulletCooldown', 'antSpeed', 'bulletSize', 'shotOffsetX', 'shotOffsetY']);
+  if (!stream && path !== 'pathHighArc') out.add('bulletSpeed');
   if (d.keepDistance) ['distanceFromAnchor', 'anchorOffsetX', 'anchorOffsetY'].forEach(k => out.add(k));
   if (d.move === 2) ['standingPointX', 'standingPointY'].forEach(k => out.add(k));
-  if (fire === 'fireBurst' || fire === 'fireRapid') { out.add('bulletBurstCount'); out.add('bulletBurstSpread'); }
+  if (fire === 'fireBurst' || (fire === 'fireRapid' && !stream)) out.add('bulletBurstCount');
+  // Rapid fire's bullets all go straight; accelerating streams fan their particles out over the spread
+  if (fire === 'fireBurst' || (stream && has('path', 'pathAccelerate', 1))) out.add('bulletBurstSpread');
+  // Portal streams: the ant teleports to its spawn angle around the beetle, its anchor distance away, before spraying
+  if (stream && has('path', 'pathBlink', 2)) { out.add('angleFromSpawn'); out.add('distanceFromAnchor'); }
   if (has('fire', 'fireBurst', 2)) out.add('bulletBurstDelay');
   if (fire === 'fireAlternating') out.add('bulletCooldownMultiplier');
   if (has('fire', 'fireAlarm', 1)) out.add('alarmInnerRadius');
   if (path === 'pathHighArc') out.add('bulletArcDuration');
-  if (path === 'pathCurve') out.add('bulletCurveStrength');
-  if (path === 'pathAccelerate') out.add('bulletAccelerateDelay');
-  if (path === 'pathBlink') out.add('blinkDelay');
-  if (special === 'specialExplosion') { out.add(ab.special.level === 2 ? 'explosionProximity' : 'bulletExplodeAfter'); }
+  if (has('path', 'pathCurve', 1)) out.add('bulletCurveStrength'); // Heat-seekers turn at a fixed rate
+  if (path === 'pathAccelerate' && !stream) out.add('bulletAccelerateDelay');
+  if (path === 'pathBlink' && !(stream && ab.path.level === 2)) out.add('blinkDelay'); // Portal sprayers teleport themselves instead
+  if (special === 'specialExplosion') {
+    if (ab.special.level === 2) out.add('explosionProximity');
+    else if (!stream) out.add('bulletExplodeAfter'); // Streams burst when they finish
+  }
   if (special === 'specialKnockback') out.add('bulletKnockbackMultiplier');
   if (has('special', 'specialCamo', 1)) out.add('bulletCamoFlashRate');
   if (death === 'deathMound') out.add('bunkerRange');
@@ -352,7 +362,8 @@ function mpLevelsAvailable(p) {
 
 // EXP Boost raises everything the player earns, beetle and ants alike
 function mpPointsMultiplier(p) {
-  return 1 + 0.1 * p.upgrades[22];
+  // Players whose beetle is out earn double from their ants and queen
+  return (1 + 0.1 * p.upgrades[22]) * (p.alive ? 1 : 2);
 }
 
 function mpAlivePlayers() {
@@ -676,7 +687,13 @@ function mpOnCombatEnd(died) {
     mp.deathsThisRound.push(p.index);
     killer = mpGetKiller();
     p.killedBy = killer;
-    if (killer !== null && killer >= 0) mpOnPlayerKilled(mp.players[killer], p);
+    if (killer !== null && killer >= 0) {
+      const k = mp.players[killer];
+      mpOnPlayerKilled(k, p);
+      const bonus = Math.round(MP_KILL_POINTS * mpPointsMultiplier(k));
+      k.antPoints += bonus;
+      antGains[killer] = (antGains[killer] || 0) + bonus;
+    }
   }
   mpCombatStatsEnd(p, died);
   mp.lastCombat = { player: p.index, died: died, killer: killer, beetleGain: beetleGain, antGains: antGains };
@@ -753,8 +770,9 @@ function mpFinishUpgradeTurn() {
   if (mp.upgradeTurn < mp.players.length) {
     mpHandoff('upgrade', mp.players[mp.upgradeTurn]);
   } else if (mp.preGame) {
-    // The starting upgrades are done: round 1
+    // The starting upgrades are done: round 1 (and the beetle offers open up to everything)
     mp.preGame = false;
+    for (const p of mp.players) p.offer = null;
     mpStartRound();
   } else {
     mp.round++;

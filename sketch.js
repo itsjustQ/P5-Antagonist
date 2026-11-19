@@ -5005,7 +5005,9 @@ function enemyShoot1() {
               shakeNear(bullet.x, bullet.y, 60, map(bullet.size, AIRSTRIKE_SHAKE_SIZE, 3, AIRSTRIKE_SHAKE[0], AIRSTRIKE_SHAKE[1], true));
             }
           }
+          explosionFromHighArc = bullet.pathType === 1; // Air strikes (and their residue) count as damage from above
           spawnEnemyExplosion(bullet.x, bullet.y, bullet.size, i, explosionRadiusScale);
+          explosionFromHighArc = false;
           enemyBullets[i].splice(b, 1);
           continue;
         }
@@ -12104,6 +12106,8 @@ function updateGrabber(g, bodyRadius, blocked) {
       return;
     }
     const grab = g.grab;
+    // Queen fights: a grab only swings the queen it caught, in that queen's pass
+    if (grab.mpTarget && typeof mpDuelGrabTarget !== 'undefined' && grab.mpTarget !== mpDuelGrabTarget) return;
     grab.frame++;
     const t = grab.frame / QUEEN_SWING_FRAMES;
     const angle = grab.startAngle + grab.dir * Math.PI * 2 * t * t; // Eases in: slow pick-up, fast release
@@ -12128,13 +12132,15 @@ function updateGrabber(g, bodyRadius, blocked) {
   }
   g.beetleClose = false;
   if (blocked || isPlayerUntouchable() || playerBunker || isBeetleGrabbed()) return;
+  if (typeof mpDuelGrabBlocked === 'function' && mpDuelGrabBlocked()) return; // Queen fights: one grab between two queens
   const d = dist(playerX, playerY, g.x, g.y);
   if (d >= reach + QUEEN_GRAB_RANGE) return;
   g.beetleClose = true;
   g.closeFrames++;
   if (g.closeFrames >= QUEEN_GRAB_FRAMES) {
     g.closeFrames = 0;
-    g.grab = { frame: 0, startAngle: Math.atan2(playerY - g.y, playerX - g.x), dir: random() < 0.5 ? -1 : 1 };
+    g.grab = { frame: 0, startAngle: Math.atan2(playerY - g.y, playerX - g.x), dir: random() < 0.5 ? -1 : 1,
+      mpTarget: typeof mpDuelGrabTarget !== 'undefined' ? mpDuelGrabTarget : null };
   }
 }
 
@@ -15269,6 +15275,8 @@ function fuseLandMines() {
 }
 
 // hitMultiplier scales the smoke impact's instant hit (self-destructing stream ants hit for double)
+let explosionFromHighArc = false; // Set while a high arc bullet's explosion (an air strike) or its residue hits
+
 function spawnEnemyExplosion(x, y, size, ownerId, radiusScale = 1, hitMultiplier = 1) {
   const BASE_RADIUS     = 20;  // radius for size 1
   const RADIUS_PER_SIZE = 40;
@@ -15299,7 +15307,8 @@ function spawnEnemyExplosion(x, y, size, ownerId, radiusScale = 1, hitMultiplier
     life: 0,
     delay: SMOKE_IMPACT_LEAD_FRAMES, // Frames before the residue appears under the smoke
     size: size,       // bulletSize that created it
-    ownerId: ownerId  // which ant owns this explosion
+    ownerId: ownerId, // which ant owns this explosion
+    highArc: explosionFromHighArc
   });
 }
 
@@ -15552,7 +15561,9 @@ function drawEnemyExplosions() {
     if (d < currentRadius) {
       // every frame the beetle is inside, do a “tick” of damage
       queenDamageIsOwn = !!e.queenOwned;
+      explosionFromHighArc = !!e.highArc;
       handleExplosionDamage(e.size, e.ownerId);
+      explosionFromHighArc = false;
       queenDamageIsOwn = false;
     }
   
@@ -17891,6 +17902,11 @@ function upgradePrereqsMet(i, lv) {
 
 // Whether an upgrade can be offered this round
 function isUpgradeUnlocked(i) {
+  if (typeof mpActive === 'function' && mpActive()) {
+    // Multiplayer: only the starting upgrades are limited to the core base stats
+    if (mp.preGame && !isCoreUpgrade(i)) return false;
+    return upgradePrereqsMet(i, getCurrentUpgradeLevels());
+  }
   if (!isCoreUpgrade(i) && level <= 5 && !isFinalLevel()) return false;  // Only core base stats in rounds 1-5 (the nest has no such limit)
   return upgradePrereqsMet(i, getCurrentUpgradeLevels());
 }
@@ -20992,6 +21008,7 @@ function antdexScreen() {
 
 
 function mouseWheel(event) {
+  if (typeof mpWheelDelta !== 'undefined') mpWheelDelta += event.delta; // Multiplayer menus read it in mpReadInput
   if (antdex) dexTargetScroll -= event.delta / 2;
   if (evoTreeOpen && !evoDetailNode) evoTargetScrollX -= event.delta;
   // Scrolling walks down (or back up) the difficulty map's path

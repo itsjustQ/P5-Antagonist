@@ -5,6 +5,8 @@
 // ---------- Input ----------
 // Directions repeat while held (after a short wait), confirm/back/clicks fire once per press
 
+let mpWheelDelta = 0;  // Mouse wheel movement since the last menu frame (see mouseWheel in sketch.js)
+
 const MP_REPEAT_WAIT = 16;
 const MP_REPEAT_EVERY = 4;
 
@@ -44,6 +46,8 @@ function mpReadInput(ignoreKeyboardNav) {
   inp.done = edge('done', btn(2) || (!ignoreKeyboardNav && keyIsDown(70)));      // X / F
   inp.reroll = edge('reroll', btn(3) || (!ignoreKeyboardNav && keyIsDown(82)));  // Y / R
   inp.pause = pausePressedThisFrame;
+  inp.wheel = Math.sign(mpWheelDelta); // One step per frame the wheel turned
+  mpWheelDelta = 0;
   if (mp.phaseFrames < 10) {
     // Whatever was held to get here doesn't count on the new screen
     inp.confirm = inp.back = inp.click = inp.done = inp.reroll = false;
@@ -216,6 +220,12 @@ function mpDraw() {
   translate(sx, sy);
   const typing = mp.phase === 'names' && !mp.oskOpen;
   const inp = mpReadInput(typing);
+  // Esc means "back" on screens that have one (P still pauses there), and P is just a letter while typing a name
+  const escBack = (mp.phase === 'gameOver' && mp.result && mp.result.showAll) ||
+    (mp.phase === 'upgrade' && mp.up && mp.up.targetPick !== null && mp.up.targetPick !== undefined) ||
+    (mp.phase === 'names' && mp.oskOpen);
+  const startBtn = !!(gamepad && gamepad.buttons[9] && gamepad.buttons[9].pressed);
+  if (inp.pause && !startBtn && ((escBack && keyIsDown(27) && !keyIsDown(80)) || (typing && !keyIsDown(27)))) inp.pause = false;
   if (mp.paused) {
     mpDrawPhase(null);
     mpDrawPause(inp);
@@ -223,7 +233,7 @@ function mpDraw() {
     if (inp.pause && mp.phase !== 'setup') {
       mp.paused = true;
       mp.pauseSel = 0;
-      inp.confirm = false;
+      inp.confirm = inp.back = inp.click = false;
     }
     mpDrawPhase(inp);
   }
@@ -610,7 +620,7 @@ function mpDrawTurnBoard(inp) {
   const f = mp.phaseFrames;
   const W = getMenuWidth();
   mpBackground([24, 18, 30]);
-  mpTitle(lc.died ? `${p.name}'s beetle was eaten!` : `${p.name} survived round ${mp.round}`, 50, 40);
+  mpTitle(lc.died ? `${p.name}'s beetle was defeated!` : `${p.name} survived round ${mp.round}`, 50, 40);
   push();
   textAlign(CENTER, CENTER);
   let line = `+${lc.beetleGain.toLocaleString()} beetle points`;

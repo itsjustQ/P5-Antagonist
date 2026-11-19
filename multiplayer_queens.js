@@ -107,7 +107,7 @@ function mpPrepareQueenArrivals(p) {
     // Normally a surprise somewhere in the turn; in the final stand they all come right away
     const at = mp.finalStand ? 60 + k * 90 + QUEEN_WARNING_FRAMES :
       Math.round(random(2 * 60, Math.max(3 * 60, roundFrames * 0.55))) + k * 90 + QUEEN_WARNING_FRAMES;
-    mpArrivals.push({ owner: q.owner, at: at });
+    mpArrivals.push({ owner: q.owner, at: at, cost: q.cost });
     p.stats.queensTargeted++;
   });
 }
@@ -254,11 +254,11 @@ function mpOnQueensCombatEnd(antGains) {
   for (const a of mp.finalStand ? [] : mpArrivals) {
     const owner = mp.players[a.owner];
     // Still alive: she waits for their next turn. Otherwise someone else (never her owner), or her levels come back.
-    if (target.alive && health >= 0) mp.pendingQueens.push({ owner: a.owner, target: target.index });
+    if (target.alive && health >= 0) mp.pendingQueens.push({ owner: a.owner, target: target.index, cost: a.cost });
     else {
       const others = mp.players.filter(p => p.alive && p.index !== a.owner && p.index !== target.index);
-      if (others.length) mp.pendingQueens.push({ owner: a.owner, target: random(others).index });
-      else owner.levelsSpent = Math.max(0, owner.levelsSpent - MP_QUEEN_COST_LEVELS);
+      if (others.length) mp.pendingQueens.push({ owner: a.owner, target: random(others).index, cost: a.cost });
+      else owner.levelsSpent = Math.max(0, owner.levelsSpent - (a.cost !== undefined ? a.cost : MP_QUEEN_COST_LEVELS));
     }
   }
   mpArrivals = [];
