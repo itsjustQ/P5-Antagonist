@@ -747,9 +747,14 @@ function buildSceneCameraPath(S) {
     const k2 = Math.min(last, k + c.pathLead);
     for (const [a, tr] of tracks) {
       const isBeetle = a === S.beetle;
-      if (!isBeetle && !(a.kind === 'queen' || a.featured || a.extra)) continue;
+      // A scene can also frame some of its crowd for a while (S.cameraActors until S.cameraActorsUntil)
+      const extraFocus = S.cameraActors && S.cameraActors.has(a);
+      if (!isBeetle && !(a.kind === 'queen' || a.featured || a.extra || extraFocus)) continue;
       for (const kk of [k, k2]) {
         const x = tr.xs[kk], y = tr.ys[kk];
+        if (isBeetle && S.cameraBeetleFrom !== undefined && kk < S.cameraBeetleFrom) continue; // Kept out of shot on purpose
+        if (!isBeetle && extraFocus && !(a.kind === 'queen' || a.featured || a.extra) &&
+            S.cameraActorsUntil !== undefined && kk >= S.cameraActorsUntil) continue;
         if (isBeetle) {
           // Still off stage: frame the spot it's about to walk in at
           add(constrain(x, 40, W - 40), constrain(y, 40, H - 40));

@@ -1428,10 +1428,16 @@ const ROUND_SCENES = [
   {
     id: 'bombs', key: 'beetle:bombs', need: p => p.has('beetle:bombs'),
     build: S => {
-      // The ants huddle; something blows up at the edge of the screen, and the beetle walks out of the smoke
+      // The ants huddle; something blows up off screen, and the beetle walks out of the smoke. The camera stays on the
+      // huddle, so neither the beetle nor the blast is in shot until it walks in.
       const b = S.beetle;
+      const huddle = S.crowd();
       S.layout(S.cluster(S.cx + 60, S.cy, 110), 150, 3.2);
-      S.at(40, () => S.boom(20, S.cy, 110, { orange: true }));
+      S.cameraActors = new Set(huddle);
+      S.cameraActorsUntil = 150;
+      S.cameraBeetleFrom = 130;
+      // Just past the left edge of the shot, wherever that ends up
+      S.at(40, () => S.boom(Math.min(20, cameraScreenToWorldX(0) - 140), S.cy, 110, { orange: true }));
       S.shake(40, 18, 8);
       S.flash(40, 8);
       S.crowd().forEach((a, k) => { a.face(44, { x: 0, y: S.cy }); a.emote(46 + (k % 5) * 3, '!', 45); });

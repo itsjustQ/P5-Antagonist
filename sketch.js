@@ -120,9 +120,9 @@ function getDifficultyButtonRect(value) {
 }
 
 function applyHardModeRandomInitialAbility(antIndex) {
-  // Hard mode gets one extra initial token that is immediately spent on a random trait ability.
-  if (geneTokens[antIndex] <= 0) {
-    debugLog(`Hard mode: Ant ${antIndex} had no extra token to spend`);
+  // Hard and insane ants start with a random ability, bought out of their starting tokens at the usual price
+  if (geneTokens[antIndex] < ABILITY_TOKEN_COST) {
+    debugLog(`Hard mode: Ant ${antIndex} couldn't afford its starting ability`);
     return;
   }
 
@@ -147,8 +147,7 @@ function applyHardModeRandomInitialAbility(antIndex) {
 
   const trait = random(randomTraits);
 
-  // Spend the dedicated 6th token.
-  geneTokens[antIndex]--;
+  geneTokens[antIndex] -= ABILITY_TOKEN_COST;
 
   // Ensure the category can express abilities.
   eval(trait.potential + '[' + antIndex + '] = max(' + trait.potential + '[' + antIndex + '], 0.6)');
@@ -175,10 +174,10 @@ function applyHardModeRandomInitialAbility(antIndex) {
     category: trait.category,
     lockedUntilRound: 3,
     percentage: 1,
-    cost: 1 // A free bonus token, so it's refunded as one
+    cost: ABILITY_TOKEN_COST
   });
 
-  debugLog(`Hard mode: Ant ${antIndex} 6th token spent on ${trait.target}`);
+  debugLog(`Hard mode: Ant ${antIndex} spent ${ABILITY_TOKEN_COST} tokens on ${trait.target}`);
 }
 
 // Developer tools variables
@@ -1376,8 +1375,10 @@ function setup() {
   playerSpeed = movementSpeed / enemyCount;
   debugLog(`Initial setup: Created ${enemyCount} ants using ${usedSlots.toFixed(2)}/${totalAntSlots} slots`);
   
-  // Invest initial gene tokens for all ants
+  // Invest initial gene tokens for all ants (small starting ants pay for their size first)
   for (let i = 1; i <= enemyCount; i++) {
+    buyStartingShrink(i);
+    if (getDifficultyTier() === 'hard' || getDifficultyTier() === 'insane') applyHardModeRandomInitialAbility(i);
     let investmentAttempts = 0;
     const maxAttempts = 10; // Prevent infinite loops
     while (geneTokens[i] > 0 && investmentAttempts < maxAttempts) {
@@ -1390,10 +1391,6 @@ function setup() {
       investmentAttempts++;
     }
 
-    if (getDifficultyTier() === 'hard' || getDifficultyTier() === 'insane') {
-      geneTokens[i]++; // Extra token for random initial ability
-      applyHardModeRandomInitialAbility(i);
-    }
   }
   
   // Apply custom ant stats if enabled in dev tools
@@ -2640,6 +2637,8 @@ function applyDifficultyToInitialPopulation() {
   }
 
   for (let i = 1; i <= enemyCount; i++) {
+    buyStartingShrink(i); // Small starting ants pay for their size first, then their starting ability
+    if (getDifficultyTier() === 'hard' || getDifficultyTier() === 'insane') applyHardModeRandomInitialAbility(i);
     let investmentAttempts = 0;
     const maxAttempts = 10;
     while (geneTokens[i] > 0 && investmentAttempts < maxAttempts) {
@@ -2649,10 +2648,6 @@ function applyDifficultyToInitialPopulation() {
       investmentAttempts++;
     }
 
-    if (getDifficultyTier() === 'hard' || getDifficultyTier() === 'insane') {
-      geneTokens[i]++; // Extra token for random initial ability
-      applyHardModeRandomInitialAbility(i);
-    }
   }
 
   debugLog(`Applied difficulty ${difficulty} (${getDifficultyTier()}): ${enemyCount} ants, size=${sizeValue}, follow=${followValueSetting}, autonomy=${autonomySetting}`);
@@ -14172,6 +14167,19 @@ function getExpressedAntSize(i) {
   if (shrink) return ANT_SHRINK_SIZES[shrink.size];
   const gene = antSizeGene[i] !== undefined ? antSizeGene[i] : antSize[i];
   return Math.max(1, gene);
+}
+
+// Hard and insane start their ants small, and the ants pay for it: a shrink bought out of their starting tokens
+// (half size for 2 on hard, a third for 3 on insane) before they spend the rest
+function buyStartingShrink(i) {
+  if (!(antSize[i] < 1)) return;
+  const want = antSize[i] < 0.42 ? 'third' : 'half';
+  const cost = ANT_SHRINK_TOKEN_COSTS[want];
+  if (getShrinkInvestment(geneTokenInvestments[i]) || geneTokens[i] < cost) return;
+  geneTokens[i] -= cost;
+  geneTokenInvestments[i].push({ target: 'antSize', type: 'size', size: want, cost: cost, lockedUntilRound: GENE_LOCK_ROUNDS + 1, percentage: 1 });
+  antSizeGene[i] = antSize[i];
+  antSize[i] = getExpressedAntSize(i);
 }
 
 // Ant i's size gene (what it would like to be). Below 1, it's what pushes the ants to buy shrink tokens.
